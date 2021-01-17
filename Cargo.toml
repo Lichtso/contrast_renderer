@@ -1,0 +1,36 @@
+[package]
+name = "contrast_render_engine"
+version = "0.1.0"
+authors = ["Alexander Meißner <AlexanderMeissner@gmx.net>"]
+edition = "2018"
+
+[features]
+default = ["text"]
+text = ["ttf-parser"]
+
+[dependencies]
+wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "baf6c433bb8daa230c350c777e5f26fc95382495" }
+ttf-parser = { version = "0.10.0", optional = true }
+
+
+
+### Showcase Example ###
+
+[dev-dependencies]
+winit = { version = "0.24.0", features = ["web-sys"] }
+log = "0.4"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Oz", "--enable-mutable-globals"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+async-executor = "1.0"
+pollster = "0.2"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen = "0.2.69"
+web-sys = "0.3.46"
+js-sys = "0.3.46"
+wasm-bindgen-futures = "0.4.19"
+console_error_panic_hook = "0.1.6"
+console_log = "0.1.2"
