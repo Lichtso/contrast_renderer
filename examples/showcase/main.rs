@@ -104,10 +104,7 @@ impl GuiSetup {
             web_sys::window()
                 .and_then(|win| win.document())
                 .and_then(|doc| doc.body())
-                .and_then(|body| {
-                    body.append_child(&web_sys::Element::from(window.canvas()))
-                        .ok()
-                })
+                .and_then(|body| body.append_child(&web_sys::Element::from(window.canvas())).ok())
                 .expect("Couldn't append canvas to document body");
         }
 
@@ -129,9 +126,7 @@ impl GuiSetup {
         info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
         let required_features = wgpu::Features::default();
-        let needed_limits = wgpu::Limits {
-            ..wgpu::Limits::default()
-        };
+        let needed_limits = wgpu::Limits { ..wgpu::Limits::default() };
         let adapter_features = adapter.features();
         assert!(
             adapter_features.contains(required_features),
@@ -150,10 +145,8 @@ impl GuiSetup {
             .await
             .expect("Unable to find a suitable GPU adapter!");
 
-        let path_renderer = contrast_render_engine::renderer::Renderer::new(
-            &device,
-            adapter.get_swap_chain_preferred_format(&surface),
-        );
+        let path_renderer =
+            contrast_render_engine::renderer::Renderer::new(&device, adapter.get_swap_chain_preferred_format(&surface));
 
         let data = include_bytes!("fonts/OpenSans-Regular.ttf");
         let face = ttf_parser::Face::from_slice(data, 0).unwrap();
@@ -164,16 +157,15 @@ impl GuiSetup {
             "Hello World",
         );
         for path in &mut paths {
-            path.scale_and_translate(0.1, [0.0, 0.0]);
+            path.transform(glam::Mat3::from_scale_angle_translation(glam::vec2(0.1, 0.1), 0.0, glam::vec2(0.0, 0.0)));
             path.reverse();
         }
-        paths.push(contrast_render_engine::path::Path::from_rounded_rect(
-            [0.0, 0.0],
-            [600.0, 120.0],
+        paths.insert(0, contrast_render_engine::path::Path::from_rounded_rect(
+            glam::vec2(0.0, 0.0),
+            glam::vec2(600.0, 120.0),
             50.0,
         ));
-        let fillable_shape =
-            contrast_render_engine::renderer::FillableShape::new(&device, paths.as_slice());
+        let fillable_shape = contrast_render_engine::renderer::FillableShape::new(&device, &paths);
 
         Self {
             window,
@@ -196,8 +188,8 @@ impl GuiSetup {
             [0.0, 0.0, 1.0, 0.0],
             [0.0, 0.0, 0.0, 1.0],
         ];
-        self.path_renderer
-            .set_transform(&self.queue, &transform_uniform_data);
+        self.path_renderer.set_transform(&self.queue, &transform_uniform_data);
+        let color_format = self.adapter.get_swap_chain_preferred_format(&self.surface);
         let depth_stencil_texture_descriptor = wgpu::TextureDescriptor {
             size: wgpu::Extent3d {
                 width: self.size.width,
@@ -211,38 +203,28 @@ impl GuiSetup {
             usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
             label: None,
         };
-        let depth_stencil_texture = self
-            .device
-            .create_texture(&depth_stencil_texture_descriptor);
-        self.depth_stencil_texture_view = Some(depth_stencil_texture.create_view(
-            &wgpu::TextureViewDescriptor {
-                dimension: Some(wgpu::TextureViewDimension::D2),
-                ..wgpu::TextureViewDescriptor::default()
-            },
-        ));
+        let depth_stencil_texture = self.device.create_texture(&depth_stencil_texture_descriptor);
+        self.depth_stencil_texture_view = Some(depth_stencil_texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            ..wgpu::TextureViewDescriptor::default()
+        }));
         let swap_chain_descriptor = wgpu::SwapChainDescriptor {
             usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
-            format: self.adapter.get_swap_chain_preferred_format(&self.surface),
+            format: color_format,
             width: self.size.width,
             height: self.size.height,
             present_mode: wgpu::PresentMode::Mailbox,
         };
-        self.device
-            .create_swap_chain(&self.surface, &swap_chain_descriptor)
+        self.device.create_swap_chain(&self.surface, &swap_chain_descriptor)
     }
 
     fn render(&mut self, frame: &wgpu::SwapChainTexture) {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         {
-            let mut render_pass = contrast_render_engine::renderer::Renderer::stencil_render_pass(
-                &mut encoder,
-                &self.depth_stencil_texture_view.as_ref().unwrap(),
-            );
-            self.fillable_shape
-                .render_stencil(&self.path_renderer, &mut render_pass);
+            let mut render_pass =
+                contrast_render_engine::renderer::Renderer::stencil_render_pass(&mut encoder, &self.depth_stencil_texture_view.as_ref().unwrap());
+            self.fillable_shape.render_stencil(&self.path_renderer, &mut render_pass);
         }
 
         {
@@ -251,8 +233,7 @@ impl GuiSetup {
                 &self.depth_stencil_texture_view.as_ref().unwrap(),
                 &frame.view,
             );
-            self.fillable_shape
-                .render_cover(&self.path_renderer, &mut render_pass);
+            self.fillable_shape.render_cover(&self.path_renderer, &mut render_pass);
         }
 
         self.queue.submit(Some(encoder.finish()));

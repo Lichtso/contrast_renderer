@@ -2,13 +2,7 @@ use crate::path::Path;
 use wgpu::{include_spirv, util::DeviceExt, vertex_attr_array};
 
 fn triangle_fan_to_strip<T: Copy>(vertices: Vec<T>) -> Vec<T> {
-    let gather_indices = (0..vertices.len()).map(|i| {
-        if (i & 1) == 0 {
-            i >> 1
-        } else {
-            vertices.len() - 1 - (i >> 1)
-        }
-    });
+    let gather_indices = (0..vertices.len()).map(|i| if (i & 1) == 0 { i >> 1 } else { vertices.len() - 1 - (i >> 1) });
     let mut result = Vec::with_capacity(vertices.len());
     for src in gather_indices {
         result.push(vertices[src]);
@@ -37,10 +31,10 @@ impl FillableShape {
         let mut cubic_curve_elements = 0;
         let mut rational_quadratic_curve_elements = 0;
         let mut rational_cubic_curve_elements = 0;
-        let mut segment_0_vertices: Vec<[f32; 2]> = Vec::new();
-        let mut segment_2_vertices: Vec<([f32; 2], [f32; 2])> = Vec::new();
-        let mut segment_3_vertices: Vec<([f32; 2], [f32; 3])> = Vec::new();
-        let mut segment_4_vertices: Vec<([f32; 2], [f32; 4])> = Vec::new();
+        let mut segment_0_vertices: Vec<glam::Vec2> = Vec::new();
+        let mut segment_2_vertices: Vec<(glam::Vec2, [f32; 2])> = Vec::new();
+        let mut segment_3_vertices: Vec<(glam::Vec2, [f32; 3])> = Vec::new();
+        let mut segment_4_vertices: Vec<(glam::Vec2, [f32; 4])> = Vec::new();
         let mut proto_hull = Vec::new();
         for path in paths {
             anchor_elements.push(path.anchors.len() as u32);
@@ -58,6 +52,8 @@ impl FillableShape {
                 cubic_curve_elements += triangles.len() as u32;
                 segment_3_vertices.append(&mut triangles.clone());
             }
+        }
+        for path in paths {
             if let Some(triangles) = &path.rational_quadratic_curve_triangles {
                 rational_quadratic_curve_elements += triangles.len() as u32;
                 segment_3_vertices.append(&mut triangles.clone());
@@ -71,44 +67,37 @@ impl FillableShape {
         let cover_elements = convex_hull.len() as u32;
         let cover_element_offset = segment_0_vertices.len() as u32;
         segment_0_vertices.append(&mut triangle_fan_to_strip(convex_hull));
-        let segment_0_vertex_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: unsafe { crate::utils::transmute_slice(&segment_0_vertices) },
-                usage: wgpu::BufferUsage::VERTEX,
-            });
+        let segment_0_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: crate::utils::transmute_slice(&segment_0_vertices),
+            usage: wgpu::BufferUsage::VERTEX,
+        });
         let segment_2_vertex_buffer = if segment_2_vertices.is_empty() {
             None
         } else {
-            Some(
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: None,
-                    contents: unsafe { crate::utils::transmute_slice(&segment_2_vertices) },
-                    usage: wgpu::BufferUsage::VERTEX,
-                }),
-            )
+            Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: crate::utils::transmute_slice(&segment_2_vertices),
+                usage: wgpu::BufferUsage::VERTEX,
+            }))
         };
         let segment_3_vertex_buffer = if segment_3_vertices.is_empty() {
             None
         } else {
-            Some(
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: None,
-                    contents: unsafe { crate::utils::transmute_slice(&segment_3_vertices) },
-                    usage: wgpu::BufferUsage::VERTEX,
-                }),
-            )
+            Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: crate::utils::transmute_slice(&segment_3_vertices),
+                usage: wgpu::BufferUsage::VERTEX,
+            }))
         };
         let segment_4_vertex_buffer = if segment_4_vertices.is_empty() {
             None
         } else {
-            Some(
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: None,
-                    contents: unsafe { crate::utils::transmute_slice(&segment_4_vertices) },
-                    usage: wgpu::BufferUsage::VERTEX,
-                }),
-            )
+            Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: crate::utils::transmute_slice(&segment_4_vertices),
+                usage: wgpu::BufferUsage::VERTEX,
+            }))
         };
         Self {
             anchor_elements,
@@ -125,11 +114,7 @@ impl FillableShape {
         }
     }
 
-    pub fn render_stencil<'a>(
-        &'a self,
-        renderer: &'a Renderer,
-        render_pass: &mut wgpu::RenderPass<'a>,
-    ) {
+    pub fn render_stencil<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
         render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
         render_pass.set_pipeline(&renderer.stencil_solid_pipeline);
         render_pass.set_vertex_buffer(0, self.segment_0_vertex_buffer.slice(..));
@@ -149,7 +134,10 @@ impl FillableShape {
             render_pass.set_pipeline(&renderer.stencil_cubic_curve_pipeline);
             render_pass.draw(0..self.cubic_curve_elements, 0..1);
             render_pass.set_pipeline(&renderer.stencil_rational_quadratic_curve_pipeline);
-            render_pass.draw(0..self.rational_quadratic_curve_elements, 0..1);
+            render_pass.draw(
+                self.cubic_curve_elements..self.cubic_curve_elements + self.rational_quadratic_curve_elements,
+                0..1,
+            );
         }
         if let Some(vertex_buffer) = &self.segment_4_vertex_buffer {
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
@@ -158,25 +146,18 @@ impl FillableShape {
         }
     }
 
-    pub fn render_cover<'a>(
-        &'a self,
-        renderer: &'a Renderer,
-        render_pass: &mut wgpu::RenderPass<'a>,
-    ) {
+    pub fn render_cover<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
         render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
-        render_pass.set_bind_group(1, &renderer.cover_solid_bind_group, &[]);
-        render_pass.set_pipeline(&renderer.cover_solid_pipeline);
+        render_pass.set_bind_group(1, &renderer.fill_solid_bind_group, &[]);
+        render_pass.set_pipeline(&renderer.fill_solid_pipeline);
         render_pass.set_vertex_buffer(0, self.segment_0_vertex_buffer.slice(..));
-        render_pass.draw(
-            self.cover_element_offset..self.cover_element_offset + self.cover_elements,
-            0..1,
-        );
+        render_pass.draw(self.cover_element_offset..self.cover_element_offset + self.cover_elements, 0..1);
     }
 }
 
 macro_rules! stencil_descriptor {
     ($compare:ident, $fail:ident, $pass:ident) => {
-        wgpu::StencilStateFaceDescriptor {
+        wgpu::StencilFaceState {
             compare: wgpu::CompareFunction::$compare,
             fail_op: wgpu::StencilOperation::$fail,
             depth_fail_op: wgpu::StencilOperation::Keep,
@@ -189,40 +170,46 @@ macro_rules! render_pipeline_descriptor {
     ($pipeline_layout:expr,
      $vertex_module:expr, $fragment_module:expr,
      $primitive_topology:ident, $color_states:expr,
-     $stencil_front:expr, $stencil_back:expr,
+     $stencil_front:expr, $stencil_back:expr, $stencil_read_mask:expr,
      $vertex_buffer:expr $(,)?) => {
         wgpu::RenderPipelineDescriptor {
             label: None,
             layout: Some($pipeline_layout),
-            vertex_stage: wgpu::ProgrammableStageDescriptor {
+            vertex: wgpu::VertexState {
                 module: $vertex_module,
                 entry_point: "main",
+                buffers: &[$vertex_buffer],
             },
-            fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
+            fragment: Some(wgpu::FragmentState {
                 module: $fragment_module,
                 entry_point: "main",
+                targets: $color_states,
             }),
-            rasterization_state: None,
-            primitive_topology: wgpu::PrimitiveTopology::$primitive_topology,
-            color_states: $color_states,
-            depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::$primitive_topology,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: wgpu::CullMode::None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth24PlusStencil8,
                 depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::Always,
-                stencil: wgpu::StencilStateDescriptor {
+                bias: wgpu::DepthBiasState::default(),
+                clamp_depth: false,
+                stencil: wgpu::StencilState {
                     front: $stencil_front,
                     back: $stencil_back,
-                    read_mask: !0,
+                    read_mask: $stencil_read_mask,
                     write_mask: !0,
                 },
             }),
-            vertex_state: wgpu::VertexStateDescriptor {
-                index_format: None,
-                vertex_buffers: &[$vertex_buffer],
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
             },
-            sample_count: 1,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
         }
     };
 }
@@ -235,39 +222,32 @@ pub struct Renderer {
     stencil_cubic_curve_pipeline: wgpu::RenderPipeline,
     stencil_rational_quadratic_curve_pipeline: wgpu::RenderPipeline,
     stencil_rational_cubic_curve_pipeline: wgpu::RenderPipeline,
-    cover_solid_uniform_buffer: wgpu::Buffer,
-    cover_solid_bind_group: wgpu::BindGroup,
-    cover_solid_pipeline: wgpu::RenderPipeline,
+    fill_solid_uniform_buffer: wgpu::Buffer,
+    fill_solid_bind_group: wgpu::BindGroup,
+    fill_solid_pipeline: wgpu::RenderPipeline,
 }
 
 impl Renderer {
     pub fn new(device: &wgpu::Device, screen_format: wgpu::TextureFormat) -> Self {
-        let segment_0_vertex_module = device.create_shader_module(&include_spirv!(
-            "../target/shader_modules/segment0_vert.spv"
-        ));
-        let segment_3_vertex_module = device.create_shader_module(&include_spirv!(
-            "../target/shader_modules/segment3_vert.spv"
-        ));
-        let cover_solid_fragment_module = device.create_shader_module(&include_spirv!(
-            "../target/shader_modules/cover_solid_frag.spv"
-        ));
-        let segment_0_vertex_buffer_descriptor = wgpu::VertexBufferDescriptor {
-            stride: (2 * 4) as wgpu::BufferAddress,
+        let segment_0_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment0_vert.spv"));
+        let segment_3_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment3_vert.spv"));
+        let segment_0_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+            array_stride: (2 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
             attributes: &vertex_attr_array![0 => Float2],
         };
-        let segment_2_vertex_buffer_descriptor = wgpu::VertexBufferDescriptor {
-            stride: (4 * 4) as wgpu::BufferAddress,
+        let segment_2_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+            array_stride: (4 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
             attributes: &vertex_attr_array![0 => Float2, 1 => Float2],
         };
-        let segment_3_vertex_buffer_descriptor = wgpu::VertexBufferDescriptor {
-            stride: (5 * 4) as wgpu::BufferAddress,
+        let segment_3_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+            array_stride: (5 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
             attributes: &vertex_attr_array![0 => Float2, 1 => Float3],
         };
-        let segment_4_vertex_buffer_descriptor = wgpu::VertexBufferDescriptor {
-            stride: (6 * 4) as wgpu::BufferAddress,
+        let segment_4_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+            array_stride: (6 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
             attributes: &vertex_attr_array![0 => Float2, 1 => Float4],
         };
@@ -279,22 +259,19 @@ impl Renderer {
             size: TRANSFORM_UNIFORM_BUFFER_SIZE as u64,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
         });
-        let transform_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStage::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(
-                            TRANSFORM_UNIFORM_BUFFER_SIZE as u64,
-                        ),
-                    },
-                    count: None,
-                }],
-            });
+        let transform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStage::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(TRANSFORM_UNIFORM_BUFFER_SIZE as u64),
+                },
+                count: None,
+            }],
+        });
         let transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &transform_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
@@ -309,145 +286,127 @@ impl Renderer {
         });
         let stencil_front = stencil_descriptor!(Always, Keep, IncrementWrap);
         let stencil_back = stencil_descriptor!(Always, Keep, DecrementWrap);
-        let stencil_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[&transform_bind_group_layout],
-                push_constant_ranges: &[],
-            });
+        let stencil_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&transform_bind_group_layout],
+            push_constant_ranges: &[],
+        });
         let stencil_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
             &segment_0_vertex_module,
-            &device.create_shader_module(&include_spirv!(
-                "../target/shader_modules/stencil_solid_frag.spv"
-            )),
+            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_solid_frag.spv")),
             TriangleStrip,
             &[],
             stencil_front.clone(),
             stencil_back.clone(),
+            !0,
             segment_0_vertex_buffer_descriptor.clone(),
         ));
-        let stencil_quadratic_curve_pipeline =
-            device.create_render_pipeline(&render_pipeline_descriptor!(
-                &stencil_pipeline_layout,
-                &device.create_shader_module(&include_spirv!(
-                    "../target/shader_modules/segment2_vert.spv"
-                )),
-                &device.create_shader_module(&include_spirv!(
-                    "../target/shader_modules/stencil_quadratic_curve_frag.spv"
-                )),
-                TriangleList,
-                &[],
-                stencil_front.clone(),
-                stencil_back.clone(),
-                segment_2_vertex_buffer_descriptor,
-            ));
-        let stencil_cubic_curve_pipeline =
-            device.create_render_pipeline(&render_pipeline_descriptor!(
-                &stencil_pipeline_layout,
-                &segment_3_vertex_module,
-                &device.create_shader_module(&include_spirv!(
-                    "../target/shader_modules/stencil_cubic_curve_frag.spv"
-                )),
-                TriangleList,
-                &[],
-                stencil_front.clone(),
-                stencil_back.clone(),
-                segment_3_vertex_buffer_descriptor.clone(),
-            ));
-        let stencil_rational_quadratic_curve_pipeline =
-            device.create_render_pipeline(&render_pipeline_descriptor!(
-                &stencil_pipeline_layout,
-                &segment_3_vertex_module,
-                &device.create_shader_module(&include_spirv!(
-                    "../target/shader_modules/stencil_rational_quadratic_curve_frag.spv"
-                )),
-                TriangleList,
-                &[],
-                stencil_front.clone(),
-                stencil_back.clone(),
-                segment_3_vertex_buffer_descriptor.clone(),
-            ));
-        let stencil_rational_cubic_curve_pipeline =
-            device.create_render_pipeline(&render_pipeline_descriptor!(
-                &stencil_pipeline_layout,
-                &device.create_shader_module(&include_spirv!(
-                    "../target/shader_modules/segment4_vert.spv"
-                )),
-                &device.create_shader_module(&include_spirv!(
-                    "../target/shader_modules/stencil_rational_cubic_curve_frag.spv"
-                )),
-                TriangleList,
-                &[],
-                stencil_front,
-                stencil_back,
-                segment_4_vertex_buffer_descriptor,
-            ));
+        let stencil_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &stencil_pipeline_layout,
+            &device.create_shader_module(&include_spirv!("../target/shader_modules/segment2_vert.spv")),
+            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_quadratic_curve_frag.spv")),
+            TriangleList,
+            &[],
+            stencil_front.clone(),
+            stencil_back.clone(),
+            !0,
+            segment_2_vertex_buffer_descriptor,
+        ));
+        let stencil_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &stencil_pipeline_layout,
+            &segment_3_vertex_module,
+            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_cubic_curve_frag.spv")),
+            TriangleList,
+            &[],
+            stencil_front.clone(),
+            stencil_back.clone(),
+            !0,
+            segment_3_vertex_buffer_descriptor.clone(),
+        ));
+        let stencil_rational_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &stencil_pipeline_layout,
+            &segment_3_vertex_module,
+            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_rational_quadratic_curve_frag.spv")),
+            TriangleList,
+            &[],
+            stencil_front.clone(),
+            stencil_back.clone(),
+            !0,
+            segment_3_vertex_buffer_descriptor.clone(),
+        ));
+        let stencil_rational_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &stencil_pipeline_layout,
+            &device.create_shader_module(&include_spirv!("../target/shader_modules/segment4_vert.spv")),
+            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_rational_cubic_curve_frag.spv")),
+            TriangleList,
+            &[],
+            stencil_front,
+            stencil_back,
+            !0,
+            segment_4_vertex_buffer_descriptor,
+        ));
 
-        let fill_color_state = wgpu::ColorStateDescriptor {
+        let fill_color_state = wgpu::ColorTargetState {
             format: screen_format,
-            color_blend: wgpu::BlendDescriptor {
+            color_blend: wgpu::BlendState {
                 src_factor: wgpu::BlendFactor::SrcAlpha,
                 dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                 operation: wgpu::BlendOperation::Add,
             },
-            alpha_blend: wgpu::BlendDescriptor {
+            alpha_blend: wgpu::BlendState {
                 src_factor: wgpu::BlendFactor::SrcAlpha,
                 dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                 operation: wgpu::BlendOperation::Add,
             },
             write_mask: wgpu::ColorWrite::ALL,
         };
-        const COVER_SOLID_UNIFORM_BUFFER_SIZE: usize = std::mem::size_of::<[f32; 4]>();
-        let cover_solid_uniform_data: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-        let cover_solid_uniform_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: unsafe { crate::utils::transmute_slice(&cover_solid_uniform_data) },
-                usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
-            });
-        let cover_solid_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(
-                            COVER_SOLID_UNIFORM_BUFFER_SIZE as u64,
-                        ),
-                    },
-                    count: None,
-                }],
-            });
-        let cover_solid_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &cover_solid_bind_group_layout,
+        const FILL_SOLID_UNIFORM_BUFFER_SIZE: usize = std::mem::size_of::<[f32; 4]>();
+        let fill_solid_uniform_data: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+        let fill_solid_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: crate::utils::transmute_slice(&fill_solid_uniform_data),
+            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+        });
+        let fill_solid_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStage::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(FILL_SOLID_UNIFORM_BUFFER_SIZE as u64),
+                },
+                count: None,
+            }],
+        });
+        let fill_solid_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &fill_solid_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: wgpu::BindingResource::Buffer {
-                    buffer: &cover_solid_uniform_buffer,
+                    buffer: &fill_solid_uniform_buffer,
                     offset: 0,
-                    size: wgpu::BufferSize::new(COVER_SOLID_UNIFORM_BUFFER_SIZE as u64),
+                    size: wgpu::BufferSize::new(FILL_SOLID_UNIFORM_BUFFER_SIZE as u64),
                 },
             }],
             label: None,
         });
-        let cover_solid_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[&transform_bind_group_layout, &cover_solid_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-        let cover_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
-            &cover_solid_pipeline_layout,
+        let fill_solid_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&transform_bind_group_layout, &fill_solid_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let fill_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &fill_solid_pipeline_layout,
             &segment_0_vertex_module,
-            &cover_solid_fragment_module,
+            &device.create_shader_module(&include_spirv!("../target/shader_modules/fill_solid_frag.spv")),
             TriangleStrip,
             &[fill_color_state],
-            stencil_descriptor!(Less, Keep, Keep),
-            stencil_descriptor!(Less, Keep, Keep),
+            stencil_descriptor!(NotEqual, Keep, Keep),
+            stencil_descriptor!(NotEqual, Keep, Keep),
+            1,
             segment_0_vertex_buffer_descriptor.clone(),
         ));
 
@@ -459,26 +418,23 @@ impl Renderer {
             stencil_cubic_curve_pipeline,
             stencil_rational_quadratic_curve_pipeline,
             stencil_rational_cubic_curve_pipeline,
-            cover_solid_uniform_buffer,
-            cover_solid_bind_group,
-            cover_solid_pipeline,
+            fill_solid_uniform_buffer,
+            fill_solid_bind_group,
+            fill_solid_pipeline,
         }
     }
 
     pub fn set_transform(&self, queue: &wgpu::Queue, transform: &[[f32; 4]; 4]) {
-        let data = unsafe { crate::utils::transmute_slice(transform) };
+        let data = crate::utils::transmute_slice(transform);
         queue.write_buffer(&self.transform_uniform_buffer, 0, &data);
     }
 
     pub fn set_solid_fill_color(&self, queue: &wgpu::Queue, color: &[f32; 4]) {
-        let data = unsafe { crate::utils::transmute_slice(color) };
-        queue.write_buffer(&self.cover_solid_uniform_buffer, 0, &data);
+        let data = crate::utils::transmute_slice(color);
+        queue.write_buffer(&self.fill_solid_uniform_buffer, 0, &data);
     }
 
-    pub fn stencil_render_pass<'a>(
-        encoder: &'a mut wgpu::CommandEncoder,
-        depth_stencil_texture_view: &'a wgpu::TextureView,
-    ) -> wgpu::RenderPass<'a> {
+    pub fn stencil_render_pass<'a>(encoder: &'a mut wgpu::CommandEncoder, depth_stencil_texture_view: &'a wgpu::TextureView) -> wgpu::RenderPass<'a> {
         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[],
@@ -499,12 +455,12 @@ impl Renderer {
     pub fn cover_render_pass<'a>(
         encoder: &'a mut wgpu::CommandEncoder,
         depth_stencil_texture_view: &'a wgpu::TextureView,
-        color_texture_view: &'a wgpu::TextureView,
+        render_texture_view: &'a wgpu::TextureView,
     ) -> wgpu::RenderPass<'a> {
         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                attachment: color_texture_view,
+                attachment: render_texture_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),

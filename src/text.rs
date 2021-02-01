@@ -9,25 +9,24 @@ struct OutlineBuilder {
 
 impl ttf_parser::OutlineBuilder for OutlineBuilder {
     fn move_to(&mut self, x: f32, y: f32) {
-        self.path_builder.anchor = [x, y];
+        self.path_builder.anchor = glam::vec2(x, y);
     }
 
     fn line_to(&mut self, x: f32, y: f32) {
         self.path_builder.push_line(LineSegment {
-            control_points: [[x, y]],
+            control_points: [glam::vec2(x, y)],
         });
     }
 
     fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
-        self.path_builder
-            .push_quadratic_curve(QuadraticCurveSegment {
-                control_points: [[x1, y1], [x, y]],
-            });
+        self.path_builder.push_quadratic_curve(QuadraticCurveSegment {
+            control_points: [glam::vec2(x1, y1), glam::vec2(x, y)],
+        });
     }
 
     fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
         self.path_builder.push_cubic_curve(CubicCurveSegment {
-            control_points: [[x1, y1], [x2, y2], [x, y]],
+            control_points: [glam::vec2(x1, y1), glam::vec2(x2, y2), glam::vec2(x, y)],
         });
     }
 
@@ -112,9 +111,10 @@ pub fn paths_of_text(
     }
     let mut result = Vec::new();
     for ([x, y], glyph_id) in layout {
+        let transform = glam::Mat3::from_scale_angle_translation(glam::vec2(1.0, 1.0), 0.0, glam::vec2(x, y));
         let mut paths = paths_of_glyph(&face, glyph_id);
         for path in &mut paths {
-            path.scale_and_translate(1.0, [x, y]);
+            path.transform(transform);
         }
         result.append(&mut paths);
     }

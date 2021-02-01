@@ -1,23 +1,23 @@
 pub struct LineSegment {
-    pub control_points: [[f32; 2]; 1],
+    pub control_points: [glam::Vec2; 1],
 }
 
 pub struct QuadraticCurveSegment {
-    pub control_points: [[f32; 2]; 2],
+    pub control_points: [glam::Vec2; 2],
 }
 
 pub struct CubicCurveSegment {
-    pub control_points: [[f32; 2]; 3],
+    pub control_points: [glam::Vec2; 3],
 }
 
 pub struct RationalQuadraticCurveSegment {
     pub first_weight: f32,
-    pub control_points: [[f32; 3]; 2],
+    pub control_points: [glam::Vec3; 2],
 }
 
 pub struct RationalCubicCurveSegment {
     pub first_weight: f32,
-    pub control_points: [[f32; 3]; 3],
+    pub control_points: [glam::Vec3; 3],
 }
 
 pub enum Segment {
@@ -68,7 +68,7 @@ pub enum SegmentType {
 
 #[derive(Default)]
 pub struct PathBuilder {
-    pub anchor: [f32; 2],
+    pub anchor: glam::Vec2,
     pub line_segments: Vec<LineSegment>,
     pub quadratic_curve_segments: Vec<QuadraticCurveSegment>,
     pub cubic_curve_segments: Vec<CubicCurveSegment>,
@@ -95,8 +95,7 @@ impl PathBuilder {
 
     pub fn push_rational_quadratic_curve(&mut self, segment: RationalQuadraticCurveSegment) {
         self.rational_quadratic_curve_segments.push(segment);
-        self.segement_types
-            .push(SegmentType::RationalQuadraticCurve);
+        self.segement_types.push(SegmentType::RationalQuadraticCurve);
     }
 
     pub fn push_rational_cubic_curve(&mut self, segment: RationalCubicCurveSegment) {

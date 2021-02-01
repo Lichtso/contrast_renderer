@@ -1,12 +1,14 @@
-use crate::path_builder::{PathBuilder, SegmentType};
+use crate::{
+    path_builder::{PathBuilder, SegmentType},
+};
 
 pub struct Path {
-    pub anchors: Vec<[f32; 2]>,
-    pub proto_hull: Option<Vec<[f32; 2]>>,
-    pub quadratic_curve_triangles: Option<Vec<([f32; 2], [f32; 2])>>,
-    pub cubic_curve_triangles: Option<Vec<([f32; 2], [f32; 3])>>,
-    pub rational_quadratic_curve_triangles: Option<Vec<([f32; 2], [f32; 3])>>,
-    pub rational_cubic_curve_triangles: Option<Vec<([f32; 2], [f32; 4])>>,
+    pub anchors: Vec<glam::Vec2>,
+    pub proto_hull: Option<Vec<glam::Vec2>>,
+    pub quadratic_curve_triangles: Option<Vec<(glam::Vec2, [f32; 2])>>,
+    pub cubic_curve_triangles: Option<Vec<(glam::Vec2, [f32; 3])>>,
+    pub rational_quadratic_curve_triangles: Option<Vec<(glam::Vec2, [f32; 3])>>,
+    pub rational_cubic_curve_triangles: Option<Vec<(glam::Vec2, [f32; 4])>>,
 }
 
 impl Path {
@@ -14,10 +16,8 @@ impl Path {
         let mut line_segment_iter = path_builder.line_segments.iter();
         let mut quadratic_curve_segment_iter = path_builder.quadratic_curve_segments.iter();
         let mut cubic_curve_segment_iter = path_builder.cubic_curve_segments.iter();
-        let mut rational_quadratic_curve_segment_iter =
-            path_builder.rational_quadratic_curve_segments.iter();
-        let mut rational_cubic_curve_segment_iter =
-            path_builder.rational_cubic_curve_segments.iter();
+        let mut rational_quadratic_curve_segment_iter = path_builder.rational_quadratic_curve_segments.iter();
+        let mut rational_cubic_curve_segment_iter = path_builder.rational_cubic_curve_segments.iter();
         let mut anchors = Vec::with_capacity(
             1 + path_builder.line_segments.len()
                 + path_builder.quadratic_curve_segments.len()
@@ -34,17 +34,10 @@ impl Path {
                 + path_builder.rational_cubic_curve_segments.len() * 3,
         );
         proto_hull.push(path_builder.anchor);
-        let mut quadratic_curve_triangles =
-            Vec::with_capacity(path_builder.quadratic_curve_segments.len() * 3);
-        let cubic_curve_triangles =
-            Vec::with_capacity(path_builder.cubic_curve_segments.len() * 3);
-        let mut rational_quadratic_curve_triangles =
-            Vec::with_capacity(path_builder.rational_quadratic_curve_segments.len() * 3);
-        let rational_cubic_curve_triangles =
-            Vec::with_capacity(path_builder.rational_cubic_curve_segments.len() * 3);
-        fn truncate(v: [f32; 3]) -> [f32; 2] {
-            [v[0], v[1]]
-        }
+        let mut quadratic_curve_triangles = Vec::with_capacity(path_builder.quadratic_curve_segments.len() * 3);
+        let cubic_curve_triangles = Vec::with_capacity(path_builder.cubic_curve_segments.len() * 6);
+        let mut rational_quadratic_curve_triangles = Vec::with_capacity(path_builder.rational_quadratic_curve_segments.len() * 3);
+        let rational_cubic_curve_triangles = Vec::with_capacity(path_builder.rational_cubic_curve_segments.len() * 6);
         for segement_type in &path_builder.segement_types {
             let previous_anchor = anchors.last().unwrap();
             match segement_type {
@@ -64,39 +57,40 @@ impl Path {
                 }
                 SegmentType::CubicCurve => {
                     let segment = cubic_curve_segment_iter.next().unwrap();
-                    // TODO: Generate discard triangles
-                    proto_hull.push(segment.control_points[0]);
-                    proto_hull.push(segment.control_points[1]);
-                    proto_hull.push(segment.control_points[2]);
-                    anchors.push(segment.control_points[2]);
+                    let control_points = [
+                        previous_anchor.extend(1.0),
+                        segment.control_points[0].extend(1.0),
+                        segment.control_points[1].extend(1.0),
+                        segment.control_points[2].extend(1.0),
+                    ];
+                    proto_hull.push(control_points[1].truncate());
+                    proto_hull.push(control_points[2].truncate());
+                    proto_hull.push(control_points[3].truncate());
+                    anchors.push(control_points[3].truncate());
                 }
                 SegmentType::RationalQuadraticCurve => {
                     let segment = rational_quadratic_curve_segment_iter.next().unwrap();
                     let weight = 1.0 / segment.control_points[1][2];
-                    rational_quadratic_curve_triangles.push((
-                        truncate(segment.control_points[1]),
-                        [weight, weight, weight],
-                    ));
+                    rational_quadratic_curve_triangles.push((segment.control_points[1].truncate(), [weight, weight, weight]));
                     let weight = 1.0 / segment.control_points[0][2];
-                    rational_quadratic_curve_triangles.push((
-                        truncate(segment.control_points[0]),
-                        [0.5 * weight, 0.0, weight],
-                    ));
-                    rational_quadratic_curve_triangles.push((
-                        *anchors.last().unwrap(),
-                        [0.0, 0.0, 1.0 / segment.first_weight],
-                    ));
-                    proto_hull.push(truncate(segment.control_points[0]));
-                    proto_hull.push(truncate(segment.control_points[1]));
-                    anchors.push(truncate(segment.control_points[1]));
+                    rational_quadratic_curve_triangles.push((segment.control_points[0].truncate(), [0.5 * weight, 0.0, weight]));
+                    rational_quadratic_curve_triangles.push((*anchors.last().unwrap(), [0.0, 0.0, 1.0 / segment.first_weight]));
+                    proto_hull.push(segment.control_points[0].truncate());
+                    proto_hull.push(segment.control_points[1].truncate());
+                    anchors.push(segment.control_points[1].truncate());
                 }
                 SegmentType::RationalCubicCurve => {
                     let segment = rational_cubic_curve_segment_iter.next().unwrap();
-                    // TODO: Generate discard triangles
-                    proto_hull.push(truncate(segment.control_points[0]));
-                    proto_hull.push(truncate(segment.control_points[1]));
-                    proto_hull.push(truncate(segment.control_points[2]));
-                    anchors.push(truncate(segment.control_points[2]));
+                    let control_points = [
+                        previous_anchor.extend(segment.first_weight),
+                        segment.control_points[0],
+                        segment.control_points[1],
+                        segment.control_points[2],
+                    ];
+                    proto_hull.push(control_points[1].truncate());
+                    proto_hull.push(control_points[2].truncate());
+                    proto_hull.push(control_points[3].truncate());
+                    anchors.push(control_points[3].truncate());
                 }
             }
         }
@@ -126,7 +120,7 @@ impl Path {
         }
     }
 
-    pub fn from_polygon(anchors: Vec<[f32; 2]>) -> Self {
+    pub fn from_polygon(anchors: Vec<glam::Vec2>) -> Self {
         Self {
             anchors,
             proto_hull: None,
@@ -137,12 +131,12 @@ impl Path {
         }
     }
 
-    pub fn from_rect(center: [f32; 2], half_extent: [f32; 2]) -> Self {
+    pub fn from_rect(center: glam::Vec2, half_extent: glam::Vec2) -> Self {
         let anchors = vec![
-            [center[0] - half_extent[0], center[1] - half_extent[1]],
-            [center[0] - half_extent[0], center[1] + half_extent[1]],
-            [center[0] + half_extent[0], center[1] + half_extent[1]],
-            [center[0] + half_extent[0], center[1] - half_extent[1]],
+            glam::vec2(center[0] - half_extent[0], center[1] - half_extent[1]),
+            glam::vec2(center[0] - half_extent[0], center[1] + half_extent[1]),
+            glam::vec2(center[0] + half_extent[0], center[1] + half_extent[1]),
+            glam::vec2(center[0] + half_extent[0], center[1] - half_extent[1]),
         ];
         Self {
             anchors,
@@ -154,47 +148,23 @@ impl Path {
         }
     }
 
-    pub fn from_rounded_rect(center: [f32; 2], half_extent: [f32; 2], radius: f32) -> Self {
+    pub fn from_rounded_rect(center: glam::Vec2, half_extent: glam::Vec2, radius: f32) -> Self {
         let radius = radius.min(half_extent[0]).min(half_extent[1]);
         let anchors = vec![
-            [
-                center[0] - half_extent[0] + radius,
-                center[1] - half_extent[1],
-            ],
-            [
-                center[0] - half_extent[0],
-                center[1] - half_extent[1] + radius,
-            ],
-            [
-                center[0] - half_extent[0],
-                center[1] + half_extent[1] - radius,
-            ],
-            [
-                center[0] - half_extent[0] + radius,
-                center[1] + half_extent[1],
-            ],
-            [
-                center[0] + half_extent[0] - radius,
-                center[1] + half_extent[1],
-            ],
-            [
-                center[0] + half_extent[0],
-                center[1] + half_extent[1] - radius,
-            ],
-            [
-                center[0] + half_extent[0],
-                center[1] - half_extent[1] + radius,
-            ],
-            [
-                center[0] + half_extent[0] - radius,
-                center[1] - half_extent[1],
-            ],
+            glam::vec2(center[0] - half_extent[0] + radius, center[1] - half_extent[1]),
+            glam::vec2(center[0] - half_extent[0], center[1] - half_extent[1] + radius),
+            glam::vec2(center[0] - half_extent[0], center[1] + half_extent[1] - radius),
+            glam::vec2(center[0] - half_extent[0] + radius, center[1] + half_extent[1]),
+            glam::vec2(center[0] + half_extent[0] - radius, center[1] + half_extent[1]),
+            glam::vec2(center[0] + half_extent[0], center[1] + half_extent[1] - radius),
+            glam::vec2(center[0] + half_extent[0], center[1] - half_extent[1] + radius),
+            glam::vec2(center[0] + half_extent[0] - radius, center[1] - half_extent[1]),
         ];
         let hull = vec![
-            [center[0] - half_extent[0], center[1] - half_extent[1]],
-            [center[0] - half_extent[0], center[1] + half_extent[1]],
-            [center[0] + half_extent[0], center[1] + half_extent[1]],
-            [center[0] + half_extent[0], center[1] - half_extent[1]],
+            glam::vec2(center[0] - half_extent[0], center[1] - half_extent[1]),
+            glam::vec2(center[0] - half_extent[0], center[1] + half_extent[1]),
+            glam::vec2(center[0] + half_extent[0], center[1] + half_extent[1]),
+            glam::vec2(center[0] + half_extent[0], center[1] - half_extent[1]),
         ];
         let sqrt_2 = 2.0f32.sqrt();
         let half_sqrt_2 = 0.5 * sqrt_2;
@@ -222,18 +192,18 @@ impl Path {
         }
     }
 
-    pub fn from_ellipse(center: [f32; 2], half_extent: [f32; 2]) -> Self {
+    pub fn from_ellipse(center: glam::Vec2, half_extent: glam::Vec2) -> Self {
         let anchors = vec![
-            [center[0] - half_extent[0], center[1]],
-            [center[0], center[1] + half_extent[1]],
-            [center[0] + half_extent[0], center[1]],
-            [center[0], center[1] - half_extent[1]],
+            glam::vec2(center[0] - half_extent[0], center[1]),
+            glam::vec2(center[0], center[1] + half_extent[1]),
+            glam::vec2(center[0] + half_extent[0], center[1]),
+            glam::vec2(center[0], center[1] - half_extent[1]),
         ];
         let hull = vec![
-            [center[0] - half_extent[0], center[1] - half_extent[1]],
-            [center[0] - half_extent[0], center[1] + half_extent[1]],
-            [center[0] + half_extent[0], center[1] + half_extent[1]],
-            [center[0] + half_extent[0], center[1] - half_extent[1]],
+            glam::vec2(center[0] - half_extent[0], center[1] - half_extent[1]),
+            glam::vec2(center[0] - half_extent[0], center[1] + half_extent[1]),
+            glam::vec2(center[0] + half_extent[0], center[1] + half_extent[1]),
+            glam::vec2(center[0] + half_extent[0], center[1] - half_extent[1]),
         ];
         let sqrt_2 = 2.0f32.sqrt();
         let half_sqrt_2 = 0.5 * sqrt_2;
@@ -261,8 +231,8 @@ impl Path {
         }
     }
 
-    pub fn from_circle(center: [f32; 2], radius: f32) -> Self {
-        Self::from_ellipse(center, [radius, radius])
+    pub fn from_circle(center: glam::Vec2, radius: f32) -> Self {
+        Self::from_ellipse(center, glam::vec2(radius, radius))
     }
 
     pub fn reverse(&mut self) {
@@ -281,39 +251,33 @@ impl Path {
         }
     }
 
-    pub fn scale_and_translate(&mut self, scale: f32, translate: [f32; 2]) {
+    pub fn transform(&mut self, transform: glam::Mat3) {
         for control_point in &mut self.anchors {
-            (*control_point)[0] = (*control_point)[0] * scale + translate[0];
-            (*control_point)[1] = (*control_point)[1] * scale + translate[1];
+            *control_point = transform.transform_point2(*control_point);
         }
         if let Some(proto_hull) = &mut self.proto_hull {
             for control_point in proto_hull {
-                (*control_point)[0] = (*control_point)[0] * scale + translate[0];
-                (*control_point)[1] = (*control_point)[1] * scale + translate[1];
+                *control_point = transform.transform_point2(*control_point);
             }
         }
         if let Some(triangles) = &mut self.quadratic_curve_triangles {
             for control_point in triangles {
-                (*control_point).0[0] = (*control_point).0[0] * scale + translate[0];
-                (*control_point).0[1] = (*control_point).0[1] * scale + translate[1];
+                control_point.0 = transform.transform_point2(control_point.0);
             }
         }
         if let Some(triangles) = &mut self.cubic_curve_triangles {
             for control_point in triangles {
-                (*control_point).0[0] = (*control_point).0[0] * scale + translate[0];
-                (*control_point).0[1] = (*control_point).0[1] * scale + translate[1];
+                control_point.0 = transform.transform_point2(control_point.0);
             }
         }
         if let Some(triangles) = &mut self.rational_quadratic_curve_triangles {
             for control_point in triangles {
-                (*control_point).0[0] = (*control_point).0[0] * scale + translate[0];
-                (*control_point).0[1] = (*control_point).0[1] * scale + translate[1];
+                control_point.0 = transform.transform_point2(control_point.0);
             }
         }
         if let Some(triangles) = &mut self.rational_cubic_curve_triangles {
             for control_point in triangles {
-                (*control_point).0[0] = (*control_point).0[0] * scale + translate[0];
-                (*control_point).0[1] = (*control_point).0[1] * scale + translate[1];
+                control_point.0 = transform.transform_point2(control_point.0);
             }
         }
     }

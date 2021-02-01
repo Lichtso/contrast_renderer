@@ -2,7 +2,7 @@
 
 layout(location=0) out vec4 color;
 
-layout(set=1, binding=0) uniform SolidCoverUniforms {
+layout(set=1, binding=0) uniform SolidFillUniforms {
     vec4 fill_color;
 };
 
