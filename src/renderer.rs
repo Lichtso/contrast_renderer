@@ -10,12 +10,23 @@ fn triangle_fan_to_strip<T: Copy>(vertices: Vec<T>) -> Vec<T> {
     result
 }
 
+pub type Vertex0 = glam::Vec2;
+#[derive(Clone, Copy)]
+#[repr(packed)]
+pub struct Vertex2(pub glam::Vec2, pub glam::Vec2);
+#[derive(Clone, Copy)]
+#[repr(packed)]
+pub struct Vertex3(pub glam::Vec2, pub glam::Vec3);
+#[derive(Clone, Copy)]
+#[repr(packed)]
+pub struct Vertex4(pub glam::Vec2, pub glam::Vec4);
+
 pub struct FillableShape {
     anchor_elements: Vec<u32>,
     cover_elements: u32,
     cover_element_offset: u32,
-    quadratic_curve_elements: u32,
-    cubic_curve_elements: u32,
+    integral_quadratic_curve_elements: u32,
+    integral_cubic_curve_elements: u32,
     rational_quadratic_curve_elements: u32,
     rational_cubic_curve_elements: u32,
     segment_0_vertex_buffer: wgpu::Buffer,
@@ -27,14 +38,14 @@ pub struct FillableShape {
 impl FillableShape {
     pub fn new(device: &wgpu::Device, paths: &[Path]) -> Self {
         let mut anchor_elements = Vec::new();
-        let mut quadratic_curve_elements = 0;
-        let mut cubic_curve_elements = 0;
+        let mut integral_quadratic_curve_elements = 0;
+        let mut integral_cubic_curve_elements = 0;
         let mut rational_quadratic_curve_elements = 0;
         let mut rational_cubic_curve_elements = 0;
-        let mut segment_0_vertices: Vec<glam::Vec2> = Vec::new();
-        let mut segment_2_vertices: Vec<(glam::Vec2, [f32; 2])> = Vec::new();
-        let mut segment_3_vertices: Vec<(glam::Vec2, [f32; 3])> = Vec::new();
-        let mut segment_4_vertices: Vec<(glam::Vec2, [f32; 4])> = Vec::new();
+        let mut segment_0_vertices: Vec<Vertex0> = Vec::new();
+        let mut segment_2_vertices: Vec<Vertex2> = Vec::new();
+        let mut segment_3_vertices: Vec<Vertex3> = Vec::new();
+        let mut segment_4_vertices: Vec<Vertex4> = Vec::new();
         let mut proto_hull = Vec::new();
         for path in paths {
             anchor_elements.push(path.anchors.len() as u32);
@@ -44,12 +55,12 @@ impl FillableShape {
             } else {
                 proto_hull.append(&mut path.anchors.clone());
             }
-            if let Some(triangles) = &path.quadratic_curve_triangles {
-                quadratic_curve_elements += triangles.len() as u32;
+            if let Some(triangles) = &path.integral_quadratic_curve_triangles {
+                integral_quadratic_curve_elements += triangles.len() as u32;
                 segment_2_vertices.append(&mut triangles.clone());
             }
-            if let Some(triangles) = &path.cubic_curve_triangles {
-                cubic_curve_elements += triangles.len() as u32;
+            if let Some(triangles) = &path.integral_cubic_curve_triangles {
+                integral_cubic_curve_elements += triangles.len() as u32;
                 segment_3_vertices.append(&mut triangles.clone());
             }
         }
@@ -103,8 +114,8 @@ impl FillableShape {
             anchor_elements,
             cover_elements,
             cover_element_offset,
-            quadratic_curve_elements,
-            cubic_curve_elements,
+            integral_quadratic_curve_elements,
+            integral_cubic_curve_elements,
             rational_quadratic_curve_elements,
             rational_cubic_curve_elements,
             segment_0_vertex_buffer,
@@ -126,16 +137,16 @@ impl FillableShape {
         }
         if let Some(vertex_buffer) = &self.segment_2_vertex_buffer {
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.set_pipeline(&renderer.stencil_quadratic_curve_pipeline);
-            render_pass.draw(0..self.quadratic_curve_elements, 0..1);
+            render_pass.set_pipeline(&renderer.stencil_integral_quadratic_curve_pipeline);
+            render_pass.draw(0..self.integral_quadratic_curve_elements, 0..1);
         }
         if let Some(vertex_buffer) = &self.segment_3_vertex_buffer {
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.set_pipeline(&renderer.stencil_cubic_curve_pipeline);
-            render_pass.draw(0..self.cubic_curve_elements, 0..1);
+            render_pass.set_pipeline(&renderer.stencil_integral_cubic_curve_pipeline);
+            render_pass.draw(0..self.integral_cubic_curve_elements, 0..1);
             render_pass.set_pipeline(&renderer.stencil_rational_quadratic_curve_pipeline);
             render_pass.draw(
-                self.cubic_curve_elements..self.cubic_curve_elements + self.rational_quadratic_curve_elements,
+                self.integral_cubic_curve_elements..self.integral_cubic_curve_elements + self.rational_quadratic_curve_elements,
                 0..1,
             );
         }
@@ -218,8 +229,8 @@ pub struct Renderer {
     transform_uniform_buffer: wgpu::Buffer,
     transform_bind_group: wgpu::BindGroup,
     stencil_solid_pipeline: wgpu::RenderPipeline,
-    stencil_quadratic_curve_pipeline: wgpu::RenderPipeline,
-    stencil_cubic_curve_pipeline: wgpu::RenderPipeline,
+    stencil_integral_quadratic_curve_pipeline: wgpu::RenderPipeline,
+    stencil_integral_cubic_curve_pipeline: wgpu::RenderPipeline,
     stencil_rational_quadratic_curve_pipeline: wgpu::RenderPipeline,
     stencil_rational_cubic_curve_pipeline: wgpu::RenderPipeline,
     fill_solid_uniform_buffer: wgpu::Buffer,
@@ -302,10 +313,10 @@ impl Renderer {
             !0,
             segment_0_vertex_buffer_descriptor.clone(),
         ));
-        let stencil_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+        let stencil_integral_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
             &device.create_shader_module(&include_spirv!("../target/shader_modules/segment2_vert.spv")),
-            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_quadratic_curve_frag.spv")),
+            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_integral_quadratic_curve_frag.spv")),
             TriangleList,
             &[],
             stencil_front.clone(),
@@ -313,10 +324,10 @@ impl Renderer {
             !0,
             segment_2_vertex_buffer_descriptor,
         ));
-        let stencil_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+        let stencil_integral_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
             &segment_3_vertex_module,
-            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_cubic_curve_frag.spv")),
+            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_integral_cubic_curve_frag.spv")),
             TriangleList,
             &[],
             stencil_front.clone(),
@@ -414,8 +425,8 @@ impl Renderer {
             transform_uniform_buffer,
             transform_bind_group,
             stencil_solid_pipeline,
-            stencil_quadratic_curve_pipeline,
-            stencil_cubic_curve_pipeline,
+            stencil_integral_quadratic_curve_pipeline,
+            stencil_integral_cubic_curve_pipeline,
             stencil_rational_quadratic_curve_pipeline,
             stencil_rational_cubic_curve_pipeline,
             fill_solid_uniform_buffer,

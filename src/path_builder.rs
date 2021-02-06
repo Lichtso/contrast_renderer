@@ -1,29 +1,35 @@
+#[derive(Debug, Clone, Copy)]
 pub struct LineSegment {
     pub control_points: [glam::Vec2; 1],
 }
 
-pub struct QuadraticCurveSegment {
+#[derive(Debug, Clone, Copy)]
+pub struct IntegralQuadraticCurveSegment {
     pub control_points: [glam::Vec2; 2],
 }
 
-pub struct CubicCurveSegment {
+#[derive(Debug, Clone, Copy)]
+pub struct IntegralCubicCurveSegment {
     pub control_points: [glam::Vec2; 3],
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct RationalQuadraticCurveSegment {
     pub first_weight: f32,
     pub control_points: [glam::Vec3; 2],
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct RationalCubicCurveSegment {
     pub first_weight: f32,
     pub control_points: [glam::Vec3; 3],
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum Segment {
     Line(LineSegment),
-    QuadraticCurve(QuadraticCurveSegment),
-    CubicCurve(CubicCurveSegment),
+    IntegralQuadraticCurve(IntegralQuadraticCurveSegment),
+    IntegralCubicCurve(IntegralCubicCurveSegment),
     RationalQuadraticCurve(RationalQuadraticCurveSegment),
     RationalCubicCurve(RationalCubicCurveSegment),
 }
@@ -34,15 +40,15 @@ impl From<LineSegment> for Segment {
     }
 }
 
-impl From<QuadraticCurveSegment> for Segment {
-    fn from(segment: QuadraticCurveSegment) -> Self {
-        Self::QuadraticCurve(segment)
+impl From<IntegralQuadraticCurveSegment> for Segment {
+    fn from(segment: IntegralQuadraticCurveSegment) -> Self {
+        Self::IntegralQuadraticCurve(segment)
     }
 }
 
-impl From<CubicCurveSegment> for Segment {
-    fn from(segment: CubicCurveSegment) -> Self {
-        Self::CubicCurve(segment)
+impl From<IntegralCubicCurveSegment> for Segment {
+    fn from(segment: IntegralCubicCurveSegment) -> Self {
+        Self::IntegralCubicCurve(segment)
     }
 }
 
@@ -60,8 +66,8 @@ impl From<RationalCubicCurveSegment> for Segment {
 
 pub enum SegmentType {
     Line,
-    QuadraticCurve,
-    CubicCurve,
+    IntegralQuadraticCurve,
+    IntegralCubicCurve,
     RationalQuadraticCurve,
     RationalCubicCurve,
 }
@@ -70,8 +76,8 @@ pub enum SegmentType {
 pub struct PathBuilder {
     pub anchor: glam::Vec2,
     pub line_segments: Vec<LineSegment>,
-    pub quadratic_curve_segments: Vec<QuadraticCurveSegment>,
-    pub cubic_curve_segments: Vec<CubicCurveSegment>,
+    pub integral_quadratic_curve_segments: Vec<IntegralQuadraticCurveSegment>,
+    pub integral_cubic_curve_segments: Vec<IntegralCubicCurveSegment>,
     pub rational_quadratic_curve_segments: Vec<RationalQuadraticCurveSegment>,
     pub rational_cubic_curve_segments: Vec<RationalCubicCurveSegment>,
     pub segement_types: Vec<SegmentType>,
@@ -83,14 +89,14 @@ impl PathBuilder {
         self.segement_types.push(SegmentType::Line);
     }
 
-    pub fn push_quadratic_curve(&mut self, segment: QuadraticCurveSegment) {
-        self.quadratic_curve_segments.push(segment);
-        self.segement_types.push(SegmentType::QuadraticCurve);
+    pub fn push_integral_quadratic_curve(&mut self, segment: IntegralQuadraticCurveSegment) {
+        self.integral_quadratic_curve_segments.push(segment);
+        self.segement_types.push(SegmentType::IntegralQuadraticCurve);
     }
 
-    pub fn push_cubic_curve(&mut self, segment: CubicCurveSegment) {
-        self.cubic_curve_segments.push(segment);
-        self.segement_types.push(SegmentType::CubicCurve);
+    pub fn push_integral_cubic_curve(&mut self, segment: IntegralCubicCurveSegment) {
+        self.integral_cubic_curve_segments.push(segment);
+        self.segement_types.push(SegmentType::IntegralCubicCurve);
     }
 
     pub fn push_rational_quadratic_curve(&mut self, segment: RationalQuadraticCurveSegment) {
@@ -108,11 +114,11 @@ impl PathBuilder {
             Segment::Line(segment) => {
                 self.push_line(segment);
             }
-            Segment::QuadraticCurve(segment) => {
-                self.push_quadratic_curve(segment);
+            Segment::IntegralQuadraticCurve(segment) => {
+                self.push_integral_quadratic_curve(segment);
             }
-            Segment::CubicCurve(segment) => {
-                self.push_cubic_curve(segment);
+            Segment::IntegralCubicCurve(segment) => {
+                self.push_integral_cubic_curve(segment);
             }
             Segment::RationalQuadraticCurve(segment) => {
                 self.push_rational_quadratic_curve(segment);

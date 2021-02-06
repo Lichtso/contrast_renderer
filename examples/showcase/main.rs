@@ -160,11 +160,11 @@ impl GuiSetup {
             path.transform(glam::Mat3::from_scale_angle_translation(glam::vec2(0.1, 0.1), 0.0, glam::vec2(0.0, 0.0)));
             path.reverse();
         }
-        paths.insert(0, contrast_render_engine::path::Path::from_rounded_rect(
-            glam::vec2(0.0, 0.0),
-            glam::vec2(600.0, 120.0),
-            50.0,
-        ));
+        paths.insert(
+            0,
+            contrast_render_engine::path::Path::from_rounded_rect(glam::vec2(0.0, 0.0), glam::vec2(600.0, 120.0), 50.0),
+        );
+
         let fillable_shape = contrast_render_engine::renderer::FillableShape::new(&device, &paths);
 
         Self {

@@ -1,5 +1,6 @@
 pub extern crate wgpu;
 
+mod complex_number;
 pub mod convex_hull;
 pub mod path;
 pub mod path_builder;

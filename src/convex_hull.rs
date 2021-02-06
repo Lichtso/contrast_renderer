@@ -10,7 +10,7 @@ pub fn andrew(input_points: &[glam::Vec2]) -> Vec<glam::Vec2> {
     });
     let mut hull = Vec::with_capacity(2 * input_points.len());
     for input_point in input_points.iter().cloned() {
-        while hull.len() > 1 && crate::utils::signed_triangle_area(hull[hull.len() - 2], hull[hull.len() - 1], input_point) <= 0.0 {
+        while hull.len() > 1 && crate::utils::signed_triangle_area(&[hull[hull.len() - 2], hull[hull.len() - 1], input_point]) <= 0.0 {
             hull.pop();
         }
         hull.push(input_point);
@@ -18,7 +18,7 @@ pub fn andrew(input_points: &[glam::Vec2]) -> Vec<glam::Vec2> {
     hull.pop();
     let t = hull.len() + 1;
     for input_point in input_points.iter().rev().cloned() {
-        while hull.len() > t && crate::utils::signed_triangle_area(hull[hull.len() - 2], hull[hull.len() - 1], input_point) <= 0.0 {
+        while hull.len() > t && crate::utils::signed_triangle_area(&[hull[hull.len() - 2], hull[hull.len() - 1], input_point]) <= 0.0 {
             hull.pop();
         }
         hull.push(input_point);
