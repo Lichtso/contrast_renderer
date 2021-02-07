@@ -182,7 +182,7 @@ macro_rules! render_pipeline_descriptor {
      $vertex_module:expr, $fragment_module:expr,
      $primitive_topology:ident, $color_states:expr,
      $stencil_front:expr, $stencil_back:expr, $stencil_read_mask:expr,
-     $vertex_buffer:expr $(,)?) => {
+     $vertex_buffer:expr, $sample_count:expr $(,)?) => {
         wgpu::RenderPipelineDescriptor {
             label: None,
             layout: Some($pipeline_layout),
@@ -217,7 +217,7 @@ macro_rules! render_pipeline_descriptor {
                 },
             }),
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: $sample_count,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -239,7 +239,7 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(device: &wgpu::Device, screen_format: wgpu::TextureFormat) -> Self {
+    pub fn new(device: &wgpu::Device, screen_format: wgpu::TextureFormat, sample_count: u32) -> Self {
         let segment_0_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment0_vert.spv"));
         let segment_3_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment3_vert.spv"));
         let segment_0_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
@@ -312,6 +312,7 @@ impl Renderer {
             stencil_back.clone(),
             !0,
             segment_0_vertex_buffer_descriptor.clone(),
+            sample_count,
         ));
         let stencil_integral_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -323,6 +324,7 @@ impl Renderer {
             stencil_back.clone(),
             !0,
             segment_2_vertex_buffer_descriptor,
+            sample_count,
         ));
         let stencil_integral_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -334,6 +336,7 @@ impl Renderer {
             stencil_back.clone(),
             !0,
             segment_3_vertex_buffer_descriptor.clone(),
+            sample_count,
         ));
         let stencil_rational_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -345,6 +348,7 @@ impl Renderer {
             stencil_back.clone(),
             !0,
             segment_3_vertex_buffer_descriptor.clone(),
+            sample_count,
         ));
         let stencil_rational_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -356,6 +360,7 @@ impl Renderer {
             stencil_back,
             !0,
             segment_4_vertex_buffer_descriptor,
+            sample_count,
         ));
 
         let fill_color_state = wgpu::ColorTargetState {
@@ -419,6 +424,7 @@ impl Renderer {
             stencil_descriptor!(NotEqual, Keep, Keep),
             1,
             segment_0_vertex_buffer_descriptor.clone(),
+            sample_count,
         ));
 
         Self {
@@ -466,13 +472,14 @@ impl Renderer {
     pub fn cover_render_pass<'a>(
         encoder: &'a mut wgpu::CommandEncoder,
         depth_stencil_texture_view: &'a wgpu::TextureView,
-        render_texture_view: &'a wgpu::TextureView,
+        color_texture_view: &'a wgpu::TextureView,
+        resolve_target: Option<&'a wgpu::TextureView>,
     ) -> wgpu::RenderPass<'a> {
         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                attachment: render_texture_view,
-                resolve_target: None,
+                attachment: color_texture_view,
+                resolve_target,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                     store: true,

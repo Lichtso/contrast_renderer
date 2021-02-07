@@ -72,6 +72,8 @@ impl Spawner {
     fn run_until_stalled(&self) {}
 }
 
+const MSAA_SAMPLE_COUNT: u32 = 4;
+
 #[allow(dead_code)]
 struct GuiSetup {
     window: winit::window::Window,
@@ -82,6 +84,7 @@ struct GuiSetup {
     device: wgpu::Device,
     queue: wgpu::Queue,
     depth_stencil_texture_view: Option<wgpu::TextureView>,
+    msaa_color_texture_view: Option<wgpu::TextureView>,
     path_renderer: contrast_render_engine::renderer::Renderer,
     fillable_shape: contrast_render_engine::renderer::FillableShape,
 }
@@ -146,7 +149,7 @@ impl GuiSetup {
             .expect("Unable to find a suitable GPU adapter!");
 
         let path_renderer =
-            contrast_render_engine::renderer::Renderer::new(&device, adapter.get_swap_chain_preferred_format(&surface));
+            contrast_render_engine::renderer::Renderer::new(&device, adapter.get_swap_chain_preferred_format(&surface), MSAA_SAMPLE_COUNT);
 
         let data = include_bytes!("fonts/OpenSans-Regular.ttf");
         let face = ttf_parser::Face::from_slice(data, 0).unwrap();
@@ -176,12 +179,14 @@ impl GuiSetup {
             device,
             queue,
             depth_stencil_texture_view: None,
+            msaa_color_texture_view: None,
             path_renderer,
             fillable_shape,
         }
     }
 
     fn resize(&mut self) -> wgpu::SwapChain {
+        self.window.request_redraw();
         let transform_uniform_data = [
             [2.0 / self.size.width as f32, 0.0, 0.0, 0.0],
             [0.0, 2.0 / self.size.height as f32, 0.0, 0.0],
@@ -197,7 +202,7 @@ impl GuiSetup {
                 depth: 1,
             },
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count: MSAA_SAMPLE_COUNT,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth24PlusStencil8,
             usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
@@ -208,6 +213,26 @@ impl GuiSetup {
             dimension: Some(wgpu::TextureViewDimension::D2),
             ..wgpu::TextureViewDescriptor::default()
         }));
+        if MSAA_SAMPLE_COUNT > 1 {
+            let msaa_color_texture_descriptor = wgpu::TextureDescriptor {
+                size: wgpu::Extent3d {
+                    width: self.size.width,
+                    height: self.size.height,
+                    depth: 1,
+                },
+                mip_level_count: 1,
+                sample_count: MSAA_SAMPLE_COUNT,
+                dimension: wgpu::TextureDimension::D2,
+                format: color_format,
+                usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
+                label: None,
+            };
+            let msaa_color_texture = self.device.create_texture(&msaa_color_texture_descriptor);
+            self.msaa_color_texture_view = Some(msaa_color_texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                ..wgpu::TextureViewDescriptor::default()
+            }));
+        }
         let swap_chain_descriptor = wgpu::SwapChainDescriptor {
             usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
             format: color_format,
@@ -231,7 +256,12 @@ impl GuiSetup {
             let mut render_pass = contrast_render_engine::renderer::Renderer::cover_render_pass(
                 &mut encoder,
                 &self.depth_stencil_texture_view.as_ref().unwrap(),
-                &frame.view,
+                if MSAA_SAMPLE_COUNT == 1 {
+                    &frame.view
+                } else {
+                    &self.msaa_color_texture_view.as_ref().unwrap()
+                },
+                if MSAA_SAMPLE_COUNT == 1 { None } else { Some(&frame.view) },
             );
             self.fillable_shape.render_cover(&self.path_renderer, &mut render_pass);
         }
@@ -260,7 +290,6 @@ impl GuiSetup {
                     self.size.width = size.width.max(1);
                     self.size.height = size.height.max(1);
                     swap_chain = self.resize();
-                    self.window.request_redraw();
                 }
                 event::Event::WindowEvent { event, .. } => match event {
                     WindowEvent::KeyboardInput {
