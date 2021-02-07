@@ -148,8 +148,12 @@ impl GuiSetup {
             .await
             .expect("Unable to find a suitable GPU adapter!");
 
-        let path_renderer =
-            contrast_render_engine::renderer::Renderer::new(&device, adapter.get_swap_chain_preferred_format(&surface), MSAA_SAMPLE_COUNT);
+        let path_renderer = contrast_render_engine::renderer::Renderer::new(
+            &device,
+            adapter.get_swap_chain_preferred_format(&surface),
+            MSAA_SAMPLE_COUNT,
+            contrast_render_engine::renderer::FillRule::NonZero,
+        );
 
         let data = include_bytes!("fonts/OpenSans-Regular.ttf");
         let face = ttf_parser::Face::from_slice(data, 0).unwrap();

@@ -225,6 +225,11 @@ macro_rules! render_pipeline_descriptor {
     };
 }
 
+pub enum FillRule {
+    EvenOdd,
+    NonZero,
+}
+
 pub struct Renderer {
     transform_uniform_buffer: wgpu::Buffer,
     transform_bind_group: wgpu::BindGroup,
@@ -239,7 +244,7 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(device: &wgpu::Device, screen_format: wgpu::TextureFormat, sample_count: u32) -> Self {
+    pub fn new(device: &wgpu::Device, screen_format: wgpu::TextureFormat, sample_count: u32, fill_rule: FillRule) -> Self {
         let segment_0_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment0_vert.spv"));
         let segment_3_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment3_vert.spv"));
         let segment_0_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
@@ -422,7 +427,10 @@ impl Renderer {
             &[fill_color_state],
             stencil_descriptor!(NotEqual, Keep, Keep),
             stencil_descriptor!(NotEqual, Keep, Keep),
-            1,
+            match fill_rule {
+                FillRule::EvenOdd => 1,
+                FillRule::NonZero => !0,
+            },
             segment_0_vertex_buffer_descriptor.clone(),
             sample_count,
         ));
