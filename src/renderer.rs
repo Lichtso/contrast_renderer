@@ -22,138 +22,96 @@ pub struct Vertex3(pub glam::Vec2, pub glam::Vec3);
 pub struct Vertex4(pub glam::Vec2, pub glam::Vec4);
 
 pub struct FillableShape {
-    anchor_elements: Vec<u32>,
-    cover_elements: u32,
-    cover_element_offset: u32,
-    integral_quadratic_curve_elements: u32,
-    integral_cubic_curve_elements: u32,
-    rational_quadratic_curve_elements: u32,
-    rational_cubic_curve_elements: u32,
-    segment_0_vertex_buffer: wgpu::Buffer,
-    segment_2_vertex_buffer: Option<wgpu::Buffer>,
-    segment_3_vertex_buffer: Option<wgpu::Buffer>,
-    segment_4_vertex_buffer: Option<wgpu::Buffer>,
+    anchor_elements: Vec<usize>,
+    offsets: [usize; 6],
+    vertex_buffer: wgpu::Buffer,
 }
 
 impl FillableShape {
     pub fn new(device: &wgpu::Device, paths: &[Path]) -> Self {
         let mut anchor_elements = Vec::new();
-        let mut integral_quadratic_curve_elements = 0;
-        let mut integral_cubic_curve_elements = 0;
-        let mut rational_quadratic_curve_elements = 0;
-        let mut rational_cubic_curve_elements = 0;
-        let mut segment_0_vertices: Vec<Vertex0> = Vec::new();
-        let mut segment_2_vertices: Vec<Vertex2> = Vec::new();
-        let mut segment_3_vertices: Vec<Vertex3> = Vec::new();
-        let mut segment_4_vertices: Vec<Vertex4> = Vec::new();
+        let mut offsets = [0; 6];
+        let mut anchors: Vec<Vertex0> = Vec::new();
+        let mut integral_quadratic_curve_elements: Vec<Vertex2> = Vec::new();
+        let mut integral_cubic_curve_elements: Vec<Vertex3> = Vec::new();
+        let mut rational_quadratic_curve_elements: Vec<Vertex3> = Vec::new();
+        let mut rational_cubic_curve_elements: Vec<Vertex4> = Vec::new();
         let mut proto_hull = Vec::new();
         for path in paths {
-            anchor_elements.push(path.anchors.len() as u32);
-            segment_0_vertices.append(&mut triangle_fan_to_strip(path.anchors.clone()));
+            anchor_elements.push(path.anchors.len());
+            anchors.append(&mut triangle_fan_to_strip(path.anchors.clone()));
+            if let Some(triangles) = &path.integral_quadratic_curve_triangles {
+                integral_quadratic_curve_elements.append(&mut triangles.clone());
+            }
+            if let Some(triangles) = &path.integral_cubic_curve_triangles {
+                integral_cubic_curve_elements.append(&mut triangles.clone());
+            }
+            if let Some(triangles) = &path.rational_quadratic_curve_triangles {
+                rational_quadratic_curve_elements.append(&mut triangles.clone());
+            }
+            if let Some(triangles) = &path.rational_cubic_curve_triangles {
+                rational_cubic_curve_elements.append(&mut triangles.clone());
+            }
             if let Some(path_proto_hull) = &path.proto_hull {
                 proto_hull.append(&mut path_proto_hull.clone());
             } else {
                 proto_hull.append(&mut path.anchors.clone());
             }
-            if let Some(triangles) = &path.integral_quadratic_curve_triangles {
-                integral_quadratic_curve_elements += triangles.len() as u32;
-                segment_2_vertices.append(&mut triangles.clone());
-            }
-            if let Some(triangles) = &path.integral_cubic_curve_triangles {
-                integral_cubic_curve_elements += triangles.len() as u32;
-                segment_3_vertices.append(&mut triangles.clone());
-            }
-        }
-        for path in paths {
-            if let Some(triangles) = &path.rational_quadratic_curve_triangles {
-                rational_quadratic_curve_elements += triangles.len() as u32;
-                segment_3_vertices.append(&mut triangles.clone());
-            }
-            if let Some(triangles) = &path.rational_cubic_curve_triangles {
-                rational_cubic_curve_elements += triangles.len() as u32;
-                segment_4_vertices.append(&mut triangles.clone());
-            }
         }
         let convex_hull = crate::convex_hull::andrew(&proto_hull);
-        let cover_elements = convex_hull.len() as u32;
-        let cover_element_offset = segment_0_vertices.len() as u32;
-        segment_0_vertices.append(&mut triangle_fan_to_strip(convex_hull));
-        let segment_0_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let mut vertex_buffers = [
+            crate::utils::transmute_vec::<_, u8>(anchors),
+            crate::utils::transmute_vec::<_, u8>(integral_quadratic_curve_elements),
+            crate::utils::transmute_vec::<_, u8>(integral_cubic_curve_elements),
+            crate::utils::transmute_vec::<_, u8>(rational_quadratic_curve_elements),
+            crate::utils::transmute_vec::<_, u8>(rational_cubic_curve_elements),
+            crate::utils::transmute_vec::<_, u8>(triangle_fan_to_strip(convex_hull)),
+        ];
+        let mut vertex_buffer_length = 0;
+        for (i, vertex_buffer) in vertex_buffers.iter().enumerate() {
+            vertex_buffer_length += vertex_buffer.len();
+            offsets[i] = vertex_buffer_length;
+        }
+        let mut vertex_buffer_data: Vec<u8> = Vec::with_capacity(vertex_buffer_length);
+        for mut vertex_buffer in &mut vertex_buffers {
+            vertex_buffer_data.append(&mut vertex_buffer);
+        }
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: crate::utils::transmute_slice(&segment_0_vertices),
+            contents: &vertex_buffer_data,
             usage: wgpu::BufferUsage::VERTEX,
         });
-        let segment_2_vertex_buffer = if segment_2_vertices.is_empty() {
-            None
-        } else {
-            Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: crate::utils::transmute_slice(&segment_2_vertices),
-                usage: wgpu::BufferUsage::VERTEX,
-            }))
-        };
-        let segment_3_vertex_buffer = if segment_3_vertices.is_empty() {
-            None
-        } else {
-            Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: crate::utils::transmute_slice(&segment_3_vertices),
-                usage: wgpu::BufferUsage::VERTEX,
-            }))
-        };
-        let segment_4_vertex_buffer = if segment_4_vertices.is_empty() {
-            None
-        } else {
-            Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: crate::utils::transmute_slice(&segment_4_vertices),
-                usage: wgpu::BufferUsage::VERTEX,
-            }))
-        };
         Self {
             anchor_elements,
-            cover_elements,
-            cover_element_offset,
-            integral_quadratic_curve_elements,
-            integral_cubic_curve_elements,
-            rational_quadratic_curve_elements,
-            rational_cubic_curve_elements,
-            segment_0_vertex_buffer,
-            segment_2_vertex_buffer,
-            segment_3_vertex_buffer,
-            segment_4_vertex_buffer,
+            offsets,
+            vertex_buffer,
         }
     }
 
     pub fn render_stencil<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
         render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
         render_pass.set_pipeline(&renderer.stencil_solid_pipeline);
-        render_pass.set_vertex_buffer(0, self.segment_0_vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(0..self.offsets[0] as u64));
         let mut begin_index = 0;
         for element_count in &self.anchor_elements {
             let end_index = begin_index + element_count;
-            render_pass.draw(begin_index..end_index, 0..1);
+            render_pass.draw(begin_index as u32..end_index as u32, 0..1);
             begin_index = end_index;
         }
-        if let Some(vertex_buffer) = &self.segment_2_vertex_buffer {
-            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.set_pipeline(&renderer.stencil_integral_quadratic_curve_pipeline);
-            render_pass.draw(0..self.integral_quadratic_curve_elements, 0..1);
-        }
-        if let Some(vertex_buffer) = &self.segment_3_vertex_buffer {
-            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.set_pipeline(&renderer.stencil_integral_cubic_curve_pipeline);
-            render_pass.draw(0..self.integral_cubic_curve_elements, 0..1);
-            render_pass.set_pipeline(&renderer.stencil_rational_quadratic_curve_pipeline);
-            render_pass.draw(
-                self.integral_cubic_curve_elements..self.integral_cubic_curve_elements + self.rational_quadratic_curve_elements,
-                0..1,
-            );
-        }
-        if let Some(vertex_buffer) = &self.segment_4_vertex_buffer {
-            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.set_pipeline(&renderer.stencil_rational_cubic_curve_pipeline);
-            render_pass.draw(0..self.rational_cubic_curve_elements, 0..1);
+        for (i, (pipeline, vertex_size)) in [
+            (&renderer.stencil_integral_quadratic_curve_pipeline, std::mem::size_of::<Vertex2>()),
+            (&renderer.stencil_integral_cubic_curve_pipeline, std::mem::size_of::<Vertex3>()),
+            (&renderer.stencil_rational_quadratic_curve_pipeline, std::mem::size_of::<Vertex3>()),
+            (&renderer.stencil_rational_cubic_curve_pipeline, std::mem::size_of::<Vertex4>()),
+        ]
+        .iter()
+        .enumerate()
+        {
+            if self.offsets[i] < self.offsets[i + 1] {
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(self.offsets[i] as u64..self.offsets[i + 1] as u64));
+                render_pass.set_pipeline(pipeline);
+                render_pass.draw(0..((self.offsets[i + 1] - self.offsets[i]) / vertex_size) as u32, 0..1);
+            }
         }
     }
 
@@ -161,8 +119,8 @@ impl FillableShape {
         render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
         render_pass.set_bind_group(1, &renderer.fill_solid_bind_group, &[]);
         render_pass.set_pipeline(&renderer.fill_solid_pipeline);
-        render_pass.set_vertex_buffer(0, self.segment_0_vertex_buffer.slice(..));
-        render_pass.draw(self.cover_element_offset..self.cover_element_offset + self.cover_elements, 0..1);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(self.offsets[4] as u64..self.offsets[5] as u64));
+        render_pass.draw(0..((self.offsets[5] - self.offsets[4]) / std::mem::size_of::<Vertex0>()) as u32, 0..1);
     }
 }
 
