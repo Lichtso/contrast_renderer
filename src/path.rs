@@ -35,12 +35,18 @@ fn third_order_derivative_at(c: &glam::Mat4, t: f32) -> glam::Vec2 {
 const CUBIC_POWER_BASIS: glam::Mat4 = const_mat4!([1.0, 0.0, 0.0, 0.0, -3.0, 3.0, 0.0, 0.0, 3.0, -6.0, 3.0, 0.0, -1.0, 3.0, -3.0, 1.0]);
 
 fn control_points_power_basis(control_points: &[glam::Vec3; 4]) -> glam::Mat4 {
-    glam::Mat4::from_cols(
-        control_points[0].extend(0.0),
-        control_points[1].extend(0.0),
-        control_points[2].extend(0.0),
-        control_points[3].extend(0.0),
-    ) * CUBIC_POWER_BASIS
+    let control_points = control_points
+        .iter()
+        .map(|control_point| {
+            glam::vec4(
+                control_point[0] * control_point[2],
+                control_point[1] * control_point[2],
+                control_point[2],
+                0.0,
+            )
+        })
+        .collect::<Vec<_>>();
+    glam::Mat4::from_cols(control_points[0], control_points[1], control_points[2], control_points[3]) * CUBIC_POWER_BASIS
 }
 
 fn integral_inflection_point_polynomial_coefficients(c: &glam::Mat4) -> glam::Vec4 {
@@ -237,19 +243,19 @@ fn weights(discreminant: f32, roots: &[glam::Vec2; 3]) -> glam::Mat4 {
 fn weight_planes(control_points: &[glam::Vec3; 4], weights: &glam::Mat4) -> [glam::Vec4; 4] {
     let mut planes = [glam::Vec4::default(); 4];
     for (i, plane) in planes.iter_mut().enumerate() {
-        let a = glam::vec3(control_points[0][0], control_points[0][1], weights.x_axis[i]) / control_points[0][2];
-        let b = glam::vec3(control_points[1][0], control_points[1][1], weights.y_axis[i]) / control_points[1][2];
-        let c = glam::vec3(control_points[2][0], control_points[2][1], weights.z_axis[i]) / control_points[2][2];
-        let mut n = (b - a).cross(c - a);
-        if n.length_squared() < ERROR_MARGIN {
-            let d = glam::vec3(control_points[3][0], control_points[3][1], weights.z_axis[i]) / control_points[3][2];
-            n = (b - a).cross(d - a);
+        let point_a = glam::vec3(control_points[0][0], control_points[0][1], weights.x_axis[i]);
+        let point_b = glam::vec3(control_points[1][0], control_points[1][1], weights.y_axis[i]);
+        let point_c = glam::vec3(control_points[2][0], control_points[2][1], weights.z_axis[i]);
+        let mut normal = (point_b - point_a).cross(point_c - point_a);
+        if normal.length_squared() < ERROR_MARGIN {
+            let point_d = glam::vec3(control_points[3][0], control_points[3][1], weights.z_axis[i]);
+            normal = (point_b - point_a).cross(point_d - point_a);
         }
-        n = n.normalize();
-        if n[2] < 0.0 {
-            n *= -1.0;
+        normal = normal.normalize();
+        if normal[2] < 0.0 {
+            normal *= -1.0;
         }
-        *plane = glam::vec4(n[0], n[1], n[2], n.dot(a));
+        *plane = glam::vec4(normal[0], normal[1], normal[2], normal.dot(point_a));
     }
     planes
 }
@@ -304,6 +310,9 @@ macro_rules! emit_triangle {
 macro_rules! triangulate_quadrilateral {
     ($anchors:expr, $cubic_curve_triangles:expr,
      $control_points:expr, $weights:expr, $v:ident, $w:ident, $emit_vertex:expr) => {{
+        for (weights, control_point) in $weights.iter_mut().zip($control_points.iter()) {
+            *weights /= control_point[2];
+        }
         let mut triangles = Vec::new();
         let signed_triangle_areas: Vec<f32> = (0..4)
             .map(|i| {
@@ -391,14 +400,14 @@ macro_rules! emit_cubic_curve {
     ($proto_hull:expr, $anchors:expr, $cubic_curve_triangles:expr,
      $control_points:expr, $c:expr, $discreminant:expr, $roots:expr,
      $v:ident, $w:ident, $emit_vertex:expr) => {{
-        let mut weights = weights($discreminant, $roots);
-        let mut planes = weight_planes($control_points, &weights);
+        let mut weights = weights($discreminant, &$roots);
+        let mut planes = weight_planes(&$control_points, &weights);
         let gradient = implicit_curve_gradient(&planes, weights.x_axis);
-        normalize_implicit_curve_side(&mut planes, &mut weights, $c, gradient);
-        let weights = [weights.x_axis, weights.y_axis, weights.z_axis, weights.w_axis];
-        if let Some(param) = find_double_point_issue($discreminant, $roots) {
-            let (control_points_a, control_points_b) = split_curve_at!($control_points, param);
-            let (weights_a, mut weights_b) = split_curve_at!(&weights, param);
+        normalize_implicit_curve_side(&mut planes, &mut weights, &$c, gradient);
+        let mut weights = [weights.x_axis, weights.y_axis, weights.z_axis, weights.w_axis];
+        if let Some(param) = find_double_point_issue($discreminant, &$roots) {
+            let (control_points_a, control_points_b) = split_curve_at!(&$control_points, param);
+            let (mut weights_a, mut weights_b) = split_curve_at!(&weights, param);
             triangulate_quadrilateral!($anchors, $cubic_curve_triangles, &control_points_a, weights_a, $v, $w, $emit_vertex);
             $anchors.push(control_points_b[0].truncate().into());
             for weights in &mut weights_b {
@@ -480,13 +489,13 @@ impl Path {
                     let ippc = integral_inflection_point_polynomial_coefficients(&c);
                     let (discreminant, roots) = integral_inflection_points(ippc);
                     emit_cubic_curve!(
-                        &mut proto_hull,
-                        &mut anchors,
-                        &mut integral_cubic_curve_triangles,
-                        &control_points,
-                        &c,
+                        proto_hull,
+                        anchors,
+                        integral_cubic_curve_triangles,
+                        control_points,
+                        c,
                         discreminant,
-                        &roots,
+                        roots,
                         v,
                         w,
                         Vertex3(v, w.truncate())
@@ -505,26 +514,23 @@ impl Path {
                 }
                 SegmentType::RationalCubicCurve => {
                     let segment = rational_cubic_curve_segment_iter.next().unwrap();
-                    let mut control_points = [
+                    let control_points = [
                         previous_anchor.extend(segment.first_weight),
                         segment.control_points[0],
                         segment.control_points[1],
                         segment.control_points[2],
                     ];
-                    for control_point in &mut control_points {
-                        *control_point *= glam::vec3(control_point[2], control_point[2], 1.0);
-                    }
                     let c = control_points_power_basis(&control_points);
                     let ippc = rational_inflection_point_polynomial_coefficients(&c);
                     let (discreminant, roots) = rational_inflection_points(ippc);
                     emit_cubic_curve!(
-                        &mut proto_hull,
-                        &mut anchors,
-                        &mut rational_cubic_curve_triangles,
-                        &control_points,
-                        &c,
+                        proto_hull,
+                        anchors,
+                        rational_cubic_curve_triangles,
+                        control_points,
+                        c,
                         discreminant,
-                        &roots,
+                        roots,
                         v,
                         w,
                         Vertex4(v, w)
