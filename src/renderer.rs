@@ -1,4 +1,4 @@
-use crate::path::Path;
+use crate::{error::Error, path::Path};
 use wgpu::{include_spirv, util::DeviceExt, vertex_attr_array};
 
 fn triangle_fan_to_strip<T: Copy>(vertices: Vec<T>) -> Vec<T> {
@@ -115,12 +115,51 @@ impl FillableShape {
         }
     }
 
-    pub fn render_cover<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
+    fn render_cover<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
         render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
         render_pass.set_bind_group(1, &renderer.fill_solid_bind_group, &[]);
-        render_pass.set_pipeline(&renderer.fill_solid_pipeline);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(self.offsets[4] as u64..self.offsets[5] as u64));
         render_pass.draw(0..((self.offsets[5] - self.offsets[4]) / std::mem::size_of::<Vertex0>()) as u32, 0..1);
+    }
+
+    pub fn render_solid_fill<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>, clip_stack_height: usize) {
+        render_pass.set_stencil_reference((clip_stack_height << renderer.winding_counter_bits) as u32);
+        render_pass.set_pipeline(&renderer.fill_solid_pipeline);
+        self.render_cover(renderer, render_pass);
+    }
+}
+
+#[derive(Default)]
+pub struct ClipStack<'a> {
+    stack: Vec<&'a FillableShape>,
+}
+
+impl<'b, 'a: 'b> ClipStack<'a> {
+    pub fn height(&self) -> usize {
+        self.stack.len()
+    }
+
+    pub fn push(&mut self, renderer: &'b Renderer, render_pass: &mut wgpu::RenderPass<'b>, fillable_shape: &'a FillableShape) -> Result<(), Error> {
+        if self.height() >= (1 << renderer.clip_nesting_counter_bits) {
+            return Err(Error::ClipStackOverflow);
+        }
+        self.stack.push(fillable_shape);
+        render_pass.set_stencil_reference((self.height() << renderer.winding_counter_bits) as u32);
+        render_pass.set_pipeline(&renderer.increment_clip_nesting_counter_pipeline);
+        fillable_shape.render_cover(renderer, render_pass);
+        Ok(())
+    }
+
+    pub fn pop(&mut self, renderer: &'b Renderer, render_pass: &mut wgpu::RenderPass<'b>) -> Result<(), Error> {
+        match self.stack.pop() {
+            Some(fillable_shape) => {
+                render_pass.set_stencil_reference((self.height() << renderer.winding_counter_bits) as u32);
+                render_pass.set_pipeline(&renderer.decrement_clip_nesting_counter_pipeline);
+                fillable_shape.render_cover(renderer, render_pass);
+                Ok(())
+            }
+            None => Err(Error::ClipStackUnderflow),
+        }
     }
 }
 
@@ -139,7 +178,7 @@ macro_rules! render_pipeline_descriptor {
     ($pipeline_layout:expr,
      $vertex_module:expr, $fragment_module:expr,
      $primitive_topology:ident, $color_states:expr,
-     $stencil_front:expr, $stencil_back:expr, $stencil_read_mask:expr,
+     $stencil_state:expr,
      $vertex_buffer:expr, $sample_count:expr $(,)?) => {
         wgpu::RenderPipelineDescriptor {
             label: None,
@@ -167,12 +206,7 @@ macro_rules! render_pipeline_descriptor {
                 depth_compare: wgpu::CompareFunction::Always,
                 bias: wgpu::DepthBiasState::default(),
                 clamp_depth: false,
-                stencil: wgpu::StencilState {
-                    front: $stencil_front,
-                    back: $stencil_back,
-                    read_mask: $stencil_read_mask,
-                    write_mask: !0,
-                },
+                stencil: $stencil_state,
             }),
             multisample: wgpu::MultisampleState {
                 count: $sample_count,
@@ -183,12 +217,9 @@ macro_rules! render_pipeline_descriptor {
     };
 }
 
-pub enum FillRule {
-    EvenOdd,
-    NonZero,
-}
-
 pub struct Renderer {
+    winding_counter_bits: usize,
+    clip_nesting_counter_bits: usize,
     transform_uniform_buffer: wgpu::Buffer,
     transform_bind_group: wgpu::BindGroup,
     stencil_solid_pipeline: wgpu::RenderPipeline,
@@ -196,15 +227,28 @@ pub struct Renderer {
     stencil_integral_cubic_curve_pipeline: wgpu::RenderPipeline,
     stencil_rational_quadratic_curve_pipeline: wgpu::RenderPipeline,
     stencil_rational_cubic_curve_pipeline: wgpu::RenderPipeline,
+    increment_clip_nesting_counter_pipeline: wgpu::RenderPipeline,
+    decrement_clip_nesting_counter_pipeline: wgpu::RenderPipeline,
     fill_solid_uniform_buffer: wgpu::Buffer,
     fill_solid_bind_group: wgpu::BindGroup,
     fill_solid_pipeline: wgpu::RenderPipeline,
 }
 
 impl Renderer {
-    pub fn new(device: &wgpu::Device, screen_format: wgpu::TextureFormat, sample_count: u32, fill_rule: FillRule) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        fill_color_state: wgpu::ColorTargetState,
+        sample_count: u32,
+        clip_nesting_counter_bits: usize,
+        winding_counter_bits: usize,
+    ) -> Result<Self, Error> {
+        if winding_counter_bits == 0 || clip_nesting_counter_bits + winding_counter_bits > 8 {
+            return Err(Error::NumberOfStencilBitsIsUnsupported);
+        }
+
         let segment_0_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment0_vert.spv"));
         let segment_3_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment3_vert.spv"));
+        let stencil_solid_fragment_module = device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_solid_frag.spv"));
         let segment_0_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (2 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
@@ -258,8 +302,15 @@ impl Renderer {
             }],
             label: None,
         });
-        let stencil_front = stencil_descriptor!(Always, Keep, IncrementWrap);
-        let stencil_back = stencil_descriptor!(Always, Keep, DecrementWrap);
+
+        let winding_counter_mask = (1 << winding_counter_bits) - 1;
+        let clip_nesting_counter_mask = ((1 << clip_nesting_counter_bits) - 1) << winding_counter_bits;
+        let stencil_state = wgpu::StencilState {
+            front: stencil_descriptor!(LessEqual, Keep, IncrementWrap),
+            back: stencil_descriptor!(LessEqual, Keep, DecrementWrap),
+            read_mask: clip_nesting_counter_mask | winding_counter_mask,
+            write_mask: winding_counter_mask,
+        };
         let stencil_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&transform_bind_group_layout],
@@ -268,12 +319,10 @@ impl Renderer {
         let stencil_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
             &segment_0_vertex_module,
-            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_solid_frag.spv")),
+            &stencil_solid_fragment_module,
             TriangleStrip,
             &[],
-            stencil_front.clone(),
-            stencil_back.clone(),
-            !0,
+            stencil_state.clone(),
             segment_0_vertex_buffer_descriptor.clone(),
             sample_count,
         ));
@@ -283,9 +332,7 @@ impl Renderer {
             &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_integral_quadratic_curve_frag.spv")),
             TriangleList,
             &[],
-            stencil_front.clone(),
-            stencil_back.clone(),
-            !0,
+            stencil_state.clone(),
             segment_2_vertex_buffer_descriptor,
             sample_count,
         ));
@@ -295,9 +342,7 @@ impl Renderer {
             &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_integral_cubic_curve_frag.spv")),
             TriangleList,
             &[],
-            stencil_front.clone(),
-            stencil_back.clone(),
-            !0,
+            stencil_state.clone(),
             segment_3_vertex_buffer_descriptor.clone(),
             sample_count,
         ));
@@ -307,9 +352,7 @@ impl Renderer {
             &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_rational_quadratic_curve_frag.spv")),
             TriangleList,
             &[],
-            stencil_front.clone(),
-            stencil_back.clone(),
-            !0,
+            stencil_state.clone(),
             segment_3_vertex_buffer_descriptor.clone(),
             sample_count,
         ));
@@ -319,27 +362,42 @@ impl Renderer {
             &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_rational_cubic_curve_frag.spv")),
             TriangleList,
             &[],
-            stencil_front,
-            stencil_back,
-            !0,
+            stencil_state,
             segment_4_vertex_buffer_descriptor,
             sample_count,
         ));
 
-        let fill_color_state = wgpu::ColorTargetState {
-            format: screen_format,
-            color_blend: wgpu::BlendState {
-                src_factor: wgpu::BlendFactor::SrcAlpha,
-                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                operation: wgpu::BlendOperation::Add,
+        let increment_clip_nesting_counter_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &stencil_pipeline_layout,
+            &segment_0_vertex_module,
+            &stencil_solid_fragment_module,
+            TriangleStrip,
+            &[],
+            wgpu::StencilState {
+                front: stencil_descriptor!(NotEqual, Keep, Replace),
+                back: stencil_descriptor!(NotEqual, Keep, Replace),
+                read_mask: winding_counter_mask,
+                write_mask: clip_nesting_counter_mask | winding_counter_mask,
             },
-            alpha_blend: wgpu::BlendState {
-                src_factor: wgpu::BlendFactor::SrcAlpha,
-                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                operation: wgpu::BlendOperation::Add,
+            segment_0_vertex_buffer_descriptor.clone(),
+            sample_count,
+        ));
+        let decrement_clip_nesting_counter_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &stencil_pipeline_layout,
+            &segment_0_vertex_module,
+            &stencil_solid_fragment_module,
+            TriangleStrip,
+            &[],
+            wgpu::StencilState {
+                front: stencil_descriptor!(Less, Keep, Replace),
+                back: stencil_descriptor!(Less, Keep, Replace),
+                read_mask: clip_nesting_counter_mask,
+                write_mask: clip_nesting_counter_mask | winding_counter_mask,
             },
-            write_mask: wgpu::ColorWrite::ALL,
-        };
+            segment_0_vertex_buffer_descriptor.clone(),
+            sample_count,
+        ));
+
         const FILL_SOLID_UNIFORM_BUFFER_SIZE: usize = std::mem::size_of::<[f32; 4]>();
         let fill_solid_uniform_data: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
         let fill_solid_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -383,17 +441,19 @@ impl Renderer {
             &device.create_shader_module(&include_spirv!("../target/shader_modules/fill_solid_frag.spv")),
             TriangleStrip,
             &[fill_color_state],
-            stencil_descriptor!(NotEqual, Keep, Keep),
-            stencil_descriptor!(NotEqual, Keep, Keep),
-            match fill_rule {
-                FillRule::EvenOdd => 1,
-                FillRule::NonZero => !0,
+            wgpu::StencilState {
+                front: stencil_descriptor!(Less, Zero, Zero),
+                back: stencil_descriptor!(Less, Zero, Zero),
+                read_mask: clip_nesting_counter_mask | winding_counter_mask,
+                write_mask: winding_counter_mask,
             },
             segment_0_vertex_buffer_descriptor.clone(),
             sample_count,
         ));
 
-        Self {
+        Ok(Self {
+            winding_counter_bits,
+            clip_nesting_counter_bits,
             transform_uniform_buffer,
             transform_bind_group,
             stencil_solid_pipeline,
@@ -401,10 +461,12 @@ impl Renderer {
             stencil_integral_cubic_curve_pipeline,
             stencil_rational_quadratic_curve_pipeline,
             stencil_rational_cubic_curve_pipeline,
+            increment_clip_nesting_counter_pipeline,
+            decrement_clip_nesting_counter_pipeline,
             fill_solid_uniform_buffer,
             fill_solid_bind_group,
             fill_solid_pipeline,
-        }
+        })
     }
 
     pub fn set_transform(&self, queue: &wgpu::Queue, transform: &[[f32; 4]; 4]) {
@@ -415,53 +477,5 @@ impl Renderer {
     pub fn set_solid_fill_color(&self, queue: &wgpu::Queue, color: &[f32; 4]) {
         let data = crate::utils::transmute_slice(color);
         queue.write_buffer(&self.fill_solid_uniform_buffer, 0, &data);
-    }
-
-    pub fn stencil_render_pass<'a>(encoder: &'a mut wgpu::CommandEncoder, depth_stencil_texture_view: &'a wgpu::TextureView) -> wgpu::RenderPass<'a> {
-        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
-            color_attachments: &[],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                attachment: depth_stencil_texture_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(0.0),
-                    store: true,
-                }),
-                stencil_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(0),
-                    store: true,
-                }),
-            }),
-        })
-    }
-
-    pub fn cover_render_pass<'a>(
-        encoder: &'a mut wgpu::CommandEncoder,
-        depth_stencil_texture_view: &'a wgpu::TextureView,
-        color_texture_view: &'a wgpu::TextureView,
-        resolve_target: Option<&'a wgpu::TextureView>,
-    ) -> wgpu::RenderPass<'a> {
-        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
-            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                attachment: color_texture_view,
-                resolve_target,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: true,
-                },
-            }],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                attachment: depth_stencil_texture_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: false,
-                }),
-                stencil_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: false,
-                }),
-            }),
-        })
     }
 }

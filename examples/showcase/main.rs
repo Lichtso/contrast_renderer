@@ -148,12 +148,21 @@ impl GuiSetup {
             .await
             .expect("Unable to find a suitable GPU adapter!");
 
-        let path_renderer = contrast_render_engine::renderer::Renderer::new(
-            &device,
-            adapter.get_swap_chain_preferred_format(&surface),
-            MSAA_SAMPLE_COUNT,
-            contrast_render_engine::renderer::FillRule::NonZero,
-        );
+        let fill_color_state = wgpu::ColorTargetState {
+            format: adapter.get_swap_chain_preferred_format(&surface),
+            color_blend: wgpu::BlendState {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha_blend: wgpu::BlendState {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                operation: wgpu::BlendOperation::Add,
+            },
+            write_mask: wgpu::ColorWrite::ALL,
+        };
+        let path_renderer = contrast_render_engine::renderer::Renderer::new(&device, fill_color_state, MSAA_SAMPLE_COUNT, 4, 4).unwrap();
 
         let data = include_bytes!("fonts/OpenSans-Regular.ttf");
         let face = ttf_parser::Face::from_slice(data, 0).unwrap();
@@ -171,7 +180,6 @@ impl GuiSetup {
             0,
             contrast_render_engine::path::Path::from_rounded_rect(glam::vec2(0.0, 0.0), glam::vec2(600.0, 120.0), 50.0),
         );
-
         let fillable_shape = contrast_render_engine::renderer::FillableShape::new(&device, &paths);
 
         Self {
@@ -251,23 +259,53 @@ impl GuiSetup {
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         {
-            let mut render_pass =
-                contrast_render_engine::renderer::Renderer::stencil_render_pass(&mut encoder, &self.depth_stencil_texture_view.as_ref().unwrap());
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: &self.depth_stencil_texture_view.as_ref().unwrap(),
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.0),
+                        store: false,
+                    }),
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0),
+                        store: true,
+                    }),
+                }),
+            });
             self.fillable_shape.render_stencil(&self.path_renderer, &mut render_pass);
         }
 
         {
-            let mut render_pass = contrast_render_engine::renderer::Renderer::cover_render_pass(
-                &mut encoder,
-                &self.depth_stencil_texture_view.as_ref().unwrap(),
-                if MSAA_SAMPLE_COUNT == 1 {
-                    &frame.view
-                } else {
-                    &self.msaa_color_texture_view.as_ref().unwrap()
-                },
-                if MSAA_SAMPLE_COUNT == 1 { None } else { Some(&frame.view) },
-            );
-            self.fillable_shape.render_cover(&self.path_renderer, &mut render_pass);
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                    attachment: if MSAA_SAMPLE_COUNT == 1 {
+                        &frame.view
+                    } else {
+                        &self.msaa_color_texture_view.as_ref().unwrap()
+                    },
+                    resolve_target: if MSAA_SAMPLE_COUNT == 1 { None } else { Some(&frame.view) },
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: &self.depth_stencil_texture_view.as_ref().unwrap(),
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: false,
+                    }),
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    }),
+                }),
+            });
+            self.fillable_shape
+                .render_solid_fill(&self.path_renderer, &mut render_pass, 0);
         }
 
         self.queue.submit(Some(encoder.finish()));
