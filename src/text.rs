@@ -1,50 +1,45 @@
-use crate::path::Path;
-use crate::path_builder::{IntegralCubicCurveSegment, IntegralQuadraticCurveSegment, LineSegment, PathBuilder};
+use crate::path::{IntegralCubicCurveSegment, IntegralQuadraticCurveSegment, LineSegment, Path};
 
 #[derive(Default)]
 struct OutlineBuilder {
-    path_builder: PathBuilder,
-    path_builders: Vec<PathBuilder>,
+    path: Path,
+    paths: Vec<Path>,
 }
 
 impl ttf_parser::OutlineBuilder for OutlineBuilder {
     fn move_to(&mut self, x: f32, y: f32) {
-        self.path_builder.anchor = glam::vec2(x, y);
+        self.path.start = glam::vec2(x, y);
     }
 
     fn line_to(&mut self, x: f32, y: f32) {
-        self.path_builder.push_line(LineSegment {
+        self.path.push_line(LineSegment {
             control_points: [glam::vec2(x, y)],
         });
     }
 
     fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
-        self.path_builder.push_integral_quadratic_curve(IntegralQuadraticCurveSegment {
+        self.path.push_integral_quadratic_curve(IntegralQuadraticCurveSegment {
             control_points: [glam::vec2(x1, y1), glam::vec2(x, y)],
         });
     }
 
     fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
-        self.path_builder.push_integral_cubic_curve(IntegralCubicCurveSegment {
+        self.path.push_integral_cubic_curve(IntegralCubicCurveSegment {
             control_points: [glam::vec2(x1, y1), glam::vec2(x2, y2), glam::vec2(x, y)],
         });
     }
 
     fn close(&mut self) {
-        let mut path_builder = PathBuilder::default();
-        std::mem::swap(&mut path_builder, &mut self.path_builder);
-        self.path_builders.push(path_builder);
+        let mut path = Path::default();
+        std::mem::swap(&mut path, &mut self.path);
+        self.paths.push(path);
     }
 }
 
 pub fn paths_of_glyph(face: &ttf_parser::Face, glyph_id: ttf_parser::GlyphId) -> Vec<Path> {
     let mut outline_builder = OutlineBuilder::default();
     if let Some(_bounding_box) = face.outline_glyph(glyph_id, &mut outline_builder) {
-        outline_builder
-            .path_builders
-            .iter()
-            .map(|path_builder| Path::from_path_builder(path_builder))
-            .collect()
+        outline_builder.paths
     } else {
         Vec::new()
     }
@@ -114,7 +109,7 @@ pub fn paths_of_text(
         let transform = glam::Mat3::from_scale_angle_translation(glam::vec2(1.0, 1.0), 0.0, glam::vec2(x, y));
         let mut paths = paths_of_glyph(&face, glyph_id);
         for path in &mut paths {
-            path.transform(transform);
+            path.transform(&transform);
         }
         result.append(&mut paths);
     }

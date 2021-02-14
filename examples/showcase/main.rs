@@ -7,7 +7,7 @@ struct Application {
     depth_stencil_texture_view: Option<wgpu::TextureView>,
     msaa_color_texture_view: Option<wgpu::TextureView>,
     path_renderer: contrast_render_engine::renderer::Renderer,
-    fillable_shape: contrast_render_engine::renderer::FillableShape,
+    fill_shape: contrast_render_engine::renderer::Shape,
 }
 
 impl application_framework::Application for Application {
@@ -37,20 +37,20 @@ impl application_framework::Application for Application {
             "Hello World",
         );
         for path in &mut paths {
-            path.transform(glam::Mat3::from_scale_angle_translation(glam::vec2(0.1, 0.1), 0.0, glam::vec2(0.0, 0.0)));
+            path.transform(&glam::Mat3::from_scale_angle_translation(glam::vec2(0.1, 0.1), 0.0, glam::vec2(0.0, 0.0)));
             path.reverse();
         }
         paths.insert(
             0,
-            contrast_render_engine::path::Path::from_rounded_rect(glam::vec2(0.0, 0.0), glam::vec2(600.0, 120.0), 50.0),
+            contrast_render_engine::path::Path::from_rounded_rect(glam::vec2(0.0, 0.0), glam::vec2(580.0, 130.0), 50.0),
         );
-        let fillable_shape = contrast_render_engine::renderer::FillableShape::new(&device, &paths);
+        let fill_shape = contrast_render_engine::renderer::Shape::new(&device, paths.as_slice());
 
         Self {
             depth_stencil_texture_view: None,
             msaa_color_texture_view: None,
             path_renderer,
-            fillable_shape,
+            fill_shape,
         }
     }
 
@@ -118,7 +118,7 @@ impl application_framework::Application for Application {
                     }),
                 }),
             });
-            self.fillable_shape.render_stencil(&self.path_renderer, &mut render_pass);
+            self.fill_shape.render_stencil(&self.path_renderer, &mut render_pass);
         }
 
         {
@@ -148,7 +148,7 @@ impl application_framework::Application for Application {
                     }),
                 }),
             });
-            self.fillable_shape
+            self.fill_shape
                 .render_solid_fill(&self.path_renderer, &mut render_pass, 0);
         }
 
