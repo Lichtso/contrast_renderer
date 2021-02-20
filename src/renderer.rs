@@ -32,15 +32,16 @@ fn emit_stroke_vertices(
     control_point: glam::Vec2,
     normal: glam::Vec2,
 ) {
+    let clamped_offset = stroke_options.offset.clamp(-0.5, 0.5);
     emit_stroke_vertex(
         proto_hull,
         path_stroke_solid_vertices,
-        control_point + normal * (stroke_options.offset - 0.5 * stroke_options.width),
+        control_point + normal * (clamped_offset - 0.5) * stroke_options.width,
     );
     emit_stroke_vertex(
         proto_hull,
         path_stroke_solid_vertices,
-        control_point + normal * (stroke_options.offset + 0.5 * stroke_options.width),
+        control_point + normal * (clamped_offset + 0.5) * stroke_options.width,
     );
 }
 
@@ -52,6 +53,9 @@ fn emit_stroke_rounding(
     begin_tangent: glam::Vec2,
     end_tangent: glam::Vec2,
 ) {
+    if begin_control_point.distance_squared(end_control_point) == 0.0 {
+        return;
+    }
     let intersection_point = line_line_intersection(begin_control_point, begin_tangent, end_control_point, end_tangent);
     proto_hull.push(intersection_point);
     let tangets_dot_product = begin_tangent.dot(end_tangent);

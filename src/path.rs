@@ -25,45 +25,6 @@ pub struct RationalCubicCurveSegment {
     pub control_points: [glam::Vec2; 3],
 }
 
-/*#[derive(Debug, Clone, Copy)]
-pub enum Segment {
-    Line(LineSegment),
-    IntegralQuadraticCurve(IntegralQuadraticCurveSegment),
-    IntegralCubicCurve(IntegralCubicCurveSegment),
-    RationalQuadraticCurve(RationalQuadraticCurveSegment),
-    RationalCubicCurve(RationalCubicCurveSegment),
-}
-
-impl From<LineSegment> for Segment {
-    fn from(segment: LineSegment) -> Self {
-        Self::Line(segment)
-    }
-}
-
-impl From<IntegralQuadraticCurveSegment> for Segment {
-    fn from(segment: IntegralQuadraticCurveSegment) -> Self {
-        Self::IntegralQuadraticCurve(segment)
-    }
-}
-
-impl From<IntegralCubicCurveSegment> for Segment {
-    fn from(segment: IntegralCubicCurveSegment) -> Self {
-        Self::IntegralCubicCurve(segment)
-    }
-}
-
-impl From<RationalQuadraticCurveSegment> for Segment {
-    fn from(segment: RationalQuadraticCurveSegment) -> Self {
-        Self::RationalQuadraticCurve(segment)
-    }
-}
-
-impl From<RationalCubicCurveSegment> for Segment {
-    fn from(segment: RationalCubicCurveSegment) -> Self {
-        Self::RationalCubicCurve(segment)
-    }
-}*/
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SegmentType {
     Line,
@@ -133,27 +94,7 @@ impl Path {
         self.segement_types.push(SegmentType::RationalCubicCurve);
     }
 
-    /*pub fn push_segment(&mut self, segment: Segment) {
-        match segment {
-            Segment::Line(segment) => {
-                self.push_line(segment);
-            }
-            Segment::IntegralQuadraticCurve(segment) => {
-                self.push_integral_quadratic_curve(segment);
-            }
-            Segment::IntegralCubicCurve(segment) => {
-                self.push_integral_cubic_curve(segment);
-            }
-            Segment::RationalQuadraticCurve(segment) => {
-                self.push_rational_quadratic_curve(segment);
-            }
-            Segment::RationalCubicCurve(segment) => {
-                self.push_rational_cubic_curve(segment);
-            }
-        }
-    }*/
-
-    pub fn get_current_end(&self) -> glam::Vec2 {
+    pub fn get_end(&self) -> glam::Vec2 {
         match self.segement_types.last() {
             Some(SegmentType::Line) => {
                 let segment = self.line_segments.last().unwrap();
@@ -177,6 +118,83 @@ impl Path {
             }
             None => self.start,
         }
+    }
+
+    pub fn begin_tangent(&self) -> glam::Vec2 {
+        match self.segement_types.last() {
+            Some(SegmentType::Line) => {
+                let segment = self.line_segments.last().unwrap();
+                segment.control_points[0] - self.start
+            }
+            Some(SegmentType::IntegralQuadraticCurve) => {
+                let segment = self.integral_quadratic_curve_segments.last().unwrap();
+                segment.control_points[0] - self.start
+            }
+            Some(SegmentType::IntegralCubicCurve) => {
+                let segment = self.integral_cubic_curve_segments.last().unwrap();
+                segment.control_points[0] - self.start
+            }
+            Some(SegmentType::RationalQuadraticCurve) => {
+                let segment = self.rational_quadratic_curve_segments.last().unwrap();
+                segment.control_points[0] - self.start
+            }
+            Some(SegmentType::RationalCubicCurve) => {
+                let segment = self.rational_cubic_curve_segments.last().unwrap();
+                segment.control_points[0] - self.start
+            }
+            None => glam::Vec2::default(),
+        }
+        .normalize()
+    }
+
+    pub fn end_tangent(&self) -> glam::Vec2 {
+        match self.segement_types.last() {
+            Some(SegmentType::Line) => {
+                let previous_point = match self.segement_types.iter().rev().skip(1).next() {
+                    Some(SegmentType::Line) => {
+                        let segment = self.line_segments.iter().rev().skip(1).next().unwrap();
+                        segment.control_points[0]
+                    }
+                    Some(SegmentType::IntegralQuadraticCurve) => {
+                        let segment = self.integral_quadratic_curve_segments.last().unwrap();
+                        segment.control_points[1]
+                    }
+                    Some(SegmentType::IntegralCubicCurve) => {
+                        let segment = self.integral_cubic_curve_segments.last().unwrap();
+                        segment.control_points[2]
+                    }
+                    Some(SegmentType::RationalQuadraticCurve) => {
+                        let segment = self.rational_quadratic_curve_segments.last().unwrap();
+                        segment.control_points[1]
+                    }
+                    Some(SegmentType::RationalCubicCurve) => {
+                        let segment = self.rational_cubic_curve_segments.last().unwrap();
+                        segment.control_points[2]
+                    }
+                    None => self.start,
+                };
+                let segment = self.line_segments.last().unwrap();
+                segment.control_points[0] - previous_point
+            }
+            Some(SegmentType::IntegralQuadraticCurve) => {
+                let segment = self.integral_quadratic_curve_segments.last().unwrap();
+                segment.control_points[1] - segment.control_points[0]
+            }
+            Some(SegmentType::IntegralCubicCurve) => {
+                let segment = self.integral_cubic_curve_segments.last().unwrap();
+                segment.control_points[2] - segment.control_points[1]
+            }
+            Some(SegmentType::RationalQuadraticCurve) => {
+                let segment = self.rational_quadratic_curve_segments.last().unwrap();
+                segment.control_points[1] - segment.control_points[0]
+            }
+            Some(SegmentType::RationalCubicCurve) => {
+                let segment = self.rational_cubic_curve_segments.last().unwrap();
+                segment.control_points[2] - segment.control_points[1]
+            }
+            None => glam::Vec2::default(),
+        }
+        .normalize()
     }
 
     pub fn append(&mut self, other: &mut Self) {
@@ -400,7 +418,7 @@ impl Path {
         self.push_rational_quadratic_curve(RationalQuadraticCurveSegment {
             weights: [
                 1.0,
-                ((tangent_crossing - self.get_current_end()).angle_between(tangent_crossing - to) * 0.5).sin(),
+                ((tangent_crossing - self.get_end()).angle_between(tangent_crossing - to) * 0.5).sin(),
                 1.0,
             ],
             control_points: [tangent_crossing, to],
@@ -416,8 +434,10 @@ impl Path {
 
     pub fn from_polygon(vertices: &[glam::Vec2]) -> Self {
         let mut vertices = vertices.iter();
-        let mut result = Path::default();
-        result.start = *vertices.next().unwrap();
+        let mut result = Path {
+            start: *vertices.next().unwrap(),
+            ..Path::default()
+        };
         for control_point in vertices {
             result.push_line(LineSegment {
                 control_points: [*control_point],
@@ -467,8 +487,10 @@ impl Path {
                 glam::vec2(center[0] + half_extent[0] - radius, center[1] - half_extent[1]),
             ),
         ];
-        let mut result = Path::default();
-        result.start = vertices[3].2;
+        let mut result = Path {
+            start: vertices[3].2,
+            ..Path::default()
+        };
         for (from, corner, to) in &vertices {
             result.push_line(LineSegment { control_points: [*from] });
             result.push_quarter_ellipse(*corner, *to);
@@ -495,8 +517,10 @@ impl Path {
                 glam::vec2(center[0], center[1] - half_extent[1]),
             ),
         ];
-        let mut result = Path::default();
-        result.start = vertices[3].1;
+        let mut result = Path {
+            start: vertices[3].1,
+            ..Path::default()
+        };
         for (corner, to) in &vertices {
             result.push_quarter_ellipse(*corner, *to);
         }
