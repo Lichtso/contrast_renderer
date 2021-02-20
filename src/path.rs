@@ -64,6 +64,7 @@ impl From<RationalCubicCurveSegment> for Segment {
     }
 }*/
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SegmentType {
     Line,
     IntegralQuadraticCurve,
@@ -72,11 +73,31 @@ pub enum SegmentType {
     RationalCubicCurve,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Join {
+    Bevel,
+    Round,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Cap {
+    Butt,
+    // Square,
+    // Triangle,
+    // Round,
+}
+
+pub struct StrokeOptions {
+    pub closed: bool,
+    pub width: f32,
+    pub offset: f32,
+    pub join: Join,
+    pub cap: Cap,
+}
+
 #[derive(Default)]
 pub struct Path {
-    // pub stroke_width: f32,
-    // pub line_joint: ,
-    // pub line_cap: ,
+    pub stroke_options: Option<StrokeOptions>,
     pub start: glam::Vec2,
     pub line_segments: Vec<LineSegment>,
     pub integral_quadratic_curve_segments: Vec<IntegralQuadraticCurveSegment>,

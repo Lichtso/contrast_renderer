@@ -1,7 +1,8 @@
 use crate::{
     complex_number::ComplexNumber,
     error::Error,
-    path::{Path, SegmentType},
+    path::{Join, Path, SegmentType, StrokeOptions},
+    utils::{line_line_intersection, rotate_right_90_degree, signed_triangle_area, transmute_slice, transmute_vec},
 };
 use glam::const_mat4;
 use wgpu::{include_spirv, util::DeviceExt, vertex_attr_array};
@@ -18,6 +19,125 @@ pub struct Vertex3(pub glam::Vec2, pub glam::Vec3);
 #[derive(Clone, Copy)]
 #[repr(packed)]
 pub struct Vertex4(pub glam::Vec2, pub glam::Vec4);
+
+fn emit_stroke_vertex(proto_hull: &mut Vec<Vertex0>, path_stroke_solid_vertices: &mut Vec<Vertex0>, vertex: glam::Vec2) {
+    proto_hull.push(vertex);
+    path_stroke_solid_vertices.push(vertex);
+}
+
+fn emit_stroke_vertices(
+    proto_hull: &mut Vec<Vertex0>,
+    path_stroke_solid_vertices: &mut Vec<Vertex0>,
+    stroke_options: &StrokeOptions,
+    control_point: glam::Vec2,
+    normal: glam::Vec2,
+) {
+    emit_stroke_vertex(
+        proto_hull,
+        path_stroke_solid_vertices,
+        control_point + normal * (stroke_options.offset - 0.5 * stroke_options.width),
+    );
+    emit_stroke_vertex(
+        proto_hull,
+        path_stroke_solid_vertices,
+        control_point + normal * (stroke_options.offset + 0.5 * stroke_options.width),
+    );
+}
+
+fn emit_stroke_rounding(
+    proto_hull: &mut Vec<Vertex0>,
+    stroke_rounding_triangles: &mut Vec<Vertex3>,
+    begin_control_point: glam::Vec2,
+    end_control_point: glam::Vec2,
+    begin_tangent: glam::Vec2,
+    end_tangent: glam::Vec2,
+) {
+    let intersection_point = line_line_intersection(begin_control_point, begin_tangent, end_control_point, end_tangent);
+    proto_hull.push(intersection_point);
+    let tangets_dot_product = begin_tangent.dot(end_tangent);
+    let weight = 1.0 / (1.0 - tangets_dot_product * tangets_dot_product).sqrt();
+    stroke_rounding_triangles.push(Vertex3(end_control_point, glam::vec3(1.0, 1.0, 1.0)));
+    stroke_rounding_triangles.push(Vertex3(intersection_point, glam::vec3(0.5 * weight, 0.0, weight)));
+    stroke_rounding_triangles.push(Vertex3(begin_control_point, glam::vec3(0.0, 0.0, 1.0)));
+}
+
+fn emit_stroke_join(
+    proto_hull: &mut Vec<Vertex0>,
+    path_stroke_solid_vertices: &mut Vec<Vertex0>,
+    stroke_rounding_triangles: &mut Vec<Vertex3>,
+    stroke_options: &StrokeOptions,
+    control_point: glam::Vec2,
+    begin_tangent: glam::Vec2,
+    end_tangent: glam::Vec2,
+) {
+    let in_normal = rotate_right_90_degree(begin_tangent);
+    emit_stroke_vertices(proto_hull, path_stroke_solid_vertices, stroke_options, control_point, in_normal);
+    let side_sign = in_normal.dot(end_tangent);
+    if side_sign != 0.0 {
+        let mid_tangent = (begin_tangent + end_tangent).normalize();
+        let tangets_dot_product = begin_tangent.dot(end_tangent);
+        if stroke_options.join == Join::Round && tangets_dot_product < 0.0 {
+            emit_stroke_vertices(
+                proto_hull,
+                path_stroke_solid_vertices,
+                stroke_options,
+                control_point,
+                rotate_right_90_degree(mid_tangent),
+            );
+        }
+        emit_stroke_vertices(
+            proto_hull,
+            path_stroke_solid_vertices,
+            stroke_options,
+            control_point,
+            rotate_right_90_degree(end_tangent),
+        );
+        if stroke_options.join == Join::Round {
+            let base_index = if side_sign < 0.0 { 1 } else { 2 };
+            if tangets_dot_product < 0.0 {
+                let mid_control_point = path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index - 2];
+                emit_stroke_rounding(
+                    proto_hull,
+                    stroke_rounding_triangles,
+                    path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index - 4],
+                    mid_control_point,
+                    begin_tangent,
+                    mid_tangent,
+                );
+                emit_stroke_rounding(
+                    proto_hull,
+                    stroke_rounding_triangles,
+                    mid_control_point,
+                    path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index],
+                    mid_tangent,
+                    end_tangent,
+                );
+            } else {
+                emit_stroke_rounding(
+                    proto_hull,
+                    stroke_rounding_triangles,
+                    path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index - 2],
+                    path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index],
+                    begin_tangent,
+                    end_tangent,
+                );
+            }
+        }
+    }
+}
+
+fn cut_stroke_polygon(
+    proto_hull: &mut Vec<Vertex0>,
+    stroke_solid_elements: &mut Vec<usize>,
+    stroke_solid_vertices: &mut Vec<Vertex0>,
+    path_stroke_solid_vertices: &mut Vec<Vertex0>,
+) {
+    if !path_stroke_solid_vertices.is_empty() {
+        proto_hull.append(&mut path_stroke_solid_vertices.clone());
+        stroke_solid_elements.push(path_stroke_solid_vertices.len());
+        stroke_solid_vertices.append(path_stroke_solid_vertices);
+    }
+}
 
 /*fn point_at(c: &glam::Mat4, t: f32) -> glam::Vec2 {
     let p = *c * glam::vec4(1.0, t, t * t, t * t * t);
@@ -320,7 +440,7 @@ macro_rules! emit_triangle {
 }
 
 macro_rules! triangulate_quadrilateral {
-    ($anchors:expr, $cubic_curve_triangles:expr,
+    ($fill_solid_vertices:expr, $cubic_curve_triangles:expr,
      $control_points:expr, $weights:expr, $v:ident, $w:ident, $emit_vertex:expr) => {{
         for (weights, control_point) in $weights.iter_mut().zip($control_points.iter()) {
             *weights /= control_point[2];
@@ -329,7 +449,7 @@ macro_rules! triangulate_quadrilateral {
         let signed_triangle_areas: Vec<f32> = (0..4)
             .map(|i| {
                 let control_points: Vec<_> = (0..4).filter(|j| i != *j).map(|j| $control_points[j].truncate()).collect();
-                crate::utils::signed_triangle_area(&control_points[0..3])
+                signed_triangle_area(&control_points[0..3])
             })
             .collect();
         let triangle_area_sum =
@@ -359,8 +479,8 @@ macro_rules! triangulate_quadrilateral {
                 /*let mut i = (1..4).filter(|i| *i != j);
                 let point_b = $control_points[i.next().unwrap()].truncate();
                 let point_c = $control_points[i.next().unwrap()].truncate();
-                let side_of_a = crate::utils::signed_triangle_area(&[$control_points[0].truncate(), point_b, point_c]);
-                let side_of_d = crate::utils::signed_triangle_area(&[$control_points[j].truncate(), point_b, point_c]);*/
+                let side_of_a = signed_triangle_area(&[$control_points[0].truncate(), point_b, point_c]);
+                let side_of_d = signed_triangle_area(&[$control_points[j].truncate(), point_b, point_c]);*/
                 let side_of_a = signed_triangle_areas[j];
                 let side_of_d = signed_triangle_areas[0] * if j == 2 { -1.0 } else { 1.0 };
                 if side_of_a * side_of_d < 0.0 {
@@ -381,16 +501,16 @@ macro_rules! triangulate_quadrilateral {
                 opposite_triangle
             );
         }
-        let mut additional_anchors = 0;
+        let mut additional_vertices = 0;
         for i in 1..3 {
             if enclosing_triangle != Some(i) && implicit_curve_value($weights[i]) < 0.0 {
-                $anchors.push($control_points[i].truncate());
-                additional_anchors += 1;
+                $fill_solid_vertices.push($control_points[i].truncate());
+                additional_vertices += 1;
             }
         }
-        if additional_anchors == 2 && signed_triangle_areas[0] * signed_triangle_areas[1] < 0.0 {
-            let length = $anchors.len();
-            $anchors.swap(length - 2, length - 1);
+        if additional_vertices == 2 && signed_triangle_areas[0] * signed_triangle_areas[1] < 0.0 {
+            let length = $fill_solid_vertices.len();
+            $fill_solid_vertices.swap(length - 2, length - 1);
         }
         $cubic_curve_triangles.append(&mut triangles);
     }};
@@ -409,7 +529,7 @@ macro_rules! split_curve_at {
 }
 
 macro_rules! emit_cubic_curve {
-    ($proto_hull:expr, $anchors:expr, $cubic_curve_triangles:expr,
+    ($proto_hull:expr, $fill_solid_vertices:expr, $cubic_curve_triangles:expr,
      $control_points:expr, $c:expr, $discreminant:expr, $roots:expr,
      $v:ident, $w:ident, $emit_vertex:expr) => {{
         let mut weights = weights($discreminant, &$roots);
@@ -420,19 +540,43 @@ macro_rules! emit_cubic_curve {
         if let Some(param) = find_double_point_issue($discreminant, &$roots) {
             let (control_points_a, control_points_b) = split_curve_at!(&$control_points, param);
             let (mut weights_a, mut weights_b) = split_curve_at!(&weights, param);
-            triangulate_quadrilateral!($anchors, $cubic_curve_triangles, &control_points_a, weights_a, $v, $w, $emit_vertex);
-            $anchors.push(control_points_b[0].truncate().into());
+            triangulate_quadrilateral!(
+                $fill_solid_vertices,
+                $cubic_curve_triangles,
+                &control_points_a,
+                weights_a,
+                $v,
+                $w,
+                $emit_vertex
+            );
+            $fill_solid_vertices.push(control_points_b[0].truncate().into());
             for weights in &mut weights_b {
                 *weights = glam::vec4(-weights[0], -weights[1], weights[2], weights[3]);
             }
-            triangulate_quadrilateral!($anchors, $cubic_curve_triangles, &control_points_b, weights_b, $v, $w, $emit_vertex);
+            triangulate_quadrilateral!(
+                $fill_solid_vertices,
+                $cubic_curve_triangles,
+                &control_points_b,
+                weights_b,
+                $v,
+                $w,
+                $emit_vertex
+            );
         } else {
-            triangulate_quadrilateral!($anchors, $cubic_curve_triangles, $control_points, weights, $v, $w, $emit_vertex);
+            triangulate_quadrilateral!(
+                $fill_solid_vertices,
+                $cubic_curve_triangles,
+                $control_points,
+                weights,
+                $v,
+                $w,
+                $emit_vertex
+            );
         }
         $proto_hull.push($control_points[1].truncate());
         $proto_hull.push($control_points[2].truncate());
         $proto_hull.push($control_points[3].truncate());
-        $anchors.push($control_points[3].truncate());
+        $fill_solid_vertices.push($control_points[3].truncate());
     }};
 }
 
@@ -446,147 +590,303 @@ fn triangle_fan_to_strip<T: Copy>(vertices: Vec<T>) -> Vec<T> {
 }
 
 pub struct Shape {
-    anchor_elements: Vec<usize>,
-    offsets: [usize; 6],
+    stroke_solid_elements: Vec<usize>,
+    fill_solid_elements: Vec<usize>,
+    offsets: [usize; 8],
     vertex_buffer: wgpu::Buffer,
 }
 
 impl Shape {
     pub fn new(device: &wgpu::Device, paths: &[Path]) -> Self {
-        let mut max_elements = [0; 6];
+        let mut max_elements = [0; 10];
         for path in paths {
-            max_elements[0] += 1
-                + path.line_segments.len()
-                + path.integral_quadratic_curve_segments.len()
-                + path.integral_cubic_curve_segments.len() * 5
-                + path.rational_quadratic_curve_segments.len()
-                + path.rational_cubic_curve_segments.len() * 5;
-            max_elements[1] += 1
-                + path.line_segments.len()
-                + path.integral_quadratic_curve_segments.len() * 2
-                + path.integral_cubic_curve_segments.len() * 3
-                + path.rational_quadratic_curve_segments.len() * 2
-                + path.rational_cubic_curve_segments.len() * 3;
-            max_elements[2] += path.integral_quadratic_curve_segments.len() * 3;
-            max_elements[3] += path.integral_cubic_curve_segments.len() * 6;
-            max_elements[4] += path.rational_quadratic_curve_segments.len() * 3;
-            max_elements[5] += path.rational_cubic_curve_segments.len() * 6;
-        }
-        let mut anchor_elements = Vec::with_capacity(paths.len());
-        let mut all_anchors: Vec<Vertex0> = Vec::with_capacity(max_elements[0]);
-        let mut proto_hull = Vec::with_capacity(max_elements[1]);
-        let mut integral_quadratic_curve_triangles = Vec::with_capacity(max_elements[2]);
-        let mut integral_cubic_curve_triangles = Vec::with_capacity(max_elements[3]);
-        let mut rational_quadratic_curve_triangles = Vec::with_capacity(max_elements[4]);
-        let mut rational_cubic_curve_triangles = Vec::with_capacity(max_elements[5]);
-        for path in paths {
-            let mut anchors: Vec<Vertex0> = Vec::with_capacity(
-                1 + path.line_segments.len()
+            if let Some(stroke_options) = &path.stroke_options {
+                let number_of_segments = if stroke_options.closed {
+                    path.segement_types.len() + 1
+                } else {
+                    path.segement_types.len()
+                };
+                max_elements[0] += 1;
+                max_elements[1] += number_of_segments * 4;
+                max_elements[5] += number_of_segments * 4;
+                if stroke_options.join == Join::Round {
+                    max_elements[2] += number_of_segments * 6;
+                    max_elements[5] += number_of_segments * 2;
+                }
+            } else {
+                max_elements[3] += 1;
+                max_elements[4] += 1
+                    + path.line_segments.len()
                     + path.integral_quadratic_curve_segments.len()
                     + path.integral_cubic_curve_segments.len() * 5
                     + path.rational_quadratic_curve_segments.len()
-                    + path.rational_cubic_curve_segments.len() * 5,
-            );
-            anchors.push(path.start);
-            proto_hull.push(path.start);
-            let mut line_segment_iter = path.line_segments.iter();
-            let mut integral_quadratic_curve_segment_iter = path.integral_quadratic_curve_segments.iter();
-            let mut integral_cubic_curve_segment_iter = path.integral_cubic_curve_segments.iter();
-            let mut rational_quadratic_curve_segment_iter = path.rational_quadratic_curve_segments.iter();
-            let mut rational_cubic_curve_segment_iter = path.rational_cubic_curve_segments.iter();
-            for segement_type in &path.segement_types {
-                let previous_anchor = anchors.last().unwrap();
-                match segement_type {
-                    SegmentType::Line => {
-                        let segment = line_segment_iter.next().unwrap();
-                        proto_hull.push(segment.control_points[0]);
-                        anchors.push(segment.control_points[0]);
+                    + path.rational_cubic_curve_segments.len() * 5;
+                max_elements[5] += 1
+                    + path.line_segments.len()
+                    + path.integral_quadratic_curve_segments.len() * 2
+                    + path.integral_cubic_curve_segments.len() * 3
+                    + path.rational_quadratic_curve_segments.len() * 2
+                    + path.rational_cubic_curve_segments.len() * 3;
+                max_elements[6] += path.integral_quadratic_curve_segments.len() * 3;
+                max_elements[7] += path.integral_cubic_curve_segments.len() * 6;
+                max_elements[8] += path.rational_quadratic_curve_segments.len() * 3;
+                max_elements[9] += path.rational_cubic_curve_segments.len() * 6;
+            }
+        }
+        let mut stroke_solid_elements = Vec::with_capacity(max_elements[0]);
+        let mut stroke_solid_vertices = Vec::with_capacity(max_elements[1]);
+        let mut stroke_rounding_triangles: Vec<Vertex3> = Vec::with_capacity(max_elements[2]);
+        let mut fill_solid_elements = Vec::with_capacity(max_elements[3]);
+        let mut fill_solid_vertices = Vec::with_capacity(max_elements[4]);
+        let mut proto_hull = Vec::with_capacity(max_elements[5]);
+        let mut integral_quadratic_curve_triangles = Vec::with_capacity(max_elements[6]);
+        let mut integral_cubic_curve_triangles = Vec::with_capacity(max_elements[7]);
+        let mut rational_quadratic_curve_triangles = Vec::with_capacity(max_elements[8]);
+        let mut rational_cubic_curve_triangles = Vec::with_capacity(max_elements[9]);
+        for path in paths {
+            if let Some(stroke_options) = &path.stroke_options {
+                let mut path_stroke_solid_vertices: Vec<Vertex0> = Vec::with_capacity(path.line_segments.len() * 4);
+                let mut previous_control_point = path.start;
+                let mut first_tangent = glam::Vec2::default();
+                let mut previous_tangent = glam::Vec2::default();
+                let mut line_segment_iter = path.line_segments.iter();
+                let mut integral_quadratic_curve_segment_iter = path.integral_quadratic_curve_segments.iter();
+                let mut integral_cubic_curve_segment_iter = path.integral_cubic_curve_segments.iter();
+                let mut rational_quadratic_curve_segment_iter = path.rational_quadratic_curve_segments.iter();
+                let mut rational_cubic_curve_segment_iter = path.rational_cubic_curve_segments.iter();
+                for (i, segement_type) in path.segement_types.iter().enumerate() {
+                    let next_control_point;
+                    let segment_begbegin_tangent;
+                    let segment_end_tangent;
+                    match segement_type {
+                        SegmentType::Line => {
+                            let segment = line_segment_iter.next().unwrap();
+                            next_control_point = segment.control_points[0];
+                            segment_begbegin_tangent = (next_control_point - previous_control_point).normalize();
+                            segment_end_tangent = segment_begbegin_tangent;
+                        }
+                        SegmentType::IntegralQuadraticCurve => {
+                            let segment = integral_quadratic_curve_segment_iter.next().unwrap();
+                            next_control_point = segment.control_points[1];
+                            segment_begbegin_tangent = (segment.control_points[0] - previous_control_point).normalize();
+                            segment_end_tangent = (next_control_point - segment.control_points[0]).normalize();
+                            // error!("IntegralQuadraticCurve stroking is not implemented");
+                        }
+                        SegmentType::IntegralCubicCurve => {
+                            let segment = integral_cubic_curve_segment_iter.next().unwrap();
+                            next_control_point = segment.control_points[2];
+                            segment_begbegin_tangent = (segment.control_points[0] - previous_control_point).normalize();
+                            segment_end_tangent = (next_control_point - segment.control_points[1]).normalize();
+                            // error!("IntegralCubicCurve stroking is not implemented");
+                        }
+                        SegmentType::RationalQuadraticCurve => {
+                            let segment = rational_quadratic_curve_segment_iter.next().unwrap();
+                            next_control_point = segment.control_points[1];
+                            segment_begbegin_tangent = (segment.control_points[0] - previous_control_point).normalize();
+                            segment_end_tangent = (next_control_point - segment.control_points[0]).normalize();
+                            // error!("RationalQuadraticCurve stroking is not implemented");
+                        }
+                        SegmentType::RationalCubicCurve => {
+                            let segment = rational_cubic_curve_segment_iter.next().unwrap();
+                            next_control_point = segment.control_points[2];
+                            segment_begbegin_tangent = (segment.control_points[0] - previous_control_point).normalize();
+                            segment_end_tangent = (next_control_point - segment.control_points[1]).normalize();
+                            // error!("RationalCubicCurve stroking is not implemented");
+                        }
                     }
-                    SegmentType::IntegralQuadraticCurve => {
-                        let segment = integral_quadratic_curve_segment_iter.next().unwrap();
-                        integral_quadratic_curve_triangles.push(Vertex2(segment.control_points[1], glam::vec2(1.0, 1.0)));
-                        integral_quadratic_curve_triangles.push(Vertex2(segment.control_points[0], glam::vec2(0.5, 0.0)));
-                        integral_quadratic_curve_triangles.push(Vertex2(*anchors.last().unwrap(), glam::vec2(0.0, 0.0)));
-                        proto_hull.push(segment.control_points[0]);
-                        proto_hull.push(segment.control_points[1]);
-                        anchors.push(segment.control_points[1]);
-                    }
-                    SegmentType::IntegralCubicCurve => {
-                        let segment = integral_cubic_curve_segment_iter.next().unwrap();
-                        let control_points = [
-                            previous_anchor.extend(1.0),
-                            segment.control_points[0].extend(1.0),
-                            segment.control_points[1].extend(1.0),
-                            segment.control_points[2].extend(1.0),
-                        ];
-                        let c = control_points_power_basis(&control_points);
-                        let ippc = integral_inflection_point_polynomial_coefficients(&c);
-                        let (discreminant, roots) = integral_inflection_points(ippc);
-                        emit_cubic_curve!(
-                            proto_hull,
-                            anchors,
-                            integral_cubic_curve_triangles,
-                            control_points,
-                            c,
-                            discreminant,
-                            roots,
-                            v,
-                            w,
-                            Vertex3(v, w.truncate())
+                    if i == 0 {
+                        first_tangent = segment_begbegin_tangent;
+                    } else {
+                        emit_stroke_join(
+                            &mut proto_hull,
+                            &mut path_stroke_solid_vertices,
+                            &mut stroke_rounding_triangles,
+                            &stroke_options,
+                            previous_control_point,
+                            previous_tangent,
+                            segment_begbegin_tangent,
                         );
                     }
-                    SegmentType::RationalQuadraticCurve => {
-                        let segment = rational_quadratic_curve_segment_iter.next().unwrap();
-                        let weight = 1.0 / segment.weights[2];
-                        rational_quadratic_curve_triangles.push(Vertex3(segment.control_points[1], glam::vec3(weight, weight, weight)));
-                        let weight = 1.0 / segment.weights[1];
-                        rational_quadratic_curve_triangles.push(Vertex3(segment.control_points[0], glam::vec3(0.5 * weight, 0.0, weight)));
-                        let weight = 1.0 / segment.weights[0];
-                        rational_quadratic_curve_triangles.push(Vertex3(*anchors.last().unwrap(), glam::vec3(0.0, 0.0, weight)));
-                        proto_hull.push(segment.control_points[0]);
-                        proto_hull.push(segment.control_points[1]);
-                        anchors.push(segment.control_points[1]);
-                    }
-                    SegmentType::RationalCubicCurve => {
-                        let segment = rational_cubic_curve_segment_iter.next().unwrap();
-                        let control_points = [
-                            previous_anchor.extend(segment.weights[0]),
-                            segment.control_points[0].extend(segment.weights[1]),
-                            segment.control_points[1].extend(segment.weights[2]),
-                            segment.control_points[2].extend(segment.weights[3]),
-                        ];
-                        let c = control_points_power_basis(&control_points);
-                        let ippc = rational_inflection_point_polynomial_coefficients(&c);
-                        let (discreminant, roots) = rational_inflection_points(ippc);
-                        emit_cubic_curve!(
-                            proto_hull,
-                            anchors,
-                            rational_cubic_curve_triangles,
-                            control_points,
-                            c,
-                            discreminant,
-                            roots,
-                            v,
-                            w,
-                            Vertex4(v, w)
+                    if *segement_type == SegmentType::Line {
+                        if i == 0 {
+                            emit_stroke_vertices(
+                                &mut proto_hull,
+                                &mut path_stroke_solid_vertices,
+                                &stroke_options,
+                                previous_control_point,
+                                rotate_right_90_degree(segment_begbegin_tangent),
+                            );
+                        }
+                    } else {
+                        cut_stroke_polygon(
+                            &mut proto_hull,
+                            &mut stroke_solid_elements,
+                            &mut stroke_solid_vertices,
+                            &mut path_stroke_solid_vertices,
                         );
+                    }
+                    previous_control_point = next_control_point;
+                    previous_tangent = segment_end_tangent;
+                }
+                // TODO: Line Cap
+                if stroke_options.closed {
+                    let line_segment = path.start - previous_control_point;
+                    if line_segment.length_squared() > 0.0 {
+                        let segment_tangent = line_segment.normalize();
+                        emit_stroke_join(
+                            &mut proto_hull,
+                            &mut path_stroke_solid_vertices,
+                            &mut stroke_rounding_triangles,
+                            &stroke_options,
+                            previous_control_point,
+                            previous_tangent,
+                            segment_tangent,
+                        );
+                        emit_stroke_join(
+                            &mut proto_hull,
+                            &mut path_stroke_solid_vertices,
+                            &mut stroke_rounding_triangles,
+                            &stroke_options,
+                            path.start,
+                            segment_tangent,
+                            first_tangent,
+                        );
+                    } else {
+                        emit_stroke_join(
+                            &mut proto_hull,
+                            &mut path_stroke_solid_vertices,
+                            &mut stroke_rounding_triangles,
+                            &stroke_options,
+                            path.start,
+                            previous_tangent,
+                            first_tangent,
+                        );
+                    }
+                } else if *path.segement_types.last().unwrap() == SegmentType::Line {
+                    emit_stroke_vertices(
+                        &mut proto_hull,
+                        &mut path_stroke_solid_vertices,
+                        &stroke_options,
+                        previous_control_point,
+                        rotate_right_90_degree(previous_tangent),
+                    );
+                }
+                cut_stroke_polygon(
+                    &mut proto_hull,
+                    &mut stroke_solid_elements,
+                    &mut stroke_solid_vertices,
+                    &mut path_stroke_solid_vertices,
+                );
+            } else {
+                let mut path_fill_solid_vertices: Vec<Vertex0> = Vec::with_capacity(
+                    1 + path.line_segments.len()
+                        + path.integral_quadratic_curve_segments.len()
+                        + path.integral_cubic_curve_segments.len() * 5
+                        + path.rational_quadratic_curve_segments.len()
+                        + path.rational_cubic_curve_segments.len() * 5,
+                );
+                path_fill_solid_vertices.push(path.start);
+                proto_hull.push(path.start);
+                let mut line_segment_iter = path.line_segments.iter();
+                let mut integral_quadratic_curve_segment_iter = path.integral_quadratic_curve_segments.iter();
+                let mut integral_cubic_curve_segment_iter = path.integral_cubic_curve_segments.iter();
+                let mut rational_quadratic_curve_segment_iter = path.rational_quadratic_curve_segments.iter();
+                let mut rational_cubic_curve_segment_iter = path.rational_cubic_curve_segments.iter();
+                for segement_type in &path.segement_types {
+                    match segement_type {
+                        SegmentType::Line => {
+                            let segment = line_segment_iter.next().unwrap();
+                            proto_hull.push(segment.control_points[0]);
+                            path_fill_solid_vertices.push(segment.control_points[0]);
+                        }
+                        SegmentType::IntegralQuadraticCurve => {
+                            let segment = integral_quadratic_curve_segment_iter.next().unwrap();
+                            integral_quadratic_curve_triangles.push(Vertex2(segment.control_points[1], glam::vec2(1.0, 1.0)));
+                            integral_quadratic_curve_triangles.push(Vertex2(segment.control_points[0], glam::vec2(0.5, 0.0)));
+                            integral_quadratic_curve_triangles.push(Vertex2(*path_fill_solid_vertices.last().unwrap(), glam::vec2(0.0, 0.0)));
+                            proto_hull.push(segment.control_points[0]);
+                            proto_hull.push(segment.control_points[1]);
+                            path_fill_solid_vertices.push(segment.control_points[1]);
+                        }
+                        SegmentType::IntegralCubicCurve => {
+                            let segment = integral_cubic_curve_segment_iter.next().unwrap();
+                            let control_points = [
+                                path_fill_solid_vertices.last().unwrap().extend(1.0),
+                                segment.control_points[0].extend(1.0),
+                                segment.control_points[1].extend(1.0),
+                                segment.control_points[2].extend(1.0),
+                            ];
+                            let c = control_points_power_basis(&control_points);
+                            let ippc = integral_inflection_point_polynomial_coefficients(&c);
+                            let (discreminant, roots) = integral_inflection_points(ippc);
+                            emit_cubic_curve!(
+                                proto_hull,
+                                path_fill_solid_vertices,
+                                integral_cubic_curve_triangles,
+                                control_points,
+                                c,
+                                discreminant,
+                                roots,
+                                v,
+                                w,
+                                Vertex3(v, w.truncate())
+                            );
+                        }
+                        SegmentType::RationalQuadraticCurve => {
+                            let segment = rational_quadratic_curve_segment_iter.next().unwrap();
+                            let weight = 1.0 / segment.weights[2];
+                            rational_quadratic_curve_triangles.push(Vertex3(segment.control_points[1], glam::vec3(weight, weight, weight)));
+                            let weight = 1.0 / segment.weights[1];
+                            rational_quadratic_curve_triangles.push(Vertex3(segment.control_points[0], glam::vec3(0.5 * weight, 0.0, weight)));
+                            let weight = 1.0 / segment.weights[0];
+                            rational_quadratic_curve_triangles.push(Vertex3(*path_fill_solid_vertices.last().unwrap(), glam::vec3(0.0, 0.0, weight)));
+                            proto_hull.push(segment.control_points[0]);
+                            proto_hull.push(segment.control_points[1]);
+                            path_fill_solid_vertices.push(segment.control_points[1]);
+                        }
+                        SegmentType::RationalCubicCurve => {
+                            let segment = rational_cubic_curve_segment_iter.next().unwrap();
+                            let control_points = [
+                                path_fill_solid_vertices.last().unwrap().extend(segment.weights[0]),
+                                segment.control_points[0].extend(segment.weights[1]),
+                                segment.control_points[1].extend(segment.weights[2]),
+                                segment.control_points[2].extend(segment.weights[3]),
+                            ];
+                            let c = control_points_power_basis(&control_points);
+                            let ippc = rational_inflection_point_polynomial_coefficients(&c);
+                            let (discreminant, roots) = rational_inflection_points(ippc);
+                            emit_cubic_curve!(
+                                proto_hull,
+                                path_fill_solid_vertices,
+                                rational_cubic_curve_triangles,
+                                control_points,
+                                c,
+                                discreminant,
+                                roots,
+                                v,
+                                w,
+                                Vertex4(v, w)
+                            );
+                        }
                     }
                 }
+                fill_solid_elements.push(path_fill_solid_vertices.len());
+                fill_solid_vertices.append(&mut triangle_fan_to_strip(path_fill_solid_vertices));
             }
-            anchor_elements.push(anchors.len());
-            all_anchors.append(&mut triangle_fan_to_strip(anchors));
         }
         let convex_hull = crate::convex_hull::andrew(&proto_hull);
         let mut vertex_buffers = [
-            crate::utils::transmute_vec::<_, u8>(all_anchors),
-            crate::utils::transmute_vec::<_, u8>(integral_quadratic_curve_triangles),
-            crate::utils::transmute_vec::<_, u8>(integral_cubic_curve_triangles),
-            crate::utils::transmute_vec::<_, u8>(rational_quadratic_curve_triangles),
-            crate::utils::transmute_vec::<_, u8>(rational_cubic_curve_triangles),
-            crate::utils::transmute_vec::<_, u8>(triangle_fan_to_strip(convex_hull)),
+            transmute_vec::<_, u8>(stroke_solid_vertices),
+            transmute_vec::<_, u8>(stroke_rounding_triangles),
+            transmute_vec::<_, u8>(fill_solid_vertices),
+            transmute_vec::<_, u8>(integral_quadratic_curve_triangles),
+            transmute_vec::<_, u8>(integral_cubic_curve_triangles),
+            transmute_vec::<_, u8>(rational_quadratic_curve_triangles),
+            transmute_vec::<_, u8>(rational_cubic_curve_triangles),
+            transmute_vec::<_, u8>(triangle_fan_to_strip(convex_hull)),
         ];
         let mut vertex_buffer_length = 0;
-        let mut offsets = [0; 6];
+        let mut offsets = [0; 8];
         for (i, vertex_buffer) in vertex_buffers.iter().enumerate() {
             vertex_buffer_length += vertex_buffer.len();
             offsets[i] = vertex_buffer_length;
@@ -601,7 +901,8 @@ impl Shape {
             usage: wgpu::BufferUsage::VERTEX,
         });
         Self {
-            anchor_elements,
+            stroke_solid_elements,
+            fill_solid_elements,
             offsets,
             vertex_buffer,
         }
@@ -609,41 +910,64 @@ impl Shape {
 
     pub fn render_stencil<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
         render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
-        render_pass.set_pipeline(&renderer.stencil_solid_pipeline);
+        render_pass.set_pipeline(&renderer.stroke_solid_pipeline);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(0..self.offsets[0] as u64));
         let mut begin_index = 0;
-        for element_count in &self.anchor_elements {
+        for element_count in &self.stroke_solid_elements {
             let end_index = begin_index + element_count;
+            // TODO: Use index buffer and primitive restart to save draw commands
+            render_pass.draw(begin_index as u32..end_index as u32, 0..1);
+            begin_index = end_index;
+        }
+        for (i, (pipeline, vertex_size)) in [(&renderer.stroke_rounding_pipeline, std::mem::size_of::<Vertex3>())].iter().enumerate() {
+            let begin_offset = self.offsets[i];
+            let end_offset = self.offsets[i + 1];
+            if begin_offset < end_offset {
+                render_pass.set_pipeline(pipeline);
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
+                render_pass.draw(0..((end_offset - begin_offset) / vertex_size) as u32, 0..1);
+            }
+        }
+        render_pass.set_pipeline(&renderer.fill_solid_pipeline);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(self.offsets[1] as u64..self.offsets[2] as u64));
+        let mut begin_index = 0;
+        for element_count in &self.fill_solid_elements {
+            let end_index = begin_index + element_count;
+            // TODO: Use index buffer and primitive restart to save draw commands
             render_pass.draw(begin_index as u32..end_index as u32, 0..1);
             begin_index = end_index;
         }
         for (i, (pipeline, vertex_size)) in [
-            (&renderer.stencil_integral_quadratic_curve_pipeline, std::mem::size_of::<Vertex2>()),
-            (&renderer.stencil_integral_cubic_curve_pipeline, std::mem::size_of::<Vertex3>()),
-            (&renderer.stencil_rational_quadratic_curve_pipeline, std::mem::size_of::<Vertex3>()),
-            (&renderer.stencil_rational_cubic_curve_pipeline, std::mem::size_of::<Vertex4>()),
+            (&renderer.fill_integral_quadratic_curve_pipeline, std::mem::size_of::<Vertex2>()),
+            (&renderer.fill_integral_cubic_curve_pipeline, std::mem::size_of::<Vertex3>()),
+            (&renderer.fill_rational_quadratic_curve_pipeline, std::mem::size_of::<Vertex3>()),
+            (&renderer.fill_rational_cubic_curve_pipeline, std::mem::size_of::<Vertex4>()),
         ]
         .iter()
         .enumerate()
         {
-            if self.offsets[i] < self.offsets[i + 1] {
-                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(self.offsets[i] as u64..self.offsets[i + 1] as u64));
+            let begin_offset = self.offsets[i + 2];
+            let end_offset = self.offsets[i + 3];
+            if begin_offset < end_offset {
                 render_pass.set_pipeline(pipeline);
-                render_pass.draw(0..((self.offsets[i + 1] - self.offsets[i]) / vertex_size) as u32, 0..1);
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
+                render_pass.draw(0..((end_offset - begin_offset) / vertex_size) as u32, 0..1);
             }
         }
     }
 
     fn render_cover<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
+        let begin_offset = self.offsets[6];
+        let end_offset = self.offsets[7];
         render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
-        render_pass.set_bind_group(1, &renderer.fill_solid_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(self.offsets[4] as u64..self.offsets[5] as u64));
-        render_pass.draw(0..((self.offsets[5] - self.offsets[4]) / std::mem::size_of::<Vertex0>()) as u32, 0..1);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
+        render_pass.draw(0..((end_offset - begin_offset) / std::mem::size_of::<Vertex0>()) as u32, 0..1);
     }
 
-    pub fn render_solid_fill<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>, clip_stack_height: usize) {
+    pub fn render_color_solid<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>, clip_stack_height: usize) {
         render_pass.set_stencil_reference((clip_stack_height << renderer.winding_counter_bits) as u32);
-        render_pass.set_pipeline(&renderer.fill_solid_pipeline);
+        render_pass.set_bind_group(1, &renderer.color_solid_bind_group, &[]);
+        render_pass.set_pipeline(&renderer.color_solid_pipeline);
         self.render_cover(renderer, render_pass);
     }
 }
@@ -741,16 +1065,18 @@ pub struct Renderer {
     clip_nesting_counter_bits: usize,
     transform_uniform_buffer: wgpu::Buffer,
     transform_bind_group: wgpu::BindGroup,
-    stencil_solid_pipeline: wgpu::RenderPipeline,
-    stencil_integral_quadratic_curve_pipeline: wgpu::RenderPipeline,
-    stencil_integral_cubic_curve_pipeline: wgpu::RenderPipeline,
-    stencil_rational_quadratic_curve_pipeline: wgpu::RenderPipeline,
-    stencil_rational_cubic_curve_pipeline: wgpu::RenderPipeline,
+    stroke_solid_pipeline: wgpu::RenderPipeline,
+    stroke_rounding_pipeline: wgpu::RenderPipeline,
+    fill_solid_pipeline: wgpu::RenderPipeline,
+    fill_integral_quadratic_curve_pipeline: wgpu::RenderPipeline,
+    fill_integral_cubic_curve_pipeline: wgpu::RenderPipeline,
+    fill_rational_quadratic_curve_pipeline: wgpu::RenderPipeline,
+    fill_rational_cubic_curve_pipeline: wgpu::RenderPipeline,
     increment_clip_nesting_counter_pipeline: wgpu::RenderPipeline,
     decrement_clip_nesting_counter_pipeline: wgpu::RenderPipeline,
-    fill_solid_uniform_buffer: wgpu::Buffer,
-    fill_solid_bind_group: wgpu::BindGroup,
-    fill_solid_pipeline: wgpu::RenderPipeline,
+    color_solid_uniform_buffer: wgpu::Buffer,
+    color_solid_bind_group: wgpu::BindGroup,
+    color_solid_pipeline: wgpu::RenderPipeline,
 }
 
 impl Renderer {
@@ -768,6 +1094,8 @@ impl Renderer {
         let segment_0_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment0_vert.spv"));
         let segment_3_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment3_vert.spv"));
         let stencil_solid_fragment_module = device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_solid_frag.spv"));
+        let stencil_rational_quadratic_curve_fragment_module =
+            device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_rational_quadratic_curve_frag.spv"));
         let segment_0_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (2 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
@@ -824,7 +1152,13 @@ impl Renderer {
 
         let winding_counter_mask = (1 << winding_counter_bits) - 1;
         let clip_nesting_counter_mask = ((1 << clip_nesting_counter_bits) - 1) << winding_counter_bits;
-        let stencil_state = wgpu::StencilState {
+        let stroke_stencil_state = wgpu::StencilState {
+            front: stencil_descriptor!(Equal, Keep, IncrementWrap),
+            back: stencil_descriptor!(Equal, Keep, IncrementWrap),
+            read_mask: clip_nesting_counter_mask | winding_counter_mask,
+            write_mask: winding_counter_mask,
+        };
+        let fill_stencil_state = wgpu::StencilState {
             front: stencil_descriptor!(LessEqual, Keep, IncrementWrap),
             back: stencil_descriptor!(LessEqual, Keep, DecrementWrap),
             read_mask: clip_nesting_counter_mask | winding_counter_mask,
@@ -835,53 +1169,73 @@ impl Renderer {
             bind_group_layouts: &[&transform_bind_group_layout],
             push_constant_ranges: &[],
         });
-        let stencil_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+        let stroke_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
             &segment_0_vertex_module,
             &stencil_solid_fragment_module,
             TriangleStrip,
             &[],
-            stencil_state.clone(),
+            stroke_stencil_state.clone(),
             segment_0_vertex_buffer_descriptor.clone(),
             sample_count,
         ));
-        let stencil_integral_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+        let stroke_rounding_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &stencil_pipeline_layout,
+            &segment_3_vertex_module,
+            &stencil_rational_quadratic_curve_fragment_module,
+            TriangleList,
+            &[],
+            stroke_stencil_state,
+            segment_3_vertex_buffer_descriptor.clone(),
+            sample_count,
+        ));
+        let fill_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &stencil_pipeline_layout,
+            &segment_0_vertex_module,
+            &stencil_solid_fragment_module,
+            TriangleStrip,
+            &[],
+            fill_stencil_state.clone(),
+            segment_0_vertex_buffer_descriptor.clone(),
+            sample_count,
+        ));
+        let fill_integral_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
             &device.create_shader_module(&include_spirv!("../target/shader_modules/segment2_vert.spv")),
             &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_integral_quadratic_curve_frag.spv")),
             TriangleList,
             &[],
-            stencil_state.clone(),
+            fill_stencil_state.clone(),
             segment_2_vertex_buffer_descriptor,
             sample_count,
         ));
-        let stencil_integral_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+        let fill_integral_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
             &segment_3_vertex_module,
             &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_integral_cubic_curve_frag.spv")),
             TriangleList,
             &[],
-            stencil_state.clone(),
+            fill_stencil_state.clone(),
             segment_3_vertex_buffer_descriptor.clone(),
             sample_count,
         ));
-        let stencil_rational_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+        let fill_rational_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
             &segment_3_vertex_module,
-            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_rational_quadratic_curve_frag.spv")),
+            &stencil_rational_quadratic_curve_fragment_module,
             TriangleList,
             &[],
-            stencil_state.clone(),
+            fill_stencil_state.clone(),
             segment_3_vertex_buffer_descriptor.clone(),
             sample_count,
         ));
-        let stencil_rational_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+        let fill_rational_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
             &device.create_shader_module(&include_spirv!("../target/shader_modules/segment4_vert.spv")),
             &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_rational_cubic_curve_frag.spv")),
             TriangleList,
             &[],
-            stencil_state,
+            fill_stencil_state,
             segment_4_vertex_buffer_descriptor,
             sample_count,
         ));
@@ -917,14 +1271,14 @@ impl Renderer {
             sample_count,
         ));
 
-        const FILL_SOLID_UNIFORM_BUFFER_SIZE: usize = std::mem::size_of::<[f32; 4]>();
-        let fill_solid_uniform_data: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-        let fill_solid_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        const COLOR_SOLID_UNIFORM_BUFFER_SIZE: usize = std::mem::size_of::<[f32; 4]>();
+        let color_solid_uniform_data: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+        let color_solid_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: crate::utils::transmute_slice(&fill_solid_uniform_data),
+            contents: transmute_slice(&color_solid_uniform_data),
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
         });
-        let fill_solid_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let color_solid_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -932,30 +1286,30 @@ impl Renderer {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(FILL_SOLID_UNIFORM_BUFFER_SIZE as u64),
+                    min_binding_size: wgpu::BufferSize::new(COLOR_SOLID_UNIFORM_BUFFER_SIZE as u64),
                 },
                 count: None,
             }],
         });
-        let fill_solid_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &fill_solid_bind_group_layout,
+        let color_solid_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &color_solid_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: wgpu::BindingResource::Buffer {
-                    buffer: &fill_solid_uniform_buffer,
+                    buffer: &color_solid_uniform_buffer,
                     offset: 0,
-                    size: wgpu::BufferSize::new(FILL_SOLID_UNIFORM_BUFFER_SIZE as u64),
+                    size: wgpu::BufferSize::new(COLOR_SOLID_UNIFORM_BUFFER_SIZE as u64),
                 },
             }],
             label: None,
         });
-        let fill_solid_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let color_solid_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&transform_bind_group_layout, &fill_solid_bind_group_layout],
+            bind_group_layouts: &[&transform_bind_group_layout, &color_solid_bind_group_layout],
             push_constant_ranges: &[],
         });
-        let fill_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
-            &fill_solid_pipeline_layout,
+        let color_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &color_solid_pipeline_layout,
             &segment_0_vertex_module,
             &device.create_shader_module(&include_spirv!("../target/shader_modules/fill_solid_frag.spv")),
             TriangleStrip,
@@ -975,26 +1329,28 @@ impl Renderer {
             clip_nesting_counter_bits,
             transform_uniform_buffer,
             transform_bind_group,
-            stencil_solid_pipeline,
-            stencil_integral_quadratic_curve_pipeline,
-            stencil_integral_cubic_curve_pipeline,
-            stencil_rational_quadratic_curve_pipeline,
-            stencil_rational_cubic_curve_pipeline,
+            stroke_solid_pipeline,
+            stroke_rounding_pipeline,
+            fill_solid_pipeline,
+            fill_integral_quadratic_curve_pipeline,
+            fill_integral_cubic_curve_pipeline,
+            fill_rational_quadratic_curve_pipeline,
+            fill_rational_cubic_curve_pipeline,
             increment_clip_nesting_counter_pipeline,
             decrement_clip_nesting_counter_pipeline,
-            fill_solid_uniform_buffer,
-            fill_solid_bind_group,
-            fill_solid_pipeline,
+            color_solid_uniform_buffer,
+            color_solid_bind_group,
+            color_solid_pipeline,
         })
     }
 
     pub fn set_transform(&self, queue: &wgpu::Queue, transform: &[[f32; 4]; 4]) {
-        let data = crate::utils::transmute_slice(transform);
+        let data = transmute_slice(transform);
         queue.write_buffer(&self.transform_uniform_buffer, 0, &data);
     }
 
     pub fn set_solid_fill_color(&self, queue: &wgpu::Queue, color: &[f32; 4]) {
-        let data = crate::utils::transmute_slice(color);
-        queue.write_buffer(&self.fill_solid_uniform_buffer, 0, &data);
+        let data = transmute_slice(color);
+        queue.write_buffer(&self.color_solid_uniform_buffer, 0, &data);
     }
 }

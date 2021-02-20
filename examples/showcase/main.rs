@@ -149,7 +149,7 @@ impl application_framework::Application for Application {
                 }),
             });
             self.fill_shape
-                .render_solid_fill(&self.path_renderer, &mut render_pass, 0);
+                .render_color_solid(&self.path_renderer, &mut render_pass, 0);
         }
 
         queue.submit(Some(encoder.finish()));
