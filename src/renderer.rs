@@ -128,14 +128,17 @@ fn emit_stroke_join(
 
 fn cut_stroke_polygon(
     proto_hull: &mut Vec<Vertex0>,
-    stroke_solid_elements: &mut Vec<usize>,
+    stroke_solid_indices: &mut Vec<u16>,
     stroke_solid_vertices: &mut Vec<Vertex0>,
     path_stroke_solid_vertices: &mut Vec<Vertex0>,
 ) {
     if !path_stroke_solid_vertices.is_empty() {
         proto_hull.append(&mut path_stroke_solid_vertices.clone());
-        stroke_solid_elements.push(path_stroke_solid_vertices.len());
+        let start_index = stroke_solid_vertices.len();
         stroke_solid_vertices.append(path_stroke_solid_vertices);
+        let mut indices: Vec<u16> = (start_index as u16..(stroke_solid_vertices.len() + 1) as u16).collect();
+        *indices.iter_mut().last().unwrap() = (-1isize) as u16;
+        stroke_solid_indices.append(&mut indices);
     }
 }
 
@@ -421,7 +424,7 @@ fn normalize_implicit_curve_side(planes: &mut [glam::Vec4; 4], weights: &mut gla
     }
 }
 
-macro_rules! emit_triangle {
+macro_rules! emit_cubic_curve_triangle {
     ($triangles:expr, $signed_triangle_areas:expr, $control_points:expr, $weights:expr, $v:ident, $w:ident, $emit_vertex:expr, $triangle_index:expr) => {
         let mut triangle = Vec::new();
         for vertex_index in (0..4).filter(|i| *i != $triangle_index) {
@@ -439,7 +442,7 @@ macro_rules! emit_triangle {
     };
 }
 
-macro_rules! triangulate_quadrilateral {
+macro_rules! triangulate_cubic_curve_quadrilateral {
     ($fill_solid_vertices:expr, $cubic_curve_triangles:expr,
      $control_points:expr, $weights:expr, $v:ident, $w:ident, $emit_vertex:expr) => {{
         for (weights, control_point) in $weights.iter_mut().zip($control_points.iter()) {
@@ -463,7 +466,7 @@ macro_rules! triangulate_quadrilateral {
             }
         }
         if let Some(enclosing_triangle) = enclosing_triangle {
-            emit_triangle!(
+            emit_cubic_curve_triangle!(
                 triangles,
                 signed_triangle_areas,
                 $control_points,
@@ -489,8 +492,8 @@ macro_rules! triangulate_quadrilateral {
                 }
             }
             assert_ne!(opposite_triangle, 0);
-            emit_triangle!(triangles, signed_triangle_areas, $control_points, $weights, $v, $w, $emit_vertex, 0);
-            emit_triangle!(
+            emit_cubic_curve_triangle!(triangles, signed_triangle_areas, $control_points, $weights, $v, $w, $emit_vertex, 0);
+            emit_cubic_curve_triangle!(
                 triangles,
                 signed_triangle_areas,
                 $control_points,
@@ -540,7 +543,7 @@ macro_rules! emit_cubic_curve {
         if let Some(param) = find_double_point_issue($discreminant, &$roots) {
             let (control_points_a, control_points_b) = split_curve_at!(&$control_points, param);
             let (mut weights_a, mut weights_b) = split_curve_at!(&weights, param);
-            triangulate_quadrilateral!(
+            triangulate_cubic_curve_quadrilateral!(
                 $fill_solid_vertices,
                 $cubic_curve_triangles,
                 &control_points_a,
@@ -553,7 +556,7 @@ macro_rules! emit_cubic_curve {
             for weights in &mut weights_b {
                 *weights = glam::vec4(-weights[0], -weights[1], weights[2], weights[3]);
             }
-            triangulate_quadrilateral!(
+            triangulate_cubic_curve_quadrilateral!(
                 $fill_solid_vertices,
                 $cubic_curve_triangles,
                 &control_points_b,
@@ -563,7 +566,7 @@ macro_rules! emit_cubic_curve {
                 $emit_vertex
             );
         } else {
-            triangulate_quadrilateral!(
+            triangulate_cubic_curve_quadrilateral!(
                 $fill_solid_vertices,
                 $cubic_curve_triangles,
                 $control_points,
@@ -589,11 +592,37 @@ fn triangle_fan_to_strip<T: Copy>(vertices: Vec<T>) -> Vec<T> {
     result
 }
 
+macro_rules! concat_buffers {
+    ($device:expr, $usage:ident, $buffer_count:expr, [$($buffer:expr,)*]) => {{
+        let mut buffers = [
+            $(transmute_vec::<_, u8>($buffer)),*
+        ];
+        let mut offsets = [0; $buffer_count];
+        let mut buffer_length = 0;
+        for (i, buffer) in buffers.iter().enumerate() {
+            buffer_length += buffer.len();
+            offsets[i] = buffer_length;
+        }
+        let mut buffer_data: Vec<u8> = Vec::with_capacity(buffer_length);
+        for mut buffer in &mut buffers {
+            buffer_data.append(&mut buffer);
+        }
+        (
+            offsets,
+            $device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: &buffer_data,
+                usage: wgpu::BufferUsage::$usage,
+            })
+        )
+    }};
+}
+
 pub struct Shape {
-    stroke_solid_elements: Vec<usize>,
-    fill_solid_elements: Vec<usize>,
-    offsets: [usize; 8],
+    vertex_offsets: [usize; 8],
+    index_offsets: [usize; 2],
     vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
 }
 
 impl Shape {
@@ -606,7 +635,7 @@ impl Shape {
                 } else {
                     path.segement_types.len()
                 };
-                max_elements[0] += 1;
+                max_elements[0] += number_of_segments * 5;
                 max_elements[1] += number_of_segments * 4;
                 max_elements[5] += number_of_segments * 4;
                 if stroke_options.join == Join::Round {
@@ -614,13 +643,14 @@ impl Shape {
                     max_elements[5] += number_of_segments * 2;
                 }
             } else {
-                max_elements[3] += 1;
-                max_elements[4] += 1
+                let solid_vertices = 1
                     + path.line_segments.len()
                     + path.integral_quadratic_curve_segments.len()
                     + path.integral_cubic_curve_segments.len() * 5
                     + path.rational_quadratic_curve_segments.len()
                     + path.rational_cubic_curve_segments.len() * 5;
+                max_elements[3] += solid_vertices + 1;
+                max_elements[4] += solid_vertices;
                 max_elements[5] += 1
                     + path.line_segments.len()
                     + path.integral_quadratic_curve_segments.len() * 2
@@ -633,10 +663,10 @@ impl Shape {
                 max_elements[9] += path.rational_cubic_curve_segments.len() * 6;
             }
         }
-        let mut stroke_solid_elements = Vec::with_capacity(max_elements[0]);
+        let mut stroke_solid_indices: Vec<u16> = Vec::with_capacity(max_elements[1]);
         let mut stroke_solid_vertices = Vec::with_capacity(max_elements[1]);
         let mut stroke_rounding_triangles: Vec<Vertex3> = Vec::with_capacity(max_elements[2]);
-        let mut fill_solid_elements = Vec::with_capacity(max_elements[3]);
+        let mut fill_solid_indices: Vec<u16> = Vec::with_capacity(max_elements[4]);
         let mut fill_solid_vertices = Vec::with_capacity(max_elements[4]);
         let mut proto_hull = Vec::with_capacity(max_elements[5]);
         let mut integral_quadratic_curve_triangles = Vec::with_capacity(max_elements[6]);
@@ -720,7 +750,7 @@ impl Shape {
                     } else {
                         cut_stroke_polygon(
                             &mut proto_hull,
-                            &mut stroke_solid_elements,
+                            &mut stroke_solid_indices,
                             &mut stroke_solid_vertices,
                             &mut path_stroke_solid_vertices,
                         );
@@ -773,7 +803,7 @@ impl Shape {
                 }
                 cut_stroke_polygon(
                     &mut proto_hull,
-                    &mut stroke_solid_elements,
+                    &mut stroke_solid_indices,
                     &mut stroke_solid_vertices,
                     &mut path_stroke_solid_vertices,
                 );
@@ -870,58 +900,47 @@ impl Shape {
                         }
                     }
                 }
-                fill_solid_elements.push(path_fill_solid_vertices.len());
+                let start_index = fill_solid_vertices.len();
                 fill_solid_vertices.append(&mut triangle_fan_to_strip(path_fill_solid_vertices));
+                let mut indices: Vec<u16> = (start_index as u16..(fill_solid_vertices.len() + 1) as u16).collect();
+                *indices.iter_mut().last().unwrap() = (-1isize) as u16;
+                fill_solid_indices.append(&mut indices);
             }
         }
         let convex_hull = crate::convex_hull::andrew(&proto_hull);
-        let mut vertex_buffers = [
-            transmute_vec::<_, u8>(stroke_solid_vertices),
-            transmute_vec::<_, u8>(stroke_rounding_triangles),
-            transmute_vec::<_, u8>(fill_solid_vertices),
-            transmute_vec::<_, u8>(integral_quadratic_curve_triangles),
-            transmute_vec::<_, u8>(integral_cubic_curve_triangles),
-            transmute_vec::<_, u8>(rational_quadratic_curve_triangles),
-            transmute_vec::<_, u8>(rational_cubic_curve_triangles),
-            transmute_vec::<_, u8>(triangle_fan_to_strip(convex_hull)),
-        ];
-        let mut vertex_buffer_length = 0;
-        let mut offsets = [0; 8];
-        for (i, vertex_buffer) in vertex_buffers.iter().enumerate() {
-            vertex_buffer_length += vertex_buffer.len();
-            offsets[i] = vertex_buffer_length;
-        }
-        let mut vertex_buffer_data: Vec<u8> = Vec::with_capacity(vertex_buffer_length);
-        for mut vertex_buffer in &mut vertex_buffers {
-            vertex_buffer_data.append(&mut vertex_buffer);
-        }
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: &vertex_buffer_data,
-            usage: wgpu::BufferUsage::VERTEX,
-        });
+        let (vertex_offsets, vertex_buffer) = concat_buffers!(
+            device,
+            VERTEX,
+            8,
+            [
+                stroke_solid_vertices,
+                stroke_rounding_triangles,
+                fill_solid_vertices,
+                integral_quadratic_curve_triangles,
+                integral_cubic_curve_triangles,
+                rational_quadratic_curve_triangles,
+                rational_cubic_curve_triangles,
+                triangle_fan_to_strip(convex_hull),
+            ]
+        );
+        let (index_offsets, index_buffer) = concat_buffers!(device, INDEX, 2, [stroke_solid_indices, fill_solid_indices,]);
         Self {
-            stroke_solid_elements,
-            fill_solid_elements,
-            offsets,
+            vertex_offsets,
+            index_offsets,
             vertex_buffer,
+            index_buffer,
         }
     }
 
     pub fn render_stencil<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
         render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
         render_pass.set_pipeline(&renderer.stroke_solid_pipeline);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(0..self.offsets[0] as u64));
-        let mut begin_index = 0;
-        for element_count in &self.stroke_solid_elements {
-            let end_index = begin_index + element_count;
-            // TODO: Use index buffer and primitive restart to save draw commands
-            render_pass.draw(begin_index as u32..end_index as u32, 0..1);
-            begin_index = end_index;
-        }
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(0..self.vertex_offsets[0] as u64));
+        render_pass.set_index_buffer(self.index_buffer.slice(0..self.index_offsets[0] as u64), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..(self.index_offsets[0] / std::mem::size_of::<u16>()) as u32, 0, 0..1);
         for (i, (pipeline, vertex_size)) in [(&renderer.stroke_rounding_pipeline, std::mem::size_of::<Vertex3>())].iter().enumerate() {
-            let begin_offset = self.offsets[i];
-            let end_offset = self.offsets[i + 1];
+            let begin_offset = self.vertex_offsets[i];
+            let end_offset = self.vertex_offsets[i + 1];
             if begin_offset < end_offset {
                 render_pass.set_pipeline(pipeline);
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
@@ -929,14 +948,16 @@ impl Shape {
             }
         }
         render_pass.set_pipeline(&renderer.fill_solid_pipeline);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(self.offsets[1] as u64..self.offsets[2] as u64));
-        let mut begin_index = 0;
-        for element_count in &self.fill_solid_elements {
-            let end_index = begin_index + element_count;
-            // TODO: Use index buffer and primitive restart to save draw commands
-            render_pass.draw(begin_index as u32..end_index as u32, 0..1);
-            begin_index = end_index;
-        }
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(self.vertex_offsets[1] as u64..self.vertex_offsets[2] as u64));
+        render_pass.set_index_buffer(
+            self.index_buffer.slice(self.index_offsets[0] as u64..self.index_offsets[1] as u64),
+            wgpu::IndexFormat::Uint16,
+        );
+        render_pass.draw_indexed(
+            0..((self.index_offsets[1] - self.index_offsets[0]) / std::mem::size_of::<u16>()) as u32,
+            0,
+            0..1,
+        );
         for (i, (pipeline, vertex_size)) in [
             (&renderer.fill_integral_quadratic_curve_pipeline, std::mem::size_of::<Vertex2>()),
             (&renderer.fill_integral_cubic_curve_pipeline, std::mem::size_of::<Vertex3>()),
@@ -946,8 +967,8 @@ impl Shape {
         .iter()
         .enumerate()
         {
-            let begin_offset = self.offsets[i + 2];
-            let end_offset = self.offsets[i + 3];
+            let begin_offset = self.vertex_offsets[i + 2];
+            let end_offset = self.vertex_offsets[i + 3];
             if begin_offset < end_offset {
                 render_pass.set_pipeline(pipeline);
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
@@ -957,8 +978,8 @@ impl Shape {
     }
 
     fn render_cover<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
-        let begin_offset = self.offsets[6];
-        let end_offset = self.offsets[7];
+        let begin_offset = self.vertex_offsets[6];
+        let end_offset = self.vertex_offsets[7];
         render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
         render_pass.draw(0..((end_offset - begin_offset) / std::mem::size_of::<Vertex0>()) as u32, 0..1);
@@ -1020,8 +1041,8 @@ macro_rules! stencil_descriptor {
 macro_rules! render_pipeline_descriptor {
     ($pipeline_layout:expr,
      $vertex_module:expr, $fragment_module:expr,
-     $primitive_topology:ident, $color_states:expr,
-     $stencil_state:expr,
+     $primitive_topology:ident, $primitive_index_format:expr,
+     $color_states:expr, $stencil_state:expr,
      $vertex_buffer:expr, $sample_count:expr $(,)?) => {
         wgpu::RenderPipelineDescriptor {
             label: None,
@@ -1038,7 +1059,7 @@ macro_rules! render_pipeline_descriptor {
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::$primitive_topology,
-                strip_index_format: None,
+                strip_index_format: $primitive_index_format,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: wgpu::CullMode::None,
                 polygon_mode: wgpu::PolygonMode::Fill,
@@ -1174,6 +1195,7 @@ impl Renderer {
             &segment_0_vertex_module,
             &stencil_solid_fragment_module,
             TriangleStrip,
+            Some(wgpu::IndexFormat::Uint16),
             &[],
             stroke_stencil_state.clone(),
             segment_0_vertex_buffer_descriptor.clone(),
@@ -1184,6 +1206,7 @@ impl Renderer {
             &segment_3_vertex_module,
             &stencil_rational_quadratic_curve_fragment_module,
             TriangleList,
+            None,
             &[],
             stroke_stencil_state,
             segment_3_vertex_buffer_descriptor.clone(),
@@ -1194,6 +1217,7 @@ impl Renderer {
             &segment_0_vertex_module,
             &stencil_solid_fragment_module,
             TriangleStrip,
+            Some(wgpu::IndexFormat::Uint16),
             &[],
             fill_stencil_state.clone(),
             segment_0_vertex_buffer_descriptor.clone(),
@@ -1204,6 +1228,7 @@ impl Renderer {
             &device.create_shader_module(&include_spirv!("../target/shader_modules/segment2_vert.spv")),
             &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_integral_quadratic_curve_frag.spv")),
             TriangleList,
+            None,
             &[],
             fill_stencil_state.clone(),
             segment_2_vertex_buffer_descriptor,
@@ -1214,6 +1239,7 @@ impl Renderer {
             &segment_3_vertex_module,
             &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_integral_cubic_curve_frag.spv")),
             TriangleList,
+            None,
             &[],
             fill_stencil_state.clone(),
             segment_3_vertex_buffer_descriptor.clone(),
@@ -1224,6 +1250,7 @@ impl Renderer {
             &segment_3_vertex_module,
             &stencil_rational_quadratic_curve_fragment_module,
             TriangleList,
+            None,
             &[],
             fill_stencil_state.clone(),
             segment_3_vertex_buffer_descriptor.clone(),
@@ -1234,6 +1261,7 @@ impl Renderer {
             &device.create_shader_module(&include_spirv!("../target/shader_modules/segment4_vert.spv")),
             &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_rational_cubic_curve_frag.spv")),
             TriangleList,
+            None,
             &[],
             fill_stencil_state,
             segment_4_vertex_buffer_descriptor,
@@ -1245,6 +1273,7 @@ impl Renderer {
             &segment_0_vertex_module,
             &stencil_solid_fragment_module,
             TriangleStrip,
+            None,
             &[],
             wgpu::StencilState {
                 front: stencil_descriptor!(NotEqual, Keep, Replace),
@@ -1260,6 +1289,7 @@ impl Renderer {
             &segment_0_vertex_module,
             &stencil_solid_fragment_module,
             TriangleStrip,
+            None,
             &[],
             wgpu::StencilState {
                 front: stencil_descriptor!(Less, Keep, Replace),
@@ -1313,6 +1343,7 @@ impl Renderer {
             &segment_0_vertex_module,
             &device.create_shader_module(&include_spirv!("../target/shader_modules/fill_solid_frag.spv")),
             TriangleStrip,
+            None,
             &[fill_color_state],
             wgpu::StencilState {
                 front: stencil_descriptor!(Less, Zero, Zero),
