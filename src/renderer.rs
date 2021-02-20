@@ -1,24 +1,24 @@
 use crate::{
     complex_number::ComplexNumber,
     error::Error,
-    path::{Join, Path, SegmentType, StrokeOptions},
-    utils::{line_line_intersection, rotate_right_90_degree, signed_triangle_area, transmute_slice, transmute_vec},
+    path::{Cap, Join, Path, SegmentType, StrokeOptions},
+    utils::{line_line_intersection, rotate_90_degree_clockwise, signed_triangle_area, transmute_slice, transmute_vec},
 };
 use glam::const_mat4;
 use wgpu::{include_spirv, util::DeviceExt, vertex_attr_array};
 
 const ERROR_MARGIN: f32 = 0.00001;
 
-pub type Vertex0 = glam::Vec2;
+type Vertex0 = glam::Vec2;
 #[derive(Clone, Copy)]
 #[repr(packed)]
-pub struct Vertex2(pub glam::Vec2, pub glam::Vec2);
+struct Vertex2(pub glam::Vec2, pub glam::Vec2);
 #[derive(Clone, Copy)]
 #[repr(packed)]
-pub struct Vertex3(pub glam::Vec2, pub glam::Vec3);
+struct Vertex3(pub glam::Vec2, pub glam::Vec3);
 #[derive(Clone, Copy)]
 #[repr(packed)]
-pub struct Vertex4(pub glam::Vec2, pub glam::Vec4);
+struct Vertex4(pub glam::Vec2, pub glam::Vec4);
 
 fn emit_stroke_vertex(proto_hull: &mut Vec<Vertex0>, path_stroke_solid_vertices: &mut Vec<Vertex0>, vertex: glam::Vec2) {
     proto_hull.push(vertex);
@@ -74,7 +74,7 @@ fn emit_stroke_join(
     begin_tangent: glam::Vec2,
     end_tangent: glam::Vec2,
 ) {
-    let in_normal = rotate_right_90_degree(begin_tangent);
+    let in_normal = rotate_90_degree_clockwise(begin_tangent);
     emit_stroke_vertices(proto_hull, path_stroke_solid_vertices, stroke_options, control_point, in_normal);
     let side_sign = in_normal.dot(end_tangent);
     if side_sign != 0.0 {
@@ -86,7 +86,7 @@ fn emit_stroke_join(
                 path_stroke_solid_vertices,
                 stroke_options,
                 control_point,
-                rotate_right_90_degree(mid_tangent),
+                rotate_90_degree_clockwise(mid_tangent),
             );
         }
         emit_stroke_vertices(
@@ -94,7 +94,7 @@ fn emit_stroke_join(
             path_stroke_solid_vertices,
             stroke_options,
             control_point,
-            rotate_right_90_degree(end_tangent),
+            rotate_90_degree_clockwise(end_tangent),
         );
         if stroke_options.join == Join::Round {
             let base_index = if side_sign < 0.0 { 1 } else { 2 };
@@ -622,6 +622,7 @@ macro_rules! concat_buffers {
     }};
 }
 
+/// A set of `Path`s which is always rendered together
 pub struct Shape {
     vertex_offsets: [usize; 8],
     index_offsets: [usize; 2],
@@ -630,11 +631,12 @@ pub struct Shape {
 }
 
 impl Shape {
-    pub fn new(device: &wgpu::Device, paths: &[Path]) -> Self {
+    /// Constructs a `Shape` from a set of `Path`s.
+    pub fn from_paths(device: &wgpu::Device, paths: &[Path]) -> Self {
         let mut max_elements = [0; 10];
         for path in paths {
             if let Some(stroke_options) = &path.stroke_options {
-                let number_of_segments = if stroke_options.closed {
+                let number_of_segments = if stroke_options.cap == Cap::Closed {
                     path.segement_types.len() + 1
                 } else {
                     path.segement_types.len()
@@ -748,7 +750,7 @@ impl Shape {
                                 &mut path_stroke_solid_vertices,
                                 &stroke_options,
                                 previous_control_point,
-                                rotate_right_90_degree(segment_begbegin_tangent),
+                                rotate_90_degree_clockwise(segment_begbegin_tangent),
                             );
                         }
                     } else {
@@ -763,7 +765,7 @@ impl Shape {
                     previous_tangent = segment_end_tangent;
                 }
                 // TODO: Line Cap
-                if stroke_options.closed {
+                if stroke_options.cap == Cap::Closed {
                     let line_segment = path.start - previous_control_point;
                     if line_segment.length_squared() > 0.0 {
                         let segment_tangent = line_segment.normalize();
@@ -802,7 +804,7 @@ impl Shape {
                         &mut path_stroke_solid_vertices,
                         &stroke_options,
                         previous_control_point,
-                        rotate_right_90_degree(previous_tangent),
+                        rotate_90_degree_clockwise(previous_tangent),
                     );
                 }
                 cut_stroke_polygon(
@@ -936,6 +938,7 @@ impl Shape {
         }
     }
 
+    /// Renderes the `Shape` into the stencil buffer.
     pub fn render_stencil<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
         render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
         render_pass.set_pipeline(&renderer.stroke_solid_pipeline);
@@ -989,6 +992,7 @@ impl Shape {
         render_pass.draw(0..((end_offset - begin_offset) / std::mem::size_of::<Vertex0>()) as u32, 0..1);
     }
 
+    /// Renderes the `Shape` into the color buffer. (Requires it to be stenciled first)
     pub fn render_color_solid<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>, clip_stack_height: usize) {
         render_pass.set_stencil_reference((clip_stack_height << renderer.winding_counter_bits) as u32);
         render_pass.set_bind_group(1, &renderer.color_solid_bind_group, &[]);
@@ -997,16 +1001,22 @@ impl Shape {
     }
 }
 
+/// Use `Shape`s as stencil for other `Shape`s
+///
+/// When using a `ClipStack`, color is only rendered inside the logical AND (CSG intersection)
+/// of all the `Shape`s on the stack with the `Shape` to be rendered.
 #[derive(Default)]
 pub struct ClipStack<'a> {
     stack: Vec<&'a Shape>,
 }
 
 impl<'b, 'a: 'b> ClipStack<'a> {
+    /// The number of clip `Shape`s on the stack.
     pub fn height(&self) -> usize {
         self.stack.len()
     }
 
+    /// Adds a clip `Shape` on top of the stack.
     pub fn push(&mut self, renderer: &'b Renderer, render_pass: &mut wgpu::RenderPass<'b>, shape: &'a Shape) -> Result<(), Error> {
         if self.height() >= (1 << renderer.clip_nesting_counter_bits) {
             return Err(Error::ClipStackOverflow);
@@ -1018,6 +1028,7 @@ impl<'b, 'a: 'b> ClipStack<'a> {
         Ok(())
     }
 
+    /// Removes the clip `Shape` at the top of the stack.
     pub fn pop(&mut self, renderer: &'b Renderer, render_pass: &mut wgpu::RenderPass<'b>) -> Result<(), Error> {
         match self.stack.pop() {
             Some(shape) => {
@@ -1047,7 +1058,7 @@ macro_rules! render_pipeline_descriptor {
      $vertex_module:expr, $fragment_module:expr,
      $primitive_topology:ident, $primitive_index_format:expr,
      $color_states:expr, $stencil_state:expr,
-     $vertex_buffer:expr, $sample_count:expr $(,)?) => {
+     $vertex_buffer:expr, $msaa_sample_count:expr $(,)?) => {
         wgpu::RenderPipelineDescriptor {
             label: None,
             layout: Some($pipeline_layout),
@@ -1077,7 +1088,7 @@ macro_rules! render_pipeline_descriptor {
                 stencil: $stencil_state,
             }),
             multisample: wgpu::MultisampleState {
-                count: $sample_count,
+                count: $msaa_sample_count,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -1085,6 +1096,7 @@ macro_rules! render_pipeline_descriptor {
     };
 }
 
+/// The rendering interface for `wgpu`
 pub struct Renderer {
     winding_counter_bits: usize,
     clip_nesting_counter_bits: usize,
@@ -1105,10 +1117,16 @@ pub struct Renderer {
 }
 
 impl Renderer {
+    /// Constructs a new `Renderer`.
+    ///
+    /// A `ClipStack` used with this `Renderer` can contain up to 2 to the power of `clip_nesting_counter_bits` `Shape`s.
+    /// The winding rule is: Non zero modulo 2 to the power of `winding_counter_bits`.
+    /// Thus, setting `winding_counter_bits` to 1 will result in the even-odd winding rule.
+    /// Wgpu only supports 8 stencil bits so the sum of `clip_nesting_counter_bits` and `winding_counter_bits` can be 8 at most.
     pub fn new(
         device: &wgpu::Device,
-        fill_color_state: wgpu::ColorTargetState,
-        sample_count: u32,
+        blending: wgpu::ColorTargetState,
+        msaa_sample_count: u32,
         clip_nesting_counter_bits: usize,
         winding_counter_bits: usize,
     ) -> Result<Self, Error> {
@@ -1203,7 +1221,7 @@ impl Renderer {
             &[],
             stroke_stencil_state.clone(),
             segment_0_vertex_buffer_descriptor.clone(),
-            sample_count,
+            msaa_sample_count,
         ));
         let stroke_rounding_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -1214,7 +1232,7 @@ impl Renderer {
             &[],
             stroke_stencil_state,
             segment_3_vertex_buffer_descriptor.clone(),
-            sample_count,
+            msaa_sample_count,
         ));
         let fill_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -1225,7 +1243,7 @@ impl Renderer {
             &[],
             fill_stencil_state.clone(),
             segment_0_vertex_buffer_descriptor.clone(),
-            sample_count,
+            msaa_sample_count,
         ));
         let fill_integral_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -1236,7 +1254,7 @@ impl Renderer {
             &[],
             fill_stencil_state.clone(),
             segment_2_vertex_buffer_descriptor,
-            sample_count,
+            msaa_sample_count,
         ));
         let fill_integral_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -1247,7 +1265,7 @@ impl Renderer {
             &[],
             fill_stencil_state.clone(),
             segment_3_vertex_buffer_descriptor.clone(),
-            sample_count,
+            msaa_sample_count,
         ));
         let fill_rational_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -1258,7 +1276,7 @@ impl Renderer {
             &[],
             fill_stencil_state.clone(),
             segment_3_vertex_buffer_descriptor.clone(),
-            sample_count,
+            msaa_sample_count,
         ));
         let fill_rational_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -1269,7 +1287,7 @@ impl Renderer {
             &[],
             fill_stencil_state,
             segment_4_vertex_buffer_descriptor,
-            sample_count,
+            msaa_sample_count,
         ));
 
         let increment_clip_nesting_counter_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -1286,7 +1304,7 @@ impl Renderer {
                 write_mask: clip_nesting_counter_mask | winding_counter_mask,
             },
             segment_0_vertex_buffer_descriptor.clone(),
-            sample_count,
+            msaa_sample_count,
         ));
         let decrement_clip_nesting_counter_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -1302,7 +1320,7 @@ impl Renderer {
                 write_mask: clip_nesting_counter_mask | winding_counter_mask,
             },
             segment_0_vertex_buffer_descriptor.clone(),
-            sample_count,
+            msaa_sample_count,
         ));
 
         const COLOR_SOLID_UNIFORM_BUFFER_SIZE: usize = std::mem::size_of::<[f32; 4]>();
@@ -1348,7 +1366,7 @@ impl Renderer {
             &device.create_shader_module(&include_spirv!("../target/shader_modules/fill_solid_frag.spv")),
             TriangleStrip,
             None,
-            &[fill_color_state],
+            &[blending],
             wgpu::StencilState {
                 front: stencil_descriptor!(Less, Zero, Zero),
                 back: stencil_descriptor!(Less, Zero, Zero),
@@ -1356,7 +1374,7 @@ impl Renderer {
                 write_mask: winding_counter_mask,
             },
             segment_0_vertex_buffer_descriptor.clone(),
-            sample_count,
+            msaa_sample_count,
         ));
 
         Ok(Self {
@@ -1379,11 +1397,18 @@ impl Renderer {
         })
     }
 
-    pub fn set_transform(&self, queue: &wgpu::Queue, transform: &[[f32; 4]; 4]) {
-        let data = transmute_slice(transform);
+    /// Set the model view projection matrix for subsequent stencil and color rendering calls.
+    ///
+    /// Call before creating the next `wgpu::RenderPass`.
+    pub fn set_transform(&self, queue: &wgpu::Queue, transform: &glam::Mat4) {
+        let transform = transform.to_cols_array();
+        let data = transmute_slice(&transform);
         queue.write_buffer(&self.transform_uniform_buffer, 0, &data);
     }
 
+    /// Set the fill color for subsequent color rendering calls.
+    ///
+    /// Call before creating the next `wgpu::RenderPass`.
     pub fn set_solid_fill_color(&self, queue: &wgpu::Queue, color: &[f32; 4]) {
         let data = transmute_slice(color);
         queue.write_buffer(&self.color_solid_uniform_buffer, 0, &data);

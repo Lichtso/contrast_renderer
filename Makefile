@@ -18,7 +18,10 @@ wasm: $(WASM_BINDING_TAGRET)
 
 desktop: $(DESKTOP_TARGET)
 
-.PHONY: all spriv wasm desktop
+doc:
+	cargo doc --no-deps --release
+
+.PHONY: all spriv wasm desktop doc
 
 $(SHADER_TARGET_PATH):
 	mkdir -p $(SHADER_TARGET_PATH)

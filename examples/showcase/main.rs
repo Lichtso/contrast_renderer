@@ -44,7 +44,7 @@ impl application_framework::Application for Application {
             0,
             contrast_render_engine::path::Path::from_rounded_rect(glam::vec2(0.0, 0.0), glam::vec2(580.0, 130.0), 50.0),
         );
-        let fill_shape = contrast_render_engine::renderer::Shape::new(&device, paths.as_slice());
+        let fill_shape = contrast_render_engine::renderer::Shape::from_paths(&device, paths.as_slice());
 
         Self {
             depth_stencil_texture_view: None,
@@ -55,12 +55,12 @@ impl application_framework::Application for Application {
     }
 
     fn resize(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, swap_chain_descriptor: &wgpu::SwapChainDescriptor) {
-        let transform_uniform_data = [
-            [2.0 / swap_chain_descriptor.width as f32, 0.0, 0.0, 0.0],
-            [0.0, 2.0 / swap_chain_descriptor.height as f32, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ];
+        let transform_uniform_data = glam::Mat4::from_cols(
+            glam::vec4(2.0 / swap_chain_descriptor.width as f32, 0.0, 0.0, 0.0),
+            glam::vec4(0.0, 2.0 / swap_chain_descriptor.height as f32, 0.0, 0.0),
+            glam::vec4(0.0, 0.0, 1.0, 0.0),
+            glam::vec4(0.0, 0.0, 0.0, 1.0),
+        );
         self.path_renderer.set_transform(&queue, &transform_uniform_data);
         let size = wgpu::Extent3d {
             width: swap_chain_descriptor.width,

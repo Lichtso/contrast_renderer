@@ -1,5 +1,6 @@
 use crate::utils::signed_triangle_area;
 
+/// Andrew's (monotone chain) convex hull algorithm
 pub fn andrew(input_points: &[glam::Vec2]) -> Vec<glam::Vec2> {
     let mut input_points = input_points.to_owned();
     if input_points.len() < 3 {

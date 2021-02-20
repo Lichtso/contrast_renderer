@@ -1,3 +1,5 @@
+#[cfg(feature = "text")]
+pub extern crate ttf_parser;
 pub extern crate wgpu;
 
 mod complex_number;

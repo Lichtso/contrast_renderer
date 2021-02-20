@@ -36,6 +36,7 @@ impl ttf_parser::OutlineBuilder for OutlineBuilder {
     }
 }
 
+/// Returns the paths of a given glyph in a given font face.
 pub fn paths_of_glyph(face: &ttf_parser::Face, glyph_id: ttf_parser::GlyphId) -> Vec<Path> {
     let mut outline_builder = OutlineBuilder::default();
     if let Some(_bounding_box) = face.outline_glyph(glyph_id, &mut outline_builder) {
@@ -45,19 +46,29 @@ pub fn paths_of_glyph(face: &ttf_parser::Face, glyph_id: ttf_parser::GlyphId) ->
     }
 }
 
+/// Defines where the X-axis origin of the text is.
 pub enum HorizontalAlignment {
+    /// Origin is to the left of the text (at the beginning).
     Left,
+    /// Origin is at the center of the text (at the middle).
     Center,
+    /// Origin is to the right of the text (at the end).
     Right,
 }
 
+/// Defines where the Y-axis origin of the text is.
 pub enum VerticalAlignment {
+    /// Origin is at the bottom of the text.
     Bottom,
+    /// Origin is at the base line of the text.
     Base,
+    /// Origin is at the center line of the text (middle between bottom and top).
     Center,
+    /// Origin is at the top of the text.
     Top,
 }
 
+/// Arranges a given string to a set of paths (of its glyphs), according to the given alignment and font face.
 pub fn paths_of_text(
     face: &ttf_parser::Face,
     horizontal_alignment: HorizontalAlignment,
