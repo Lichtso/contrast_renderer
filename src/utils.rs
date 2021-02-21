@@ -26,11 +26,10 @@ pub fn rotate_90_degree_clockwise(v: glam::Vec2) -> glam::Vec2 {
     glam::vec2(v[1], -v[0])
 }
 
-/// Returns the intersection point of two 2D lines.
-pub fn line_line_intersection(origin_a: glam::Vec2, direction_a: glam::Vec2, origin_b: glam::Vec2, direction_b: glam::Vec2) -> glam::Vec2 {
-    let param_a =
-        glam::Mat2::from_cols(origin_b - origin_a, direction_b).determinant() / glam::Mat2::from_cols(direction_a, direction_b).determinant();
-    origin_a + direction_a * param_a
+/// Returns the intersection point of two 2D lines (origin, direction).
+pub fn line_line_intersection(line_a: (glam::Vec2, glam::Vec2), line_b: (glam::Vec2, glam::Vec2)) -> glam::Vec2 {
+    let param_a = glam::Mat2::from_cols(line_b.0 - line_a.0, line_b.1).determinant() / glam::Mat2::from_cols(line_a.1, line_b.1).determinant();
+    line_a.0 + line_a.1 * param_a
 }
 
 /// Returns double the area of a triangle defined by the three given points.

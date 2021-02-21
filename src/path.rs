@@ -55,9 +55,11 @@ pub enum SegmentType {
 /// Defines what geometry is generated where `Path` segments meet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Join {
-    /// Polygon of the vertices perpendicular to the start / end of the adjacent `Path` segments
+    /// Polygon of the vertices located where the tangents of the adjacent `Path` segments meet
+    Miter,
+    /// Polygon of the vertices perpendicular to the tangents of the adjacent `Path` segments
     Bevel,
-    /// Circular arc with a radius of half a width, centered where the segments meet
+    /// Circular arc with a radius of half a width, centered where the adjacent `Path` segments meet
     Round,
 }
 

@@ -56,7 +56,7 @@ fn emit_stroke_rounding(
     if begin.0.distance_squared(end.0) == 0.0 {
         return;
     }
-    let intersection_point = line_line_intersection(begin.0, begin.1, end.0, end.1);
+    let intersection_point = line_line_intersection(begin, end);
     proto_hull.push(intersection_point);
     let weight = std::f32::consts::SQRT_2 / (1.0 + begin.1.dot(end.1)).sqrt();
     stroke_rounding_triangles.push(Vertex3(end.0, glam::vec3(1.0, 1.0, 1.0)));
@@ -81,41 +81,40 @@ fn emit_stroke_join(
     stroke_rounding_triangles: &mut Vec<Vertex3>,
     stroke_options: &StrokeOptions,
     control_point: glam::Vec2,
-    begin_tangent: glam::Vec2,
+    start_tangent: glam::Vec2,
     end_tangent: glam::Vec2,
 ) {
-    emit_stroke_vertices(proto_hull, path_stroke_solid_vertices, stroke_options, control_point, begin_tangent);
-    let side_sign = rotate_90_degree_clockwise(begin_tangent).dot(end_tangent);
-    if side_sign != 0.0 {
-        let mid_tangent = (begin_tangent + end_tangent).normalize();
-        let tangets_dot_product = begin_tangent.dot(end_tangent);
-        if stroke_options.join == Join::Round && tangets_dot_product < 0.0 {
-            emit_stroke_vertices(proto_hull, path_stroke_solid_vertices, stroke_options, control_point, mid_tangent);
+    emit_stroke_vertices(proto_hull, path_stroke_solid_vertices, stroke_options, control_point, start_tangent);
+    let side_sign = rotate_90_degree_clockwise(start_tangent).dot(end_tangent);
+    if side_sign == 0.0 {
+        return;
+    }
+    let base_index = if side_sign < 0.0 { 1 } else { 2 };
+    let start_point_and_tagent = (path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index], start_tangent);
+    let mid_tangent = (start_tangent + end_tangent).normalize();
+    let tangets_dot_product = start_tangent.dot(end_tangent);
+    if stroke_options.join == Join::Miter || (stroke_options.join == Join::Round && tangets_dot_product < 0.0) {
+        emit_stroke_vertices(proto_hull, path_stroke_solid_vertices, stroke_options, control_point, mid_tangent);
+    }
+    emit_stroke_vertices(proto_hull, path_stroke_solid_vertices, stroke_options, control_point, end_tangent);
+    let end_point_and_tagent = (path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index], end_tangent);
+    match stroke_options.join {
+        Join::Miter => {
+            let mid_index = path_stroke_solid_vertices.len() - base_index - 2;
+            path_stroke_solid_vertices[mid_index] = line_line_intersection(start_point_and_tagent, end_point_and_tagent);
         }
-        emit_stroke_vertices(proto_hull, path_stroke_solid_vertices, stroke_options, control_point, end_tangent);
-        if stroke_options.join == Join::Round {
-            let base_index = if side_sign < 0.0 { 1 } else { 2 };
+        Join::Bevel => {}
+        Join::Round => {
             if tangets_dot_product < 0.0 {
                 emit_stroke_split_rounding(
                     proto_hull,
                     stroke_rounding_triangles,
-                    (
-                        path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index - 4],
-                        begin_tangent,
-                    ),
+                    start_point_and_tagent,
                     (path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index - 2], mid_tangent),
-                    (path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index], end_tangent),
+                    end_point_and_tagent,
                 );
             } else {
-                emit_stroke_rounding(
-                    proto_hull,
-                    stroke_rounding_triangles,
-                    (
-                        path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index - 2],
-                        begin_tangent,
-                    ),
-                    (path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index], end_tangent),
-                );
+                emit_stroke_rounding(proto_hull, stroke_rounding_triangles, start_point_and_tagent, end_point_and_tagent);
             }
         }
     }
@@ -633,8 +632,13 @@ impl Shape {
                     path.segement_types.len()
                 };
                 max_elements[0] += number_of_segments * 5;
-                max_elements[1] += number_of_segments * 4;
-                max_elements[5] += number_of_segments * 4;
+                if stroke_options.join == Join::Miter {
+                    max_elements[1] += number_of_segments * 6;
+                    max_elements[5] += number_of_segments * 6;
+                } else {
+                    max_elements[1] += number_of_segments * 4;
+                    max_elements[5] += number_of_segments * 4;
+                }
                 if stroke_options.join == Join::Round {
                     max_elements[2] += number_of_segments * 6;
                     max_elements[5] += number_of_segments * 2;
