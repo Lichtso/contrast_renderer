@@ -1,5 +1,5 @@
 [package]
-name = "contrast_render_engine"
+name = "contrast_renderer"
 version = "0.1.0"
 authors = ["Alexander Meißner <AlexanderMeissner@gmx.net>"]
 edition = "2018"

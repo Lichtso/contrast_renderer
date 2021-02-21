@@ -1,4 +1,4 @@
-EXECUTABLE = contrast_render_engine
+EXECUTABLE = contrast_renderer
 RUST_SOURCES := $(wildcard src/*.rs)
 SHADER_SOURCE_PATH = src/shader
 SHADER_TARGET_PATH = target/shader_modules

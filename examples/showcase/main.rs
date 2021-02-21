@@ -6,13 +6,13 @@ const MSAA_SAMPLE_COUNT: u32 = 4;
 struct Application {
     depth_stencil_texture_view: Option<wgpu::TextureView>,
     msaa_color_texture_view: Option<wgpu::TextureView>,
-    path_renderer: contrast_render_engine::renderer::Renderer,
-    fill_shape: contrast_render_engine::renderer::Shape,
+    renderer: contrast_renderer::renderer::Renderer,
+    fill_shape: contrast_renderer::renderer::Shape,
 }
 
 impl application_framework::Application for Application {
     fn new(device: &wgpu::Device, _queue: &mut wgpu::Queue, swap_chain_descriptor: &wgpu::SwapChainDescriptor) -> Self {
-        let fill_color_state = wgpu::ColorTargetState {
+        let blending = wgpu::ColorTargetState {
             format: swap_chain_descriptor.format,
             color_blend: wgpu::BlendState {
                 src_factor: wgpu::BlendFactor::SrcAlpha,
@@ -26,14 +26,14 @@ impl application_framework::Application for Application {
             },
             write_mask: wgpu::ColorWrite::ALL,
         };
-        let path_renderer = contrast_render_engine::renderer::Renderer::new(&device, fill_color_state, MSAA_SAMPLE_COUNT, 4, 4).unwrap();
+        let renderer = contrast_renderer::renderer::Renderer::new(&device, blending, MSAA_SAMPLE_COUNT, 4, 4).unwrap();
 
         let data = include_bytes!("fonts/OpenSans-Regular.ttf");
         let face = ttf_parser::Face::from_slice(data, 0).unwrap();
-        let mut paths = contrast_render_engine::text::paths_of_text(
+        let mut paths = contrast_renderer::text::paths_of_text(
             &face,
-            contrast_render_engine::text::HorizontalAlignment::Center,
-            contrast_render_engine::text::VerticalAlignment::Center,
+            contrast_renderer::text::HorizontalAlignment::Center,
+            contrast_renderer::text::VerticalAlignment::Center,
             "Hello World",
         );
         for path in &mut paths {
@@ -42,14 +42,14 @@ impl application_framework::Application for Application {
         }
         paths.insert(
             0,
-            contrast_render_engine::path::Path::from_rounded_rect(glam::vec2(0.0, 0.0), glam::vec2(580.0, 130.0), 50.0),
+            contrast_renderer::path::Path::from_rounded_rect(glam::vec2(0.0, 0.0), glam::vec2(580.0, 130.0), 50.0),
         );
-        let fill_shape = contrast_render_engine::renderer::Shape::from_paths(&device, paths.as_slice());
+        let fill_shape = contrast_renderer::renderer::Shape::from_paths(&device, paths.as_slice());
 
         Self {
             depth_stencil_texture_view: None,
             msaa_color_texture_view: None,
-            path_renderer,
+            renderer,
             fill_shape,
         }
     }
@@ -61,7 +61,7 @@ impl application_framework::Application for Application {
             glam::vec4(0.0, 0.0, 1.0, 0.0),
             glam::vec4(0.0, 0.0, 0.0, 1.0),
         );
-        self.path_renderer.set_transform(&queue, &transform_uniform_data);
+        self.renderer.set_transform(&queue, &transform_uniform_data);
         let size = wgpu::Extent3d {
             width: swap_chain_descriptor.width,
             height: swap_chain_descriptor.height,
@@ -118,7 +118,7 @@ impl application_framework::Application for Application {
                     }),
                 }),
             });
-            self.fill_shape.render_stencil(&self.path_renderer, &mut render_pass);
+            self.fill_shape.render_stencil(&self.renderer, &mut render_pass);
         }
 
         {
@@ -149,7 +149,7 @@ impl application_framework::Application for Application {
                 }),
             });
             self.fill_shape
-                .render_color_solid(&self.path_renderer, &mut render_pass, 0);
+                .render_color_solid(&self.renderer, &mut render_pass, 0);
         }
 
         queue.submit(Some(encoder.finish()));
@@ -157,5 +157,5 @@ impl application_framework::Application for Application {
 }
 
 fn main() {
-    application_framework::ApplicationManager::run::<Application>("Contrast Render Engine - Showcase");
+    application_framework::ApplicationManager::run::<Application>("Contrast Renderer - Showcase");
 }
