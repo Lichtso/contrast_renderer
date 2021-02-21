@@ -30,39 +30,49 @@ fn emit_stroke_vertices(
     path_stroke_solid_vertices: &mut Vec<Vertex0>,
     stroke_options: &StrokeOptions,
     control_point: glam::Vec2,
-    normal: glam::Vec2,
+    tangent: glam::Vec2,
 ) {
+    let normal = rotate_90_degree_clockwise(tangent);
     let clamped_offset = stroke_options.offset.clamp(-0.5, 0.5);
+    let width_absolute = stroke_options.width.abs();
     emit_stroke_vertex(
         proto_hull,
         path_stroke_solid_vertices,
-        control_point + normal * (clamped_offset - 0.5) * stroke_options.width,
+        control_point + normal * (clamped_offset - 0.5) * width_absolute,
     );
     emit_stroke_vertex(
         proto_hull,
         path_stroke_solid_vertices,
-        control_point + normal * (clamped_offset + 0.5) * stroke_options.width,
+        control_point + normal * (clamped_offset + 0.5) * width_absolute,
     );
 }
 
 fn emit_stroke_rounding(
     proto_hull: &mut Vec<Vertex0>,
     stroke_rounding_triangles: &mut Vec<Vertex3>,
-    begin_control_point: glam::Vec2,
-    end_control_point: glam::Vec2,
-    begin_tangent: glam::Vec2,
-    end_tangent: glam::Vec2,
+    begin: (glam::Vec2, glam::Vec2),
+    end: (glam::Vec2, glam::Vec2),
 ) {
-    if begin_control_point.distance_squared(end_control_point) == 0.0 {
+    if begin.0.distance_squared(end.0) == 0.0 {
         return;
     }
-    let intersection_point = line_line_intersection(begin_control_point, begin_tangent, end_control_point, end_tangent);
+    let intersection_point = line_line_intersection(begin.0, begin.1, end.0, end.1);
     proto_hull.push(intersection_point);
-    let tangets_dot_product = begin_tangent.dot(end_tangent);
-    let weight = 1.0 / (1.0 - tangets_dot_product * tangets_dot_product).sqrt();
-    stroke_rounding_triangles.push(Vertex3(end_control_point, glam::vec3(1.0, 1.0, 1.0)));
+    let weight = std::f32::consts::SQRT_2 / (1.0 + begin.1.dot(end.1)).sqrt();
+    stroke_rounding_triangles.push(Vertex3(end.0, glam::vec3(1.0, 1.0, 1.0)));
     stroke_rounding_triangles.push(Vertex3(intersection_point, glam::vec3(0.5 * weight, 0.0, weight)));
-    stroke_rounding_triangles.push(Vertex3(begin_control_point, glam::vec3(0.0, 0.0, 1.0)));
+    stroke_rounding_triangles.push(Vertex3(begin.0, glam::vec3(0.0, 0.0, 1.0)));
+}
+
+fn emit_stroke_split_rounding(
+    proto_hull: &mut Vec<Vertex0>,
+    stroke_rounding_triangles: &mut Vec<Vertex3>,
+    begin: (glam::Vec2, glam::Vec2),
+    tip: (glam::Vec2, glam::Vec2),
+    end: (glam::Vec2, glam::Vec2),
+) {
+    emit_stroke_rounding(proto_hull, stroke_rounding_triangles, begin, tip);
+    emit_stroke_rounding(proto_hull, stroke_rounding_triangles, tip, end);
 }
 
 fn emit_stroke_join(
@@ -74,56 +84,37 @@ fn emit_stroke_join(
     begin_tangent: glam::Vec2,
     end_tangent: glam::Vec2,
 ) {
-    let in_normal = rotate_90_degree_clockwise(begin_tangent);
-    emit_stroke_vertices(proto_hull, path_stroke_solid_vertices, stroke_options, control_point, in_normal);
-    let side_sign = in_normal.dot(end_tangent);
+    emit_stroke_vertices(proto_hull, path_stroke_solid_vertices, stroke_options, control_point, begin_tangent);
+    let side_sign = rotate_90_degree_clockwise(begin_tangent).dot(end_tangent);
     if side_sign != 0.0 {
         let mid_tangent = (begin_tangent + end_tangent).normalize();
         let tangets_dot_product = begin_tangent.dot(end_tangent);
         if stroke_options.join == Join::Round && tangets_dot_product < 0.0 {
-            emit_stroke_vertices(
-                proto_hull,
-                path_stroke_solid_vertices,
-                stroke_options,
-                control_point,
-                rotate_90_degree_clockwise(mid_tangent),
-            );
+            emit_stroke_vertices(proto_hull, path_stroke_solid_vertices, stroke_options, control_point, mid_tangent);
         }
-        emit_stroke_vertices(
-            proto_hull,
-            path_stroke_solid_vertices,
-            stroke_options,
-            control_point,
-            rotate_90_degree_clockwise(end_tangent),
-        );
+        emit_stroke_vertices(proto_hull, path_stroke_solid_vertices, stroke_options, control_point, end_tangent);
         if stroke_options.join == Join::Round {
             let base_index = if side_sign < 0.0 { 1 } else { 2 };
             if tangets_dot_product < 0.0 {
-                let mid_control_point = path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index - 2];
-                emit_stroke_rounding(
+                emit_stroke_split_rounding(
                     proto_hull,
                     stroke_rounding_triangles,
-                    path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index - 4],
-                    mid_control_point,
-                    begin_tangent,
-                    mid_tangent,
-                );
-                emit_stroke_rounding(
-                    proto_hull,
-                    stroke_rounding_triangles,
-                    mid_control_point,
-                    path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index],
-                    mid_tangent,
-                    end_tangent,
+                    (
+                        path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index - 4],
+                        begin_tangent,
+                    ),
+                    (path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index - 2], mid_tangent),
+                    (path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index], end_tangent),
                 );
             } else {
                 emit_stroke_rounding(
                     proto_hull,
                     stroke_rounding_triangles,
-                    path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index - 2],
-                    path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index],
-                    begin_tangent,
-                    end_tangent,
+                    (
+                        path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index - 2],
+                        begin_tangent,
+                    ),
+                    (path_stroke_solid_vertices[path_stroke_solid_vertices.len() - base_index], end_tangent),
                 );
             }
         }
@@ -692,46 +683,83 @@ impl Shape {
                 let mut rational_cubic_curve_segment_iter = path.rational_cubic_curve_segments.iter();
                 for (i, segement_type) in path.segement_types.iter().enumerate() {
                     let next_control_point;
-                    let segment_begbegin_tangent;
+                    let segment_start_tangent;
                     let segment_end_tangent;
                     match segement_type {
                         SegmentType::Line => {
                             let segment = line_segment_iter.next().unwrap();
                             next_control_point = segment.control_points[0];
-                            segment_begbegin_tangent = (next_control_point - previous_control_point).normalize();
-                            segment_end_tangent = segment_begbegin_tangent;
+                            segment_start_tangent = (next_control_point - previous_control_point).normalize();
+                            segment_end_tangent = segment_start_tangent;
                         }
                         SegmentType::IntegralQuadraticCurve => {
                             let segment = integral_quadratic_curve_segment_iter.next().unwrap();
                             next_control_point = segment.control_points[1];
-                            segment_begbegin_tangent = (segment.control_points[0] - previous_control_point).normalize();
+                            segment_start_tangent = (segment.control_points[0] - previous_control_point).normalize();
                             segment_end_tangent = (next_control_point - segment.control_points[0]).normalize();
                             // error!("IntegralQuadraticCurve stroking is not implemented");
                         }
                         SegmentType::IntegralCubicCurve => {
                             let segment = integral_cubic_curve_segment_iter.next().unwrap();
                             next_control_point = segment.control_points[2];
-                            segment_begbegin_tangent = (segment.control_points[0] - previous_control_point).normalize();
+                            segment_start_tangent = (segment.control_points[0] - previous_control_point).normalize();
                             segment_end_tangent = (next_control_point - segment.control_points[1]).normalize();
                             // error!("IntegralCubicCurve stroking is not implemented");
                         }
                         SegmentType::RationalQuadraticCurve => {
                             let segment = rational_quadratic_curve_segment_iter.next().unwrap();
                             next_control_point = segment.control_points[1];
-                            segment_begbegin_tangent = (segment.control_points[0] - previous_control_point).normalize();
+                            segment_start_tangent = (segment.control_points[0] - previous_control_point).normalize();
                             segment_end_tangent = (next_control_point - segment.control_points[0]).normalize();
                             // error!("RationalQuadraticCurve stroking is not implemented");
                         }
                         SegmentType::RationalCubicCurve => {
                             let segment = rational_cubic_curve_segment_iter.next().unwrap();
                             next_control_point = segment.control_points[2];
-                            segment_begbegin_tangent = (segment.control_points[0] - previous_control_point).normalize();
+                            segment_start_tangent = (segment.control_points[0] - previous_control_point).normalize();
                             segment_end_tangent = (next_control_point - segment.control_points[1]).normalize();
                             // error!("RationalCubicCurve stroking is not implemented");
                         }
                     }
                     if i == 0 {
-                        first_tangent = segment_begbegin_tangent;
+                        first_tangent = segment_start_tangent;
+                        let tip_point = previous_control_point - segment_start_tangent * stroke_options.width.abs() * 0.5;
+                        match stroke_options.cap {
+                            Cap::Closed | Cap::Butt => {}
+                            Cap::Square => {
+                                emit_stroke_vertices(
+                                    &mut proto_hull,
+                                    &mut path_stroke_solid_vertices,
+                                    &stroke_options,
+                                    tip_point,
+                                    segment_start_tangent,
+                                );
+                            }
+                            Cap::Triangle | Cap::Round => {
+                                emit_stroke_vertex(&mut proto_hull, &mut path_stroke_solid_vertices, tip_point);
+                            }
+                        }
+                        if (stroke_options.cap == Cap::Round || stroke_options.cap == Cap::Triangle)
+                            || (stroke_options.cap == Cap::Square && *segement_type != SegmentType::Line)
+                            || ((stroke_options.cap == Cap::Butt || stroke_options.cap == Cap::Closed) && *segement_type == SegmentType::Line)
+                        {
+                            emit_stroke_vertices(
+                                &mut proto_hull,
+                                &mut path_stroke_solid_vertices,
+                                &stroke_options,
+                                previous_control_point,
+                                segment_start_tangent,
+                            );
+                        }
+                        if stroke_options.cap == Cap::Round {
+                            emit_stroke_split_rounding(
+                                &mut proto_hull,
+                                &mut stroke_rounding_triangles,
+                                (path_stroke_solid_vertices[path_stroke_solid_vertices.len() - 2], -segment_start_tangent),
+                                (tip_point, rotate_90_degree_clockwise(segment_start_tangent)),
+                                (path_stroke_solid_vertices[path_stroke_solid_vertices.len() - 1], segment_start_tangent),
+                            );
+                        }
                     } else {
                         emit_stroke_join(
                             &mut proto_hull,
@@ -740,20 +768,10 @@ impl Shape {
                             &stroke_options,
                             previous_control_point,
                             previous_tangent,
-                            segment_begbegin_tangent,
+                            segment_start_tangent,
                         );
                     }
-                    if *segement_type == SegmentType::Line {
-                        if i == 0 {
-                            emit_stroke_vertices(
-                                &mut proto_hull,
-                                &mut path_stroke_solid_vertices,
-                                &stroke_options,
-                                previous_control_point,
-                                rotate_90_degree_clockwise(segment_begbegin_tangent),
-                            );
-                        }
-                    } else {
+                    if *segement_type != SegmentType::Line {
                         cut_stroke_polygon(
                             &mut proto_hull,
                             &mut stroke_solid_indices,
@@ -764,48 +782,76 @@ impl Shape {
                     previous_control_point = next_control_point;
                     previous_tangent = segment_end_tangent;
                 }
-                // TODO: Line Cap
-                if stroke_options.cap == Cap::Closed {
-                    let line_segment = path.start - previous_control_point;
-                    if line_segment.length_squared() > 0.0 {
-                        let segment_tangent = line_segment.normalize();
-                        emit_stroke_join(
-                            &mut proto_hull,
-                            &mut path_stroke_solid_vertices,
-                            &mut stroke_rounding_triangles,
-                            &stroke_options,
-                            previous_control_point,
-                            previous_tangent,
-                            segment_tangent,
-                        );
-                        emit_stroke_join(
-                            &mut proto_hull,
-                            &mut path_stroke_solid_vertices,
-                            &mut stroke_rounding_triangles,
-                            &stroke_options,
-                            path.start,
-                            segment_tangent,
-                            first_tangent,
-                        );
-                    } else {
-                        emit_stroke_join(
-                            &mut proto_hull,
-                            &mut path_stroke_solid_vertices,
-                            &mut stroke_rounding_triangles,
-                            &stroke_options,
-                            path.start,
-                            previous_tangent,
-                            first_tangent,
-                        );
-                    }
-                } else if *path.segement_types.last().unwrap() == SegmentType::Line {
+                if (stroke_options.cap == Cap::Round || stroke_options.cap == Cap::Triangle)
+                    || (stroke_options.cap == Cap::Square && *path.segement_types.last().unwrap() != SegmentType::Line)
+                    || (stroke_options.cap == Cap::Butt && *path.segement_types.last().unwrap() == SegmentType::Line)
+                {
                     emit_stroke_vertices(
                         &mut proto_hull,
                         &mut path_stroke_solid_vertices,
                         &stroke_options,
                         previous_control_point,
-                        rotate_90_degree_clockwise(previous_tangent),
+                        previous_tangent,
                     );
+                }
+                let tip_point = previous_control_point + previous_tangent * stroke_options.width.abs() * 0.5;
+                if stroke_options.cap == Cap::Round {
+                    emit_stroke_split_rounding(
+                        &mut proto_hull,
+                        &mut stroke_rounding_triangles,
+                        (path_stroke_solid_vertices[path_stroke_solid_vertices.len() - 2], -previous_tangent),
+                        (tip_point, rotate_90_degree_clockwise(previous_tangent)),
+                        (path_stroke_solid_vertices[path_stroke_solid_vertices.len() - 1], previous_tangent),
+                    );
+                }
+                match stroke_options.cap {
+                    Cap::Closed => {
+                        let line_segment = path.start - previous_control_point;
+                        if line_segment.length_squared() > 0.0 {
+                            let segment_tangent = line_segment.normalize();
+                            emit_stroke_join(
+                                &mut proto_hull,
+                                &mut path_stroke_solid_vertices,
+                                &mut stroke_rounding_triangles,
+                                &stroke_options,
+                                previous_control_point,
+                                previous_tangent,
+                                segment_tangent,
+                            );
+                            emit_stroke_join(
+                                &mut proto_hull,
+                                &mut path_stroke_solid_vertices,
+                                &mut stroke_rounding_triangles,
+                                &stroke_options,
+                                path.start,
+                                segment_tangent,
+                                first_tangent,
+                            );
+                        } else {
+                            emit_stroke_join(
+                                &mut proto_hull,
+                                &mut path_stroke_solid_vertices,
+                                &mut stroke_rounding_triangles,
+                                &stroke_options,
+                                path.start,
+                                previous_tangent,
+                                first_tangent,
+                            );
+                        }
+                    }
+                    Cap::Butt => {}
+                    Cap::Square => {
+                        emit_stroke_vertices(
+                            &mut proto_hull,
+                            &mut path_stroke_solid_vertices,
+                            &stroke_options,
+                            tip_point,
+                            previous_tangent,
+                        );
+                    }
+                    Cap::Triangle | Cap::Round => {
+                        emit_stroke_vertex(&mut proto_hull, &mut path_stroke_solid_vertices, tip_point);
+                    }
                 }
                 cut_stroke_polygon(
                     &mut proto_hull,

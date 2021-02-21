@@ -55,28 +55,33 @@ pub enum SegmentType {
 /// Defines what geometry is generated where `Path` segments meet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Join {
-    /// Polygon of the vertices perpendicular to the beginning / end of the adjacent `Path` segments
+    /// Polygon of the vertices perpendicular to the start / end of the adjacent `Path` segments
     Bevel,
-    /// Circular arc
+    /// Circular arc with a radius of half a width, centered where the segments meet
     Round,
 }
 
-/// Defines what geometry is generated at the beginning and the end of a `Path`.
+/// Defines what geometry is generated at the start and the end of a `Path`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cap {
-    /// The end and the beginning will be connected by an additional line segment and the line caps will become line joins.
+    /// The end and the start of the `Path` will be connected by an additional `LineSegment` and the caps will become joins.
     Closed,
-    /// Sharp perpendicular cut exactly at the beginning / end of the `Path`.
+    /// Sharp perpendicular cut exactly at the start / the end of the `Path`
     Butt,
-    // Square,
-    // Triangle,
-    // Round,
+    /// Sharp perpendicular cut half a width before the start / behind the end of the `Path`
+    Square,
+    /// Triangular tip half a width before the start / behind the end of the `Path`
+    Triangle,
+    /// Circular arc with a radius of half a width, centered at the start / the end of the `Path`
+    Round,
 }
 
 /// Defines how a `Path` is stroked.
 #[derive(Debug, Clone, Copy)]
 pub struct StrokeOptions {
     /// The width of the stroked `Path`
+    ///
+    /// The absolute value is used, so the sign has no effect.
     pub width: f32,
     /// Offsets the stroke relative to the actual `Path`.
     ///
@@ -85,7 +90,7 @@ pub struct StrokeOptions {
     pub offset: f32,
     /// Defines what geometry is generated where `Path` segments meet.
     pub join: Join,
-    /// Defines what geometry is generated at the beginning and the end of the `Path`.
+    /// Defines what geometry is generated at the start and the end of the `Path`.
     pub cap: Cap,
 }
 
@@ -98,7 +103,7 @@ pub struct StrokeOptions {
 pub struct Path {
     /// If `Some()` then the `Path` will be stroked otherwise (if `None`) it will be filled.
     pub stroke_options: Option<StrokeOptions>,
-    /// Beginning point of the `Path` (position of "move to" command).
+    /// Beginning of the `Path` (position of "move to" command).
     pub start: glam::Vec2,
     /// Storage for all the line segments of the `Path`.
     pub line_segments: Vec<LineSegment>,
@@ -174,11 +179,11 @@ impl Path {
         }
     }
 
-    /// Returns the normalized tangent at the beginning in direction of the `Path`.
+    /// Returns the normalized tangent at the start in direction of the `Path`.
     ///
     /// Returns the null vector if the `Path` is empty (has no segments).
     /// Useful for arrow heads / tails.
-    pub fn get_begin_tangent(&self) -> glam::Vec2 {
+    pub fn get_start_tangent(&self) -> glam::Vec2 {
         match self.segement_types.last() {
             Some(SegmentType::Line) => {
                 let segment = self.line_segments.last().unwrap();
@@ -211,9 +216,9 @@ impl Path {
     pub fn get_end_tangent(&self) -> glam::Vec2 {
         match self.segement_types.last() {
             Some(SegmentType::Line) => {
-                let previous_point = match self.segement_types.iter().rev().skip(1).next() {
+                let previous_point = match self.segement_types.iter().rev().nth(1) {
                     Some(SegmentType::Line) => {
-                        let segment = self.line_segments.iter().rev().skip(1).next().unwrap();
+                        let segment = self.line_segments.iter().rev().nth(1).unwrap();
                         segment.control_points[0]
                     }
                     Some(SegmentType::IntegralQuadraticCurve) => {
