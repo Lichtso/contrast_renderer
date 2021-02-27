@@ -22,8 +22,10 @@ pub struct IntegralCubicCurveSegment {
 /// A rational quadratic bezier curve
 #[derive(Debug, Clone, Copy)]
 pub struct RationalQuadraticCurveSegment {
-    /// Weights including the start, thus shifted by one compared to the control_points.
-    pub weights: [f32; 3],
+    /// Weight of `control_points[0]` (the middle).
+    ///
+    /// The weights of the start and end control points are fixed to `1.0`.
+    pub weight: f32,
     /// The start is excluded as it is implicitly defined as the end of the previous `Path` segment.
     pub control_points: [glam::Vec2; 2],
 }
@@ -78,6 +80,14 @@ pub enum Cap {
     Round,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum CurveApproximation {
+    /// Parametric step size is `1.0 / n`.
+    ///
+    /// Thus there are `n + 1` parameters (including start and end).
+    UniformlySpacedParameters(usize),
+}
+
 /// Defines how a `Path` is stroked.
 #[derive(Debug, Clone, Copy)]
 pub struct StrokeOptions {
@@ -94,6 +104,8 @@ pub struct StrokeOptions {
     pub join: Join,
     /// Defines what geometry is generated at the start and the end of the `Path`.
     pub cap: Cap,
+
+    pub curve_approximation: CurveApproximation,
 }
 
 /// A `Path` is a sequence of segments that can be either stroked or filled.
@@ -347,7 +359,6 @@ impl Path {
                 }
                 SegmentType::RationalQuadraticCurve => {
                     let segment = rational_quadratic_curve_segment_iter.next().unwrap();
-                    segment.weights.swap(0, 2);
                     std::mem::swap(&mut previous_control_point, &mut segment.control_points[1]);
                 }
                 SegmentType::RationalCubicCurve => {
@@ -382,7 +393,7 @@ impl Path {
                     self.rational_quadratic_curve_segments.insert(
                         rational_quadratic_curve_segment_index,
                         RationalQuadraticCurveSegment {
-                            weights: [1.0, 1.0, 1.0],
+                            weight: 1.0,
                             control_points: segment.control_points,
                         },
                     );
@@ -451,9 +462,9 @@ impl Path {
                 SegmentType::RationalQuadraticCurve => {
                     let segment = rational_quadratic_curve_segment_iter.next().unwrap();
                     let mut control_points = [
-                        previous_control_point.extend(segment.weights[0]),
-                        segment.control_points[0].extend(segment.weights[1]),
-                        segment.control_points[1].extend(segment.weights[2]),
+                        previous_control_point.extend(1.0),
+                        segment.control_points[0].extend(segment.weight),
+                        segment.control_points[1].extend(1.0),
                     ];
                     for control_point in &mut control_points {
                         *control_point *= glam::vec3(control_point[2], control_point[2], 1.0);
@@ -469,7 +480,7 @@ impl Path {
                     self.rational_cubic_curve_segments.insert(
                         rational_cubic_curve_segment_index,
                         RationalCubicCurveSegment {
-                            weights: [segment.weights[0], new_control_points[0][2], new_control_points[1][2], segment.weights[2]],
+                            weights: [1.0, new_control_points[0][2], new_control_points[1][2], 1.0],
                             control_points: [
                                 new_control_points[0].truncate(),
                                 new_control_points[1].truncate(),
@@ -494,18 +505,14 @@ impl Path {
     /// "arc to" command
     pub fn push_arc(&mut self, tangent_crossing: glam::Vec2, to: glam::Vec2) {
         self.push_rational_quadratic_curve(RationalQuadraticCurveSegment {
-            weights: [
-                1.0,
-                ((tangent_crossing - self.get_end()).angle_between(tangent_crossing - to) * 0.5).sin(),
-                1.0,
-            ],
+            weight: ((tangent_crossing - self.get_end()).angle_between(tangent_crossing - to) * 0.5).sin(),
             control_points: [tangent_crossing, to],
         });
     }
 
     fn push_quarter_ellipse(&mut self, tangent_crossing: glam::Vec2, to: glam::Vec2) {
         self.push_rational_quadratic_curve(RationalQuadraticCurveSegment {
-            weights: [1.0, std::f32::consts::FRAC_1_SQRT_2, 1.0],
+            weight: std::f32::consts::FRAC_1_SQRT_2,
             control_points: [tangent_crossing, to],
         });
     }

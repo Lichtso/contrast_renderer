@@ -1,5 +1,9 @@
 use crate::{
-    path::{Cap, Join, Path, SegmentType, StrokeOptions},
+    curve::{
+        rational_cubic_control_points_to_power_basis, rational_cubic_first_order_derivative, rational_cubic_point,
+        rational_quadratic_control_points_to_power_basis, rational_quadratic_first_order_derivative, rational_quadratic_point,
+    },
+    path::{Cap, CurveApproximation, Join, Path, SegmentType, StrokeOptions},
     utils::{line_line_intersection, rotate_90_degree_clockwise},
     vertex::{Vertex0, Vertex3},
 };
@@ -13,22 +17,14 @@ fn emit_stroke_vertices(
     proto_hull: &mut Vec<Vertex0>,
     path_solid_vertices: &mut Vec<Vertex0>,
     stroke_options: &StrokeOptions,
-    control_point: glam::Vec2,
+    point: glam::Vec2,
     tangent: glam::Vec2,
 ) {
     let normal = rotate_90_degree_clockwise(tangent);
     let clamped_offset = stroke_options.offset.clamp(-0.5, 0.5);
     let width_absolute = stroke_options.width.abs();
-    emit_stroke_vertex(
-        proto_hull,
-        path_solid_vertices,
-        control_point + normal * (clamped_offset - 0.5) * width_absolute,
-    );
-    emit_stroke_vertex(
-        proto_hull,
-        path_solid_vertices,
-        control_point + normal * (clamped_offset + 0.5) * width_absolute,
-    );
+    emit_stroke_vertex(proto_hull, path_solid_vertices, point + normal * (clamped_offset - 0.5) * width_absolute);
+    emit_stroke_vertex(proto_hull, path_solid_vertices, point + normal * (clamped_offset + 0.5) * width_absolute);
 }
 
 fn emit_stroke_rounding(proto_hull: &mut Vec<Vertex0>, builder: &mut StrokeBuilder, begin: (glam::Vec2, glam::Vec2), end: (glam::Vec2, glam::Vec2)) {
@@ -65,7 +61,6 @@ fn emit_stroke_join(
     start_tangent: glam::Vec2,
     end_tangent: glam::Vec2,
 ) {
-    emit_stroke_vertices(proto_hull, path_solid_vertices, stroke_options, control_point, start_tangent);
     let side_sign = rotate_90_degree_clockwise(start_tangent).dot(end_tangent);
     if side_sign == 0.0 {
         return;
@@ -112,6 +107,20 @@ fn cut_stroke_polygon(proto_hull: &mut Vec<Vertex0>, builder: &mut StrokeBuilder
     }
 }
 
+macro_rules! emit_curve_stroke {
+    ($proto_hull:expr, $path_solid_vertices:expr, $stroke_options:expr,
+     $power_basis:expr, $point:ident, $tangent:ident $(,)?) => {
+        let parameters: Vec<f32> = match $stroke_options.curve_approximation {
+            CurveApproximation::UniformlySpacedParameters(steps) => (1..steps + 1).map(|i| i as f32 / steps as f32).collect(),
+        };
+        for t in parameters {
+            let point = $point(&$power_basis, t);
+            let tangent = $tangent(&$power_basis, t).normalize();
+            emit_stroke_vertices($proto_hull, $path_solid_vertices, &$stroke_options, point, tangent);
+        }
+    };
+}
+
 #[derive(Default)]
 pub struct StrokeBuilder {
     pub solid_indices: Vec<u16>,
@@ -127,10 +136,10 @@ impl StrokeBuilder {
         let mut first_tangent = glam::Vec2::default();
         let mut previous_tangent = glam::Vec2::default();
         let mut line_segment_iter = path.line_segments.iter();
-        let mut integral_quadratic_curve_segment_iter = path.integral_quadratic_curve_segments.iter();
-        let mut integral_cubic_curve_segment_iter = path.integral_cubic_curve_segments.iter();
-        let mut rational_quadratic_curve_segment_iter = path.rational_quadratic_curve_segments.iter();
-        let mut rational_cubic_curve_segment_iter = path.rational_cubic_curve_segments.iter();
+        let mut integral_quadratic_curve_segment_iter = path.integral_quadratic_curve_segments.iter().peekable();
+        let mut integral_cubic_curve_segment_iter = path.integral_cubic_curve_segments.iter().peekable();
+        let mut rational_quadratic_curve_segment_iter = path.rational_quadratic_curve_segments.iter().peekable();
+        let mut rational_cubic_curve_segment_iter = path.rational_cubic_curve_segments.iter().peekable();
         for (i, segement_type) in path.segement_types.iter().enumerate() {
             let next_control_point;
             let segment_start_tangent;
@@ -143,32 +152,28 @@ impl StrokeBuilder {
                     segment_end_tangent = segment_start_tangent;
                 }
                 SegmentType::IntegralQuadraticCurve => {
-                    let segment = integral_quadratic_curve_segment_iter.next().unwrap();
+                    let segment = integral_quadratic_curve_segment_iter.peek().unwrap();
                     next_control_point = segment.control_points[1];
                     segment_start_tangent = (segment.control_points[0] - previous_control_point).normalize();
                     segment_end_tangent = (next_control_point - segment.control_points[0]).normalize();
-                    // error!("IntegralQuadraticCurve stroking is not implemented");
                 }
                 SegmentType::IntegralCubicCurve => {
-                    let segment = integral_cubic_curve_segment_iter.next().unwrap();
+                    let segment = integral_cubic_curve_segment_iter.peek().unwrap();
                     next_control_point = segment.control_points[2];
                     segment_start_tangent = (segment.control_points[0] - previous_control_point).normalize();
                     segment_end_tangent = (next_control_point - segment.control_points[1]).normalize();
-                    // error!("IntegralCubicCurve stroking is not implemented");
                 }
                 SegmentType::RationalQuadraticCurve => {
-                    let segment = rational_quadratic_curve_segment_iter.next().unwrap();
+                    let segment = rational_quadratic_curve_segment_iter.peek().unwrap();
                     next_control_point = segment.control_points[1];
                     segment_start_tangent = (segment.control_points[0] - previous_control_point).normalize();
                     segment_end_tangent = (next_control_point - segment.control_points[0]).normalize();
-                    // error!("RationalQuadraticCurve stroking is not implemented");
                 }
                 SegmentType::RationalCubicCurve => {
-                    let segment = rational_cubic_curve_segment_iter.next().unwrap();
+                    let segment = rational_cubic_curve_segment_iter.peek().unwrap();
                     next_control_point = segment.control_points[2];
                     segment_start_tangent = (segment.control_points[0] - previous_control_point).normalize();
                     segment_end_tangent = (next_control_point - segment.control_points[1]).normalize();
-                    // error!("RationalCubicCurve stroking is not implemented");
                 }
             }
             if i == 0 {
@@ -215,8 +220,82 @@ impl StrokeBuilder {
                     segment_start_tangent,
                 );
             }
-            if *segement_type != SegmentType::Line {
-                cut_stroke_polygon(proto_hull, self, &mut path_solid_vertices);
+            match segement_type {
+                SegmentType::Line => {
+                    emit_stroke_vertices(
+                        proto_hull,
+                        &mut path_solid_vertices,
+                        &stroke_options,
+                        next_control_point,
+                        segment_end_tangent,
+                    );
+                }
+                SegmentType::IntegralQuadraticCurve => {
+                    let segment = integral_quadratic_curve_segment_iter.next().unwrap();
+                    let power_basis = rational_quadratic_control_points_to_power_basis(&[
+                        previous_control_point.extend(1.0),
+                        segment.control_points[0].extend(1.0),
+                        segment.control_points[1].extend(1.0),
+                    ]);
+                    emit_curve_stroke!(
+                        proto_hull,
+                        &mut path_solid_vertices,
+                        stroke_options,
+                        power_basis,
+                        rational_quadratic_point,
+                        rational_quadratic_first_order_derivative,
+                    );
+                }
+                SegmentType::IntegralCubicCurve => {
+                    let segment = integral_cubic_curve_segment_iter.next().unwrap();
+                    let power_basis = rational_cubic_control_points_to_power_basis(&[
+                        previous_control_point.extend(1.0),
+                        segment.control_points[0].extend(1.0),
+                        segment.control_points[1].extend(1.0),
+                        segment.control_points[2].extend(1.0),
+                    ]);
+                    emit_curve_stroke!(
+                        proto_hull,
+                        &mut path_solid_vertices,
+                        stroke_options,
+                        power_basis,
+                        rational_cubic_point,
+                        rational_cubic_first_order_derivative,
+                    );
+                }
+                SegmentType::RationalQuadraticCurve => {
+                    let segment = rational_quadratic_curve_segment_iter.next().unwrap();
+                    let power_basis = rational_quadratic_control_points_to_power_basis(&[
+                        previous_control_point.extend(1.0),
+                        segment.control_points[0].extend(segment.weight),
+                        segment.control_points[1].extend(1.0),
+                    ]);
+                    emit_curve_stroke!(
+                        proto_hull,
+                        &mut path_solid_vertices,
+                        stroke_options,
+                        power_basis,
+                        rational_quadratic_point,
+                        rational_quadratic_first_order_derivative,
+                    );
+                }
+                SegmentType::RationalCubicCurve => {
+                    let segment = rational_cubic_curve_segment_iter.next().unwrap();
+                    let power_basis = rational_cubic_control_points_to_power_basis(&[
+                        previous_control_point.extend(segment.weights[0]),
+                        segment.control_points[0].extend(segment.weights[1]),
+                        segment.control_points[1].extend(segment.weights[2]),
+                        segment.control_points[2].extend(segment.weights[3]),
+                    ]);
+                    emit_curve_stroke!(
+                        proto_hull,
+                        &mut path_solid_vertices,
+                        stroke_options,
+                        power_basis,
+                        rational_cubic_point,
+                        rational_cubic_first_order_derivative,
+                    );
+                }
             }
             previous_control_point = next_control_point;
             previous_tangent = segment_end_tangent;
@@ -257,6 +336,7 @@ impl StrokeBuilder {
                         previous_tangent,
                         segment_tangent,
                     );
+                    emit_stroke_vertices(proto_hull, &mut path_solid_vertices, &stroke_options, path.start, segment_tangent);
                     emit_stroke_join(
                         proto_hull,
                         self,

@@ -126,20 +126,25 @@ impl Shape {
         }
     }
 
-    fn render_cover<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
+    /// Renderes the `Shape` using a user provided `wgpu::RenderPipeline`.
+    ///
+    /// Requires the `Shape` to be stenciled and `render_pass.set_pipeline()` to be called first.
+    fn render_cover<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>, clip_stack_height: usize) {
         let begin_offset = self.vertex_offsets[6];
         let end_offset = self.vertex_offsets[7];
-        render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
+        render_pass.set_stencil_reference((clip_stack_height << renderer.winding_counter_bits) as u32);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
         render_pass.draw(0..((end_offset - begin_offset) / std::mem::size_of::<Vertex0>()) as u32, 0..1);
     }
 
-    /// Renderes the `Shape` into the color buffer. (Requires it to be stenciled first)
+    /// Fills the `Shape` with a solid color.
+    ///
+    /// Requires the `Shape` to be stenciled first.
     pub fn render_color_solid<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>, clip_stack_height: usize) {
-        render_pass.set_stencil_reference((clip_stack_height << renderer.winding_counter_bits) as u32);
+        render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
         render_pass.set_bind_group(1, &renderer.color_solid_bind_group, &[]);
         render_pass.set_pipeline(&renderer.color_solid_pipeline);
-        self.render_cover(renderer, render_pass);
+        self.render_cover(renderer, render_pass, clip_stack_height);
     }
 }
 
@@ -164,9 +169,9 @@ impl<'b, 'a: 'b> ClipStack<'a> {
             return Err(Error::ClipStackOverflow);
         }
         self.stack.push(shape);
-        render_pass.set_stencil_reference((self.height() << renderer.winding_counter_bits) as u32);
+        render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
         render_pass.set_pipeline(&renderer.increment_clip_nesting_counter_pipeline);
-        shape.render_cover(renderer, render_pass);
+        shape.render_cover(renderer, render_pass, self.height());
         Ok(())
     }
 
@@ -174,9 +179,9 @@ impl<'b, 'a: 'b> ClipStack<'a> {
     pub fn pop(&mut self, renderer: &'b Renderer, render_pass: &mut wgpu::RenderPass<'b>) -> Result<(), Error> {
         match self.stack.pop() {
             Some(shape) => {
-                render_pass.set_stencil_reference((self.height() << renderer.winding_counter_bits) as u32);
+                render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
                 render_pass.set_pipeline(&renderer.decrement_clip_nesting_counter_pipeline);
-                shape.render_cover(renderer, render_pass);
+                shape.render_cover(renderer, render_pass, self.height());
                 Ok(())
             }
             None => Err(Error::ClipStackUnderflow),
@@ -548,10 +553,10 @@ impl Renderer {
         queue.write_buffer(&self.transform_uniform_buffer, 0, &data);
     }
 
-    /// Set the fill color for subsequent color rendering calls.
+    /// Set the color of subsequent `Shape::render_color_solid` calls.
     ///
     /// Call before creating the next `wgpu::RenderPass`.
-    pub fn set_solid_fill_color(&self, queue: &wgpu::Queue, color: &[f32; 4]) {
+    pub fn set_solid_color(&self, queue: &wgpu::Queue, color: &[f32; 4]) {
         let data = transmute_slice(color);
         queue.write_buffer(&self.color_solid_uniform_buffer, 0, &data);
     }

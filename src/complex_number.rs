@@ -37,28 +37,32 @@ macro_rules! ComplexNumber {
                 }
             }
 
-            pub fn squared_norm(&self) -> $T {
+            pub fn squared_abs(&self) -> $T {
                 self.real * self.real + self.imag * self.imag
             }
 
-            pub fn norm(&self) -> $T {
-                self.squared_norm().sqrt()
+            pub fn abs(&self) -> $T {
+                self.squared_abs().sqrt()
             }
 
-            pub fn angle(&self) -> $T {
+            pub fn arg(&self) -> $T {
                 self.imag.atan2(self.real)
             }
 
-            /*pub fn exp(&self, rhs: &Self) -> Self {
-                let (norm, angle) = (self.norm(), self.angle());
+            /*pub fn sign(&self) -> Self {
+                *self * (1.0 / self.abs())
+            }*/
+
+            /*pub fn pow(&self, rhs: &Self) -> Self {
+                let (abs, arg) = (self.abs(), self.arg());
                 return Self::from_polar(
-                    norm.powf(rhs.real)*(-angle*rhs.imag).exp(),
-                    angle*rhs.real+norm.ln()*rhs.imag
+                    abs.powf(rhs.real)*(-arg*rhs.imag).exp(),
+                    arg*rhs.real+abs.ln()*rhs.imag
                 );
             }*/
 
-            pub fn exp_real(&self, rhs: $T) -> Self {
-                return Self::from_polar(self.norm().powf(rhs), self.angle() * rhs);
+            pub fn pow_real(&self, rhs: $T) -> Self {
+                return Self::from_polar(self.abs().powf(rhs), self.arg() * rhs);
             }
         }
 
@@ -151,10 +155,22 @@ macro_rules! ComplexNumber {
             type Output = Self;
 
             fn div(self, rhs: Self) -> Self::Output {
-                self * rhs.conjugate() / rhs.squared_norm()
+                self * rhs.conjugate() / rhs.squared_abs()
             }
         }
     };
 }
 
 ComplexNumber!(f32);
+
+impl From<glam::Vec2> for ComplexNumber<f32> {
+    fn from(vec: glam::Vec2) -> Self {
+        Self { real: vec[0], imag: vec[1] }
+    }
+}
+
+impl Into<glam::Vec2> for ComplexNumber<f32> {
+    fn into(self) -> glam::Vec2 {
+        glam::vec2(self.real, self.imag)
+    }
+}

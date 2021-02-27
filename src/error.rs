@@ -8,3 +8,6 @@ pub enum Error {
     /// Popped from an empty ClipStack.
     ClipStackUnderflow,
 }
+
+/// Used for floating point comparison.
+pub const ERROR_MARGIN: f32 = 0.0001;
