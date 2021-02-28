@@ -9,6 +9,10 @@ pub struct ComplexNumber<T> {
 macro_rules! ComplexNumber {
     ($T:ty) => {
         impl ComplexNumber<$T> {
+            pub fn one() -> Self {
+                Self { real: 1.0, imag: 0.0 }
+            }
+
             pub fn from_polar(norm: $T, angle: $T) -> Self {
                 Self {
                     real: norm * angle.cos(),
@@ -61,8 +65,37 @@ macro_rules! ComplexNumber {
                 );
             }*/
 
-            pub fn pow_real(&self, rhs: $T) -> Self {
+            pub fn powf(&self, rhs: $T) -> Self {
                 return Self::from_polar(self.abs().powf(rhs), self.arg() * rhs);
+            }
+
+            pub fn powi(&self, rhs: isize) -> Self {
+                // https://en.wikipedia.org/wiki/Exponentiation_by_squaring
+                if rhs == 0 {
+                    return Self::one();
+                }
+                let mut n = rhs;
+                let mut x = if n < 0 {
+                    n = -n;
+                    Self::one() / *self
+                } else {
+                    *self
+                };
+                let mut y = Self::one();
+                while n > 1 {
+                    if n & 1 == 1 {
+                        y = x * y;
+                    }
+                    x = x * x;
+                    n >>= 1;
+                }
+                x * y
+            }
+        }
+
+        impl From<$T> for ComplexNumber<$T> {
+            fn from(real: $T) -> Self {
+                Self { real, imag: 0.0 }
             }
         }
 

@@ -5,18 +5,19 @@ use crate::{
     },
     error::ERROR_MARGIN,
     path::{Path, SegmentType},
+    polynomial::Root,
     utils::signed_triangle_area,
     vertex::{triangle_fan_to_strip, Vertex0, Vertex2, Vertex3, Vertex4},
 };
 use glam::const_mat4;
 
-fn find_double_point_issue(discreminant: f32, roots: &[glam::Vec2; 3]) -> Option<f32> {
-    if discreminant < 0.0 {
+fn find_double_point_issue(discriminant: f32, roots: &[Root; 3]) -> Option<f32> {
+    if discriminant < 0.0 {
         let mut result = -1.0;
         let mut inside = 0;
         for root in roots {
-            if root[1] != 0.0 {
-                let parameter = root[0] / root[1];
+            if root.denominator != 0.0 {
+                let parameter = root.numerator_real / root.denominator;
                 if 0.0 < parameter && parameter < 1.0 {
                     result = parameter;
                     inside += 1;
@@ -30,35 +31,18 @@ fn find_double_point_issue(discreminant: f32, roots: &[glam::Vec2; 3]) -> Option
     None
 }
 
-fn weight_derivatives(roots: &[glam::Vec2; 3]) -> glam::Vec4 {
+fn weight_derivatives(roots: &[Root; 3]) -> glam::Vec4 {
     glam::vec4(
-        roots[0].x * roots[1].x * roots[2].x,
-        -roots[0].y * roots[1].x * roots[2].x - roots[0].x * roots[1].y * roots[2].x - roots[0].x * roots[1].x * roots[2].y,
-        roots[0].x * roots[1].y * roots[2].y + roots[0].y * roots[1].x * roots[2].y + roots[0].y * roots[1].y * roots[2].x,
-        -roots[0].y * roots[1].y * roots[2].y,
+        roots[0].numerator_real * roots[1].numerator_real * roots[2].numerator_real,
+        -roots[0].denominator * roots[1].numerator_real * roots[2].numerator_real
+            - roots[0].numerator_real * roots[1].denominator * roots[2].numerator_real
+            - roots[0].numerator_real * roots[1].numerator_real * roots[2].denominator,
+        roots[0].numerator_real * roots[1].denominator * roots[2].denominator
+            + roots[0].denominator * roots[1].numerator_real * roots[2].denominator
+            + roots[0].denominator * roots[1].denominator * roots[2].numerator_real,
+        -roots[0].denominator * roots[1].denominator * roots[2].denominator,
     )
 }
-
-/*
-const QUADRATIC_CUBIC_CURVE_POWER_BASIS: glam::Mat4 = const_mat4!([0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
-const QUADRATIC_CUBIC_CURVE: glam::Mat4 = const_mat4!([
-    0.0,
-    0.0,
-    0.0,
-    1.0,
-    -1.0 / 3.0,
-    0.0,
-    1.0 / 3.0,
-    1.0,
-    -2.0 / 3.0,
-    -1.0 / 3.0,
-    2.0 / 3.0,
-    1.0,
-    -1.0,
-    -1.0,
-    1.0,
-    1.0
-]);*/
 
 const CUBIC_POWER_BASIS_INVERSE: glam::Mat4 = const_mat4!([
     1.0,
@@ -79,15 +63,15 @@ const CUBIC_POWER_BASIS_INVERSE: glam::Mat4 = const_mat4!([
     1.0,
 ]);
 
-fn weights(discreminant: f32, roots: &[glam::Vec2; 3]) -> glam::Mat4 {
-    if discreminant == 0.0 {
+fn weights(discriminant: f32, roots: &[Root; 3]) -> glam::Mat4 {
+    if discriminant == 0.0 {
         glam::mat4(
             weight_derivatives(&[roots[0], roots[0], roots[2]]),
             weight_derivatives(&[roots[0], roots[0], roots[0]]),
             weight_derivatives(&[roots[0], roots[0], roots[0]]),
             weight_derivatives(&[roots[2], roots[2], roots[2]]),
         )
-    } else if discreminant < 0.0 {
+    } else if discriminant < 0.0 {
         glam::mat4(
             weight_derivatives(&[roots[0], roots[1], roots[2]]),
             weight_derivatives(&[roots[0], roots[0], roots[1]]),
@@ -193,8 +177,7 @@ macro_rules! triangulate_cubic_curve_quadrilateral {
         for (triangle_index, signed_triangle_area) in signed_triangle_areas.iter().enumerate() {
             let equilibrium = 0.5 * triangle_area_sum;
             if (equilibrium - signed_triangle_area.abs()).abs() <= ERROR_MARGIN {
-                assert!(enclosing_triangle.is_none());
-                enclosing_triangle = Some(triangle_index);
+                enclosing_triangle = if enclosing_triangle.is_none() { Some(triangle_index) } else { None };
             }
         }
         if let Some(enclosing_triangle) = enclosing_triangle {
@@ -265,14 +248,14 @@ macro_rules! split_curve_at {
 
 macro_rules! emit_cubic_curve {
     ($proto_hull:expr, $fill_solid_vertices:expr, $cubic_vertices:expr,
-     $control_points:expr, $c:expr, $discreminant:expr, $roots:expr,
+     $control_points:expr, $c:expr, $discriminant:expr, $roots:expr,
      $v:ident, $w:ident, $emit_vertex:expr) => {{
-        let mut weights = weights($discreminant, &$roots);
+        let mut weights = weights($discriminant, &$roots);
         let mut planes = weight_planes(&$control_points, &weights);
         let gradient = implicit_curve_gradient(&planes, weights.x_axis);
         normalize_implicit_curve_side(&mut planes, &mut weights, &$c, gradient);
         let mut weights = [weights.x_axis, weights.y_axis, weights.z_axis, weights.w_axis];
-        if let Some(param) = find_double_point_issue($discreminant, &$roots) {
+        if let Some(param) = find_double_point_issue($discriminant, &$roots) {
             let (control_points_a, control_points_b) = split_curve_at!(&$control_points, param);
             let (mut weights_a, mut weights_b) = split_curve_at!(&weights, param);
             triangulate_cubic_curve_quadrilateral!($fill_solid_vertices, $cubic_vertices, &control_points_a, weights_a, $v, $w, $emit_vertex);
@@ -346,14 +329,14 @@ impl FillBuilder {
                     ];
                     let power_basis = rational_cubic_control_points_to_power_basis(&control_points);
                     let ippc = integral_inflection_point_polynomial_coefficients(&power_basis);
-                    let (discreminant, roots) = integral_inflection_points(ippc);
+                    let (discriminant, roots) = integral_inflection_points(ippc, true);
                     emit_cubic_curve!(
                         proto_hull,
                         path_solid_vertices,
                         self.integral_cubic_vertices,
                         control_points,
                         power_basis,
-                        discreminant,
+                        discriminant,
                         roots,
                         v,
                         w,
@@ -383,14 +366,14 @@ impl FillBuilder {
                     ];
                     let power_basis = rational_cubic_control_points_to_power_basis(&control_points);
                     let ippc = rational_inflection_point_polynomial_coefficients(&power_basis);
-                    let (discreminant, roots) = rational_inflection_points(ippc);
+                    let (discriminant, roots) = rational_inflection_points(ippc, true);
                     emit_cubic_curve!(
                         proto_hull,
                         path_solid_vertices,
                         self.rational_cubic_vertices,
                         control_points,
                         power_basis,
-                        discreminant,
+                        discriminant,
                         roots,
                         v,
                         w,

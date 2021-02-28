@@ -75,7 +75,7 @@ pub enum Cap {
     /// Sharp perpendicular cut half a width before the start / behind the end of the `Path`
     Square,
     /// Triangular tip half a width before the start / behind the end of the `Path`
-    Triangle,
+    Bevel,
     /// Circular arc with a radius of half a width, centered at the start / the end of the `Path`
     Round,
 }
@@ -86,6 +86,10 @@ pub enum CurveApproximation {
     ///
     /// Thus there are `n + 1` parameters (including start and end).
     UniformlySpacedParameters(usize),
+    /// Tangent step angle in radians is `a`.
+    ///
+    /// Thus there are `(polar_range.arg() / a + 0.5) as usize + 1` parameters (including start and end).
+    UniformTangentAngle(f32),
 }
 
 /// Defines how a `Path` is stroked.

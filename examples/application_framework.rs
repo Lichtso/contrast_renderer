@@ -66,6 +66,7 @@ pub trait Application {
     fn new(device: &wgpu::Device, queue: &mut wgpu::Queue, swap_chain_descriptor: &wgpu::SwapChainDescriptor) -> Self;
     fn resize(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, swap_chain_descriptor: &wgpu::SwapChainDescriptor);
     fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SwapChainTexture);
+    fn cursor_moved(&mut self, position: [f32; 2]);
 }
 
 pub struct ApplicationManager {
@@ -206,6 +207,13 @@ impl ApplicationManager {
                     application.resize(&self.device, &mut self.queue, &swap_chain_descriptor);
                 }
                 winit::event::Event::WindowEvent { event, .. } => match event {
+                    winit::event::WindowEvent::CursorMoved { position, .. } => {
+                        application.cursor_moved([
+                            position.x as f32 / self.size.width as f32 - 0.5,
+                            position.y as f32 / self.size.height as f32 - 0.5,
+                        ]);
+                        self.window.request_redraw();
+                    }
                     winit::event::WindowEvent::KeyboardInput {
                         input:
                             winit::event::KeyboardInput {
