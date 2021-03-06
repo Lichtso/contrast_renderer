@@ -1,3 +1,6 @@
+//! Solving polynomials up to degree 4
+
+#![allow(clippy::many_single_char_names)]
 use crate::{complex_number::ComplexNumber, error::ERROR_MARGIN};
 
 /// Represents a complex root as homogeneous coordinates
@@ -23,7 +26,7 @@ impl Root {
 
 /// Finds the discriminant and root of a degree 1 polynomial.
 ///
-/// `0 = coefficients[1] * x + coefficients[0]`.
+/// `0 = coefficients[1] * x + coefficients[0]`
 pub fn solve_linear(coefficients: [f32; 2]) -> (f32, Vec<Root>) {
     if coefficients[1].abs() <= ERROR_MARGIN {
         (0.0, vec![])
@@ -34,7 +37,7 @@ pub fn solve_linear(coefficients: [f32; 2]) -> (f32, Vec<Root>) {
 
 /// Finds the discriminant and roots of a degree 2 polynomial.
 ///
-/// `0 = coefficients[2] * x.powi(2) + coefficients[1] * x + coefficients[0]`.
+/// `0 = coefficients[2] * x.powi(2) + coefficients[1] * x + coefficients[0]`
 pub fn solve_quadratic(coefficients: [f32; 3]) -> (f32, Vec<Root>) {
     if coefficients[2].abs() <= ERROR_MARGIN {
         return solve_linear([coefficients[0], coefficients[1]]);
@@ -65,7 +68,7 @@ const ROOTS_OF_UNITY_3: [ComplexNumber<f32>; 3] = [
 
 /// Finds the discriminant and roots of a degree 3 polynomial.
 ///
-/// `0 = coefficients[3] * x.powi(3) + coefficients[2] * x.powi(2) + coefficients[1] * x + coefficients[0]`.
+/// `0 = coefficients[3] * x.powi(3) + coefficients[2] * x.powi(2) + coefficients[1] * x + coefficients[0]`
 ///
 /// Also returns the index of the real root if there are two complex roots and one real root.
 pub fn solve_cubic(coefficients: [f32; 4]) -> (f32, Vec<Root>, usize) {
@@ -94,7 +97,7 @@ pub fn solve_cubic(coefficients: [f32; 4]) -> (f32, Vec<Root>, usize) {
 
 /// Finds the discriminant and roots of a degree 4 polynomial.
 ///
-/// `0 = coefficients[4] * x.powi(4) + coefficients[3] * x.powi(3) + coefficients[2] * x.powi(2) + coefficients[1] * x + coefficients[0]`.
+/// `0 = coefficients[4] * x.powi(4) + coefficients[3] * x.powi(3) + coefficients[2] * x.powi(2) + coefficients[1] * x + coefficients[0]`
 pub fn solve_quartic(coefficients: [f32; 5]) -> (f32, Vec<Root>) {
     if coefficients[4].abs() <= ERROR_MARGIN {
         let (discriminant, roots, _real_root) = solve_cubic([coefficients[0], coefficients[1], coefficients[2], coefficients[3]]);

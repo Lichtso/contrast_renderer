@@ -1,12 +1,57 @@
+//! Rendering of [Path]s bundeled in [Shape]s using a [Renderer]
+
 use crate::{
     error::Error,
     fill::FillBuilder,
-    path::Path,
+    path::{DynamicStrokeOptions, Path, MAX_DASH_INTERVALS},
     stroke::StrokeBuilder,
     utils::{transmute_slice, transmute_vec},
-    vertex::{triangle_fan_to_strip, Vertex0, Vertex2, Vertex3, Vertex4},
+    vertex::{triangle_fan_to_strip, Vertex0, Vertex2f, Vertex3f, Vertex4f},
 };
 use wgpu::{include_spirv, util::DeviceExt, vertex_attr_array};
+
+#[repr(C)]
+struct DynamicStrokeDescriptor {
+    gap_start: [f32; MAX_DASH_INTERVALS],
+    gap_end: [f32; MAX_DASH_INTERVALS],
+    caps: u32,
+    meta: u32,
+    phase: f32,
+    _padding: u32,
+}
+
+fn convert_dynamic_stroke_options(dynamic_stroke_options: &DynamicStrokeOptions) -> Result<DynamicStrokeDescriptor, Error> {
+    match dynamic_stroke_options {
+        DynamicStrokeOptions::Dashed { join, pattern, phase } => {
+            if pattern.len() > MAX_DASH_INTERVALS {
+                return Err(Error::TooManyDashIntervals);
+            }
+            let mut result = DynamicStrokeDescriptor {
+                gap_start: [0.0; MAX_DASH_INTERVALS],
+                gap_end: [0.0; MAX_DASH_INTERVALS],
+                caps: 0,
+                meta: ((pattern.len() as u32 - 1) << 3) | 4 | *join as u32,
+                phase: *phase,
+                _padding: 0,
+            };
+            for (i, dash_interval) in pattern.iter().enumerate() {
+                result.gap_start[i] = dash_interval.gap_start;
+                result.gap_end[i] = dash_interval.gap_end;
+                result.caps |= (dash_interval.dash_start as u32) << (((i - 1 + pattern.len()) % pattern.len()) * 8);
+                result.caps |= (dash_interval.dash_end as u32) << (i * 8 + 4);
+            }
+            Ok(result)
+        }
+        DynamicStrokeOptions::Solid { join, start, end } => Ok(DynamicStrokeDescriptor {
+            gap_start: [0.0; MAX_DASH_INTERVALS],
+            gap_end: [0.0; MAX_DASH_INTERVALS],
+            caps: *start as u32 | ((*end as u32) << 4),
+            meta: *join as u32,
+            phase: 0.0,
+            _padding: 0,
+        }),
+    }
+}
 
 macro_rules! concat_buffers {
     ($device:expr, $usage:ident, $buffer_count:expr, [$($buffer:expr,)*]) => {{
@@ -34,35 +79,80 @@ macro_rules! concat_buffers {
     }};
 }
 
-/// A set of `Path`s which is always rendered together
+/// A set of [Path]s which is always rendered together
 pub struct Shape {
     vertex_offsets: [usize; 8],
-    index_offsets: [usize; 2],
+    index_offsets: [usize; 3],
+    stroke_uniform_buffer: Option<wgpu::Buffer>,
+    stroke_bind_group: Option<wgpu::BindGroup>,
+    dynamic_stroke_options_count: usize,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
 }
 
 impl Shape {
-    /// Constructs a `Shape` from a set of `Path`s.
-    pub fn from_paths(device: &wgpu::Device, paths: &[Path]) -> Self {
+    /// Constructs a [Shape] from a set of [Path]s.
+    ///
+    /// If there are any stroked [Path]s then `dynamic_stroke_options` must not be empty.
+    pub fn from_paths(
+        device: &wgpu::Device,
+        renderer: &Renderer,
+        dynamic_stroke_options: &[DynamicStrokeOptions],
+        paths: &[Path],
+    ) -> Result<Self, Error> {
+        let max_dynamic_stroke_options_group =
+            device.limits().max_uniform_buffer_binding_size as usize / std::mem::size_of::<DynamicStrokeDescriptor>();
+        if dynamic_stroke_options.len() > max_dynamic_stroke_options_group {
+            return Err(Error::TooManyDynamicStrokeOptionsGroup);
+        }
         let mut proto_hull = Vec::new();
         let mut stroke_builder = StrokeBuilder::default();
         let mut fill_builder = FillBuilder::default();
         for path in paths {
-            if path.stroke_options.is_some() {
-                stroke_builder.add_path(&mut proto_hull, &path);
+            if let Some(stroke_options) = &path.stroke_options {
+                if stroke_options.dynamic_stroke_options_group >= dynamic_stroke_options.len() {
+                    return Err(Error::DynamicStrokeOptionsIndexOutOfBounds);
+                }
+                stroke_builder.add_path(&mut proto_hull, &path)?;
             } else {
-                fill_builder.add_path(&mut proto_hull, &path);
+                fill_builder.add_path(&mut proto_hull, &path)?;
             }
         }
+        let (stroke_uniform_buffer, stroke_bind_group) = if dynamic_stroke_options.is_empty() {
+            (None, None)
+        } else {
+            let dynamic_stroke_descriptors = dynamic_stroke_options
+                .iter()
+                .map(|dynamic_stroke_options| convert_dynamic_stroke_options(dynamic_stroke_options))
+                .collect::<Result<Vec<DynamicStrokeDescriptor>, Error>>()?;
+            let dynamic_stroke_options_data = transmute_vec(dynamic_stroke_descriptors);
+            let stroke_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: dynamic_stroke_options_data.as_slice(),
+                usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            });
+            let stroke_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &renderer.stroke_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer {
+                        buffer: &stroke_uniform_buffer,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(dynamic_stroke_options_data.len() as u64),
+                    },
+                }],
+                label: None,
+            });
+            (Some(stroke_uniform_buffer), Some(stroke_bind_group))
+        };
         let convex_hull = crate::convex_hull::andrew(&proto_hull);
         let (vertex_offsets, vertex_buffer) = concat_buffers!(
             device,
             VERTEX,
             8,
             [
-                stroke_builder.solid_vertices,
-                stroke_builder.quadratic_vertices,
+                stroke_builder.line_vertices,
+                stroke_builder.joint_vertices,
                 fill_builder.solid_vertices,
                 fill_builder.integral_quadratic_vertices,
                 fill_builder.integral_cubic_vertices,
@@ -71,47 +161,64 @@ impl Shape {
                 triangle_fan_to_strip(convex_hull),
             ]
         );
-        let (index_offsets, index_buffer) = concat_buffers!(device, INDEX, 2, [stroke_builder.solid_indices, fill_builder.solid_indices,]);
-        Self {
+        let (index_offsets, index_buffer) = concat_buffers!(
+            device,
+            INDEX,
+            3,
+            [stroke_builder.line_indices, stroke_builder.joint_indices, fill_builder.solid_indices,]
+        );
+        Ok(Self {
             vertex_offsets,
             index_offsets,
+            stroke_uniform_buffer,
+            stroke_bind_group,
+            dynamic_stroke_options_count: dynamic_stroke_options.len(),
             vertex_buffer,
             index_buffer,
-        }
+        })
     }
 
-    /// Renderes the `Shape` into the stencil buffer.
+    /// Renderes the [Shape] into the stencil buffer.
     pub fn render_stencil<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
-        render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
-        render_pass.set_pipeline(&renderer.stroke_solid_pipeline);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(0..self.vertex_offsets[0] as u64));
-        render_pass.set_index_buffer(self.index_buffer.slice(0..self.index_offsets[0] as u64), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..(self.index_offsets[0] / std::mem::size_of::<u16>()) as u32, 0, 0..1);
-        for (i, (pipeline, vertex_size)) in [(&renderer.stroke_rounding_pipeline, std::mem::size_of::<Vertex3>())].iter().enumerate() {
-            let begin_offset = self.vertex_offsets[i];
-            let end_offset = self.vertex_offsets[i + 1];
+        if let Some(stroke_bind_group) = &self.stroke_bind_group {
+            render_pass.set_pipeline(&renderer.stroke_line_pipeline);
+            render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
+            render_pass.set_bind_group(1, stroke_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(0..self.vertex_offsets[0] as u64));
+            render_pass.set_index_buffer(self.index_buffer.slice(0..self.index_offsets[0] as u64), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..(self.index_offsets[0] / std::mem::size_of::<u16>()) as u32, 0, 0..1);
+            let begin_offset = self.vertex_offsets[0];
+            let end_offset = self.vertex_offsets[1];
             if begin_offset < end_offset {
-                render_pass.set_pipeline(pipeline);
+                render_pass.set_pipeline(&renderer.stroke_joint_pipeline);
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
-                render_pass.draw(0..((end_offset - begin_offset) / vertex_size) as u32, 0..1);
+                render_pass.set_index_buffer(
+                    self.index_buffer.slice(self.index_offsets[0] as u64..self.index_offsets[1] as u64),
+                    wgpu::IndexFormat::Uint16,
+                );
+                render_pass.draw_indexed(
+                    0..((self.index_offsets[1] - self.index_offsets[0]) / std::mem::size_of::<u16>()) as u32,
+                    0,
+                    0..1,
+                );
             }
         }
         render_pass.set_pipeline(&renderer.fill_solid_pipeline);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(self.vertex_offsets[1] as u64..self.vertex_offsets[2] as u64));
         render_pass.set_index_buffer(
-            self.index_buffer.slice(self.index_offsets[0] as u64..self.index_offsets[1] as u64),
+            self.index_buffer.slice(self.index_offsets[1] as u64..self.index_offsets[2] as u64),
             wgpu::IndexFormat::Uint16,
         );
         render_pass.draw_indexed(
-            0..((self.index_offsets[1] - self.index_offsets[0]) / std::mem::size_of::<u16>()) as u32,
+            0..((self.index_offsets[2] - self.index_offsets[1]) / std::mem::size_of::<u16>()) as u32,
             0,
             0..1,
         );
         for (i, (pipeline, vertex_size)) in [
-            (&renderer.fill_integral_quadratic_curve_pipeline, std::mem::size_of::<Vertex2>()),
-            (&renderer.fill_integral_cubic_curve_pipeline, std::mem::size_of::<Vertex3>()),
-            (&renderer.fill_rational_quadratic_curve_pipeline, std::mem::size_of::<Vertex3>()),
-            (&renderer.fill_rational_cubic_curve_pipeline, std::mem::size_of::<Vertex4>()),
+            (&renderer.fill_integral_quadratic_curve_pipeline, std::mem::size_of::<Vertex2f>()),
+            (&renderer.fill_integral_cubic_curve_pipeline, std::mem::size_of::<Vertex3f>()),
+            (&renderer.fill_rational_quadratic_curve_pipeline, std::mem::size_of::<Vertex3f>()),
+            (&renderer.fill_rational_cubic_curve_pipeline, std::mem::size_of::<Vertex4f>()),
         ]
         .iter()
         .enumerate()
@@ -126,9 +233,9 @@ impl Shape {
         }
     }
 
-    /// Renderes the `Shape` using a user provided `wgpu::RenderPipeline`.
+    /// Renderes the [Shape] using a user provided [wgpu::RenderPipeline].
     ///
-    /// Requires the `Shape` to be stenciled and `render_pass.set_pipeline()` to be called first.
+    /// Requires the [Shape] to be stenciled and [render_pass.set_pipeline()] to be called first.
     fn render_cover<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>, clip_stack_height: usize) {
         let begin_offset = self.vertex_offsets[6];
         let end_offset = self.vertex_offsets[7];
@@ -137,33 +244,54 @@ impl Shape {
         render_pass.draw(0..((end_offset - begin_offset) / std::mem::size_of::<Vertex0>()) as u32, 0..1);
     }
 
-    /// Fills the `Shape` with a solid color.
+    /// Fills the [Shape] with a solid color.
     ///
-    /// Requires the `Shape` to be stenciled first.
+    /// Requires the [Shape] to be stenciled first.
     pub fn render_color_solid<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>, clip_stack_height: usize) {
         render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
         render_pass.set_bind_group(1, &renderer.color_solid_bind_group, &[]);
         render_pass.set_pipeline(&renderer.color_solid_pipeline);
         self.render_cover(renderer, render_pass, clip_stack_height);
     }
+
+    /// Sets the dash pattern of stroked [Path]s for subsequent stencil rendering calls.
+    ///
+    /// Call before creating the next [wgpu::RenderPass].
+    pub fn set_dynamic_stroke_options(
+        &self,
+        queue: &wgpu::Queue,
+        dynamic_stroke_options_group_index: usize,
+        dynamic_stroke_options_group: &DynamicStrokeOptions,
+    ) -> Result<(), Error> {
+        if dynamic_stroke_options_group_index >= self.dynamic_stroke_options_count {
+            return Err(Error::DynamicStrokeOptionsIndexOutOfBounds);
+        }
+        let data = [convert_dynamic_stroke_options(dynamic_stroke_options_group).unwrap()];
+        queue.write_buffer(
+            self.stroke_uniform_buffer.as_ref().unwrap(),
+            (std::mem::size_of::<DynamicStrokeDescriptor>() * dynamic_stroke_options_group_index) as u64,
+            transmute_slice(&data),
+        );
+        Ok(())
+    }
 }
 
-/// Use `Shape`s as stencil for other `Shape`s
+/// Use [Shape]s as stencil for other [Shape]s
 ///
-/// When using a `ClipStack`, color is only rendered inside the logical AND (CSG intersection)
-/// of all the `Shape`s on the stack with the `Shape` to be rendered.
+/// When using a [ClipStack], color is only rendered inside the logical AND (CSG intersection)
+/// of all the [Shape]s on the stack with the [Shape] to be rendered.
 #[derive(Default)]
 pub struct ClipStack<'a> {
     stack: Vec<&'a Shape>,
 }
 
 impl<'b, 'a: 'b> ClipStack<'a> {
-    /// The number of clip `Shape`s on the stack.
+    /// The number of clip [Shape]s on the stack.
     pub fn height(&self) -> usize {
         self.stack.len()
     }
 
-    /// Adds a clip `Shape` on top of the stack.
+    /// Adds a clip [Shape] on top of the stack.
     pub fn push(&mut self, renderer: &'b Renderer, render_pass: &mut wgpu::RenderPass<'b>, shape: &'a Shape) -> Result<(), Error> {
         if self.height() >= (1 << renderer.clip_nesting_counter_bits) {
             return Err(Error::ClipStackOverflow);
@@ -175,7 +303,7 @@ impl<'b, 'a: 'b> ClipStack<'a> {
         Ok(())
     }
 
-    /// Removes the clip `Shape` at the top of the stack.
+    /// Removes the clip [Shape] at the top of the stack.
     pub fn pop(&mut self, renderer: &'b Renderer, render_pass: &mut wgpu::RenderPass<'b>) -> Result<(), Error> {
         match self.stack.pop() {
             Some(shape) => {
@@ -243,14 +371,15 @@ macro_rules! render_pipeline_descriptor {
     };
 }
 
-/// The rendering interface for `wgpu`
+/// The rendering interface for [wgpu]
 pub struct Renderer {
     winding_counter_bits: usize,
     clip_nesting_counter_bits: usize,
     transform_uniform_buffer: wgpu::Buffer,
     transform_bind_group: wgpu::BindGroup,
-    stroke_solid_pipeline: wgpu::RenderPipeline,
-    stroke_rounding_pipeline: wgpu::RenderPipeline,
+    stroke_bind_group_layout: wgpu::BindGroupLayout,
+    stroke_line_pipeline: wgpu::RenderPipeline,
+    stroke_joint_pipeline: wgpu::RenderPipeline,
     fill_solid_pipeline: wgpu::RenderPipeline,
     fill_integral_quadratic_curve_pipeline: wgpu::RenderPipeline,
     fill_integral_cubic_curve_pipeline: wgpu::RenderPipeline,
@@ -264,9 +393,9 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    /// Constructs a new `Renderer`.
+    /// Constructs a new [Renderer].
     ///
-    /// A `ClipStack` used with this `Renderer` can contain up to 2 to the power of `clip_nesting_counter_bits` `Shape`s.
+    /// A [ClipStack] used with this [Renderer] can contain up to 2 to the power of `clip_nesting_counter_bits` [Shape]s.
     /// The winding rule is: Non zero modulo 2 to the power of `winding_counter_bits`.
     /// Thus, setting `winding_counter_bits` to 1 will result in the even-odd winding rule.
     /// Wgpu only supports 8 stencil bits so the sum of `clip_nesting_counter_bits` and `winding_counter_bits` can be 8 at most.
@@ -281,27 +410,39 @@ impl Renderer {
             return Err(Error::NumberOfStencilBitsIsUnsupported);
         }
 
-        let segment_0_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment0_vert.spv"));
-        let segment_3_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment3_vert.spv"));
+        let segment_0f_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment0f_vert.spv"));
+        let segment_2f_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment2f_vert.spv"));
+        let segment_2f1i_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment2f1i_vert.spv"));
+        let segment_3f_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment3f_vert.spv"));
+        let segment_3f1i_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment3f1i_vert.spv"));
+        let segment_4f_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment4f_vert.spv"));
         let stencil_solid_fragment_module = device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_solid_frag.spv"));
-        let stencil_rational_quadratic_curve_fragment_module =
-            device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_rational_quadratic_curve_frag.spv"));
-        let segment_0_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+        let segment_0f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (2 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
             attributes: &vertex_attr_array![0 => Float2],
         };
-        let segment_2_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+        let segment_2f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (4 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
             attributes: &vertex_attr_array![0 => Float2, 1 => Float2],
         };
-        let segment_3_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+        let segment_2f1i_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+            array_stride: (5 * 4) as wgpu::BufferAddress,
+            step_mode: wgpu::InputStepMode::Vertex,
+            attributes: &vertex_attr_array![0 => Float2, 1 => Float2, 2 => Uint],
+        };
+        let segment_3f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (5 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
             attributes: &vertex_attr_array![0 => Float2, 1 => Float3],
         };
-        let segment_4_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+        let segment_3f1i_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+            array_stride: (6 * 4) as wgpu::BufferAddress,
+            step_mode: wgpu::InputStepMode::Vertex,
+            attributes: &vertex_attr_array![0 => Float2, 1 => Float3, 2 => Uint],
+        };
+        let segment_4f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (6 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
             attributes: &vertex_attr_array![0 => Float2, 1 => Float4],
@@ -354,92 +495,110 @@ impl Renderer {
             read_mask: clip_nesting_counter_mask | winding_counter_mask,
             write_mask: winding_counter_mask,
         };
+        let stroke_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStage::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<DynamicStrokeDescriptor>() as u64),
+                },
+                count: None,
+            }],
+        });
+        let stroke_line_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&transform_bind_group_layout, &stroke_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let stroke_line_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &stroke_line_pipeline_layout,
+            &segment_2f1i_vertex_module,
+            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_stroke_line_frag.spv")),
+            TriangleStrip,
+            Some(wgpu::IndexFormat::Uint16),
+            &[],
+            stroke_stencil_state.clone(),
+            segment_2f1i_vertex_buffer_descriptor.clone(),
+            msaa_sample_count,
+        ));
         let stencil_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&transform_bind_group_layout],
             push_constant_ranges: &[],
         });
-        let stroke_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+        let stroke_joint_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
-            &segment_0_vertex_module,
-            &stencil_solid_fragment_module,
+            &segment_3f1i_vertex_module,
+            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_stroke_joint_frag.spv")),
             TriangleStrip,
-            Some(wgpu::IndexFormat::Uint16),
-            &[],
-            stroke_stencil_state.clone(),
-            segment_0_vertex_buffer_descriptor.clone(),
-            msaa_sample_count,
-        ));
-        let stroke_rounding_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
-            &stencil_pipeline_layout,
-            &segment_3_vertex_module,
-            &stencil_rational_quadratic_curve_fragment_module,
-            TriangleList,
             None,
             &[],
             stroke_stencil_state,
-            segment_3_vertex_buffer_descriptor.clone(),
+            segment_3f1i_vertex_buffer_descriptor.clone(),
             msaa_sample_count,
         ));
         let fill_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
-            &segment_0_vertex_module,
+            &segment_0f_vertex_module,
             &stencil_solid_fragment_module,
             TriangleStrip,
             Some(wgpu::IndexFormat::Uint16),
             &[],
             fill_stencil_state.clone(),
-            segment_0_vertex_buffer_descriptor.clone(),
+            segment_0f_vertex_buffer_descriptor.clone(),
             msaa_sample_count,
         ));
         let fill_integral_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
-            &device.create_shader_module(&include_spirv!("../target/shader_modules/segment2_vert.spv")),
+            &segment_2f_vertex_module,
             &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_integral_quadratic_curve_frag.spv")),
             TriangleList,
             None,
             &[],
             fill_stencil_state.clone(),
-            segment_2_vertex_buffer_descriptor,
+            segment_2f_vertex_buffer_descriptor,
             msaa_sample_count,
         ));
         let fill_integral_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
-            &segment_3_vertex_module,
+            &segment_3f_vertex_module,
             &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_integral_cubic_curve_frag.spv")),
             TriangleList,
             None,
             &[],
             fill_stencil_state.clone(),
-            segment_3_vertex_buffer_descriptor.clone(),
+            segment_3f_vertex_buffer_descriptor.clone(),
             msaa_sample_count,
         ));
         let fill_rational_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
-            &segment_3_vertex_module,
-            &stencil_rational_quadratic_curve_fragment_module,
+            &segment_3f_vertex_module,
+            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_rational_quadratic_curve_frag.spv")),
             TriangleList,
             None,
             &[],
             fill_stencil_state.clone(),
-            segment_3_vertex_buffer_descriptor.clone(),
+            segment_3f_vertex_buffer_descriptor.clone(),
             msaa_sample_count,
         ));
         let fill_rational_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
-            &device.create_shader_module(&include_spirv!("../target/shader_modules/segment4_vert.spv")),
+            &segment_4f_vertex_module,
             &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_rational_cubic_curve_frag.spv")),
             TriangleList,
             None,
             &[],
             fill_stencil_state,
-            segment_4_vertex_buffer_descriptor,
+            segment_4f_vertex_buffer_descriptor,
             msaa_sample_count,
         ));
 
         let increment_clip_nesting_counter_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
-            &segment_0_vertex_module,
+            &segment_0f_vertex_module,
             &stencil_solid_fragment_module,
             TriangleStrip,
             None,
@@ -450,12 +609,12 @@ impl Renderer {
                 read_mask: winding_counter_mask,
                 write_mask: clip_nesting_counter_mask | winding_counter_mask,
             },
-            segment_0_vertex_buffer_descriptor.clone(),
+            segment_0f_vertex_buffer_descriptor.clone(),
             msaa_sample_count,
         ));
         let decrement_clip_nesting_counter_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
-            &segment_0_vertex_module,
+            &segment_0f_vertex_module,
             &stencil_solid_fragment_module,
             TriangleStrip,
             None,
@@ -466,7 +625,7 @@ impl Renderer {
                 read_mask: clip_nesting_counter_mask,
                 write_mask: clip_nesting_counter_mask | winding_counter_mask,
             },
-            segment_0_vertex_buffer_descriptor.clone(),
+            segment_0f_vertex_buffer_descriptor.clone(),
             msaa_sample_count,
         ));
 
@@ -509,7 +668,7 @@ impl Renderer {
         });
         let color_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &color_solid_pipeline_layout,
-            &segment_0_vertex_module,
+            &segment_0f_vertex_module,
             &device.create_shader_module(&include_spirv!("../target/shader_modules/fill_solid_frag.spv")),
             TriangleStrip,
             None,
@@ -520,7 +679,7 @@ impl Renderer {
                 read_mask: clip_nesting_counter_mask | winding_counter_mask,
                 write_mask: winding_counter_mask,
             },
-            segment_0_vertex_buffer_descriptor.clone(),
+            segment_0f_vertex_buffer_descriptor.clone(),
             msaa_sample_count,
         ));
 
@@ -529,8 +688,9 @@ impl Renderer {
             clip_nesting_counter_bits,
             transform_uniform_buffer,
             transform_bind_group,
-            stroke_solid_pipeline,
-            stroke_rounding_pipeline,
+            stroke_bind_group_layout,
+            stroke_line_pipeline,
+            stroke_joint_pipeline,
             fill_solid_pipeline,
             fill_integral_quadratic_curve_pipeline,
             fill_integral_cubic_curve_pipeline,
@@ -546,16 +706,16 @@ impl Renderer {
 
     /// Set the model view projection matrix for subsequent stencil and color rendering calls.
     ///
-    /// Call before creating the next `wgpu::RenderPass`.
+    /// Call before creating the next [wgpu::RenderPass].
     pub fn set_transform(&self, queue: &wgpu::Queue, transform: &glam::Mat4) {
         let transform = transform.to_cols_array();
         let data = transmute_slice(&transform);
         queue.write_buffer(&self.transform_uniform_buffer, 0, &data);
     }
 
-    /// Set the color of subsequent `Shape::render_color_solid` calls.
+    /// Set the color of subsequent [Shape::render_color_solid] calls.
     ///
-    /// Call before creating the next `wgpu::RenderPass`.
+    /// Call before creating the next [wgpu::RenderPass].
     pub fn set_solid_color(&self, queue: &wgpu::Queue, color: &[f32; 4]) {
         let data = transmute_slice(color);
         queue.write_buffer(&self.color_solid_uniform_buffer, 0, &data);

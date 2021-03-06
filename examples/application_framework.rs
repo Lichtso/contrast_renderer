@@ -65,8 +65,8 @@ impl Spawner {
 pub trait Application {
     fn new(device: &wgpu::Device, queue: &mut wgpu::Queue, swap_chain_descriptor: &wgpu::SwapChainDescriptor) -> Self;
     fn resize(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, swap_chain_descriptor: &wgpu::SwapChainDescriptor);
-    fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SwapChainTexture);
-    fn cursor_moved(&mut self, position: [f32; 2]);
+    fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SwapChainTexture, animation_time: f64);
+    fn window_event(&mut self, event: winit::event::WindowEvent);
 }
 
 pub struct ApplicationManager {
@@ -184,6 +184,7 @@ impl ApplicationManager {
         let (swap_chain_descriptor, mut swap_chain) = self.resize();
         let mut application = A::new(&self.device, &mut self.queue, &swap_chain_descriptor);
         application.resize(&self.device, &mut self.queue, &swap_chain_descriptor);
+        let start_time = std::time::Instant::now();
 
         let spawner = Spawner::new();
         event_loop.run(move |event, _, control_flow| {
@@ -192,8 +193,6 @@ impl ApplicationManager {
             match event {
                 winit::event::Event::MainEventsCleared => {
                     spawner.run_until_stalled();
-
-                    #[cfg(target_arch = "wasm32")]
                     self.window.request_redraw();
                 }
                 winit::event::Event::WindowEvent {
@@ -207,13 +206,6 @@ impl ApplicationManager {
                     application.resize(&self.device, &mut self.queue, &swap_chain_descriptor);
                 }
                 winit::event::Event::WindowEvent { event, .. } => match event {
-                    winit::event::WindowEvent::CursorMoved { position, .. } => {
-                        application.cursor_moved([
-                            position.x as f32 / self.size.width as f32 - 0.5,
-                            position.y as f32 / self.size.height as f32 - 0.5,
-                        ]);
-                        self.window.request_redraw();
-                    }
                     winit::event::WindowEvent::KeyboardInput {
                         input:
                             winit::event::KeyboardInput {
@@ -226,14 +218,14 @@ impl ApplicationManager {
                     | winit::event::WindowEvent::CloseRequested => {
                         *control_flow = winit::event_loop::ControlFlow::Exit;
                     }
-                    _ => {}
+                    _ => application.window_event(event),
                 },
                 winit::event::Event::RedrawRequested(_) => {
                     let frame = match swap_chain.get_current_frame() {
                         Ok(frame) => frame,
                         Err(_) => panic!("Failed to acquire next swap chain texture!"),
                     };
-                    application.render(&self.device, &mut self.queue, &frame.output);
+                    application.render(&self.device, &mut self.queue, &frame.output, start_time.elapsed().as_secs_f64());
                 }
                 _ => {}
             }

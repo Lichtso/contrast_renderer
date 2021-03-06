@@ -1,21 +1,25 @@
+//! Defining the geometry and rendering options of [Path]s
+
+use crate::error::ERROR_MARGIN;
+
 /// A line
 #[derive(Debug, Clone, Copy)]
 pub struct LineSegment {
-    /// The start is excluded as it is implicitly defined as the end of the previous `Path` segment.
+    /// The start is excluded as it is implicitly defined as the end of the previous [Path] segment.
     pub control_points: [glam::Vec2; 1],
 }
 
 /// An integral quadratic bezier curve
 #[derive(Debug, Clone, Copy)]
 pub struct IntegralQuadraticCurveSegment {
-    /// The start is excluded as it is implicitly defined as the end of the previous `Path` segment.
+    /// The start is excluded as it is implicitly defined as the end of the previous [Path] segment.
     pub control_points: [glam::Vec2; 2],
 }
 
 /// An integral cubic bezier curve
 #[derive(Debug, Clone, Copy)]
 pub struct IntegralCubicCurveSegment {
-    /// The start is excluded as it is implicitly defined as the end of the previous `Path` segment.
+    /// The start is excluded as it is implicitly defined as the end of the previous [Path] segment.
     pub control_points: [glam::Vec2; 3],
 }
 
@@ -24,9 +28,9 @@ pub struct IntegralCubicCurveSegment {
 pub struct RationalQuadraticCurveSegment {
     /// Weight of `control_points[0]` (the middle).
     ///
-    /// The weights of the start and end control points are fixed to `1.0`.
+    /// The weights of the start and end control points are fixed to [1.0].
     pub weight: f32,
-    /// The start is excluded as it is implicitly defined as the end of the previous `Path` segment.
+    /// The start is excluded as it is implicitly defined as the end of the previous [Path] segment.
     pub control_points: [glam::Vec2; 2],
 }
 
@@ -35,11 +39,11 @@ pub struct RationalQuadraticCurveSegment {
 pub struct RationalCubicCurveSegment {
     /// Weights including the start, thus shifted by one compared to the control_points.
     pub weights: [f32; 4],
-    /// The start is excluded as it is implicitly defined as the end of the previous `Path` segment.
+    /// The start is excluded as it is implicitly defined as the end of the previous [Path] segment.
     pub control_points: [glam::Vec2; 3],
 }
 
-/// Different types of `Path` segments as an enum.
+/// Different types of [Path] segments as an enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SegmentType {
     /// For lines
@@ -54,32 +58,89 @@ pub enum SegmentType {
     RationalCubicCurve,
 }
 
-/// Defines what geometry is generated where `Path` segments meet.
+/// Defines what geometry is generated where [Path] segments meet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Join {
-    /// Polygon of the vertices located where the tangents of the adjacent `Path` segments meet
+    /// Polygon of the intersection of the adjacent [Path] segments
+    /// 
+    /// To prevent the intersection from extending too far out at sharp angles,
+    /// the polygon is clipped by a line which is perpendicular to the angle bisector of the adjacent [Path] segments.
+    /// Where this line is located is defined by [miter_clip](StrokeOptions::miter_clip).
     Miter,
-    /// Polygon of the vertices perpendicular to the tangents of the adjacent `Path` segments
+    /// Polygon of the vertices perpendicular to the tangents of the adjacent [Path] segments
     Bevel,
-    /// Circular arc with a radius of half a width, centered where the adjacent `Path` segments meet
+    /// Circular arc with a radius of half the [width](StrokeOptions::width), centered where the adjacent [Path] segments meet
     Round,
 }
 
-/// Defines what geometry is generated at the start and the end of a `Path`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Defines what geometry is generated at the start and the end of a dash.
+#[derive(Debug, Clone, Copy)]
 pub enum Cap {
-    /// The end and the start of the `Path` will be connected by an additional `LineSegment` and the caps will become joins.
-    Closed,
-    /// Sharp perpendicular cut exactly at the start / the end of the `Path`
-    Butt,
-    /// Sharp perpendicular cut half a width before the start / behind the end of the `Path`
+    /// Rectangular polygon extending half the [width](StrokeOptions::width) beyond the end of the dash
     Square,
-    /// Triangular tip half a width before the start / behind the end of the `Path`
-    Bevel,
-    /// Circular arc with a radius of half a width, centered at the start / the end of the `Path`
+    /// Circular arc with a radius of half the [width](StrokeOptions::width), centered at the end of the dash
     Round,
+    /// Triangular polygon extending half the [width](StrokeOptions::width) beyond the end of the dash
+    Out,
+    /// Triangular cut out from a rectangular polygon extending half the [width](StrokeOptions::width) beyond the end of the dash
+    In,
+    /// Ramp shaped polygon extending [width](StrokeOptions::width) beyond the end of the dash, facing to the right of the [Path]s forward direction
+    Right,
+    /// Ramp shaped polygon extending [width](StrokeOptions::width) beyond the end of the dash, facing to the left of the [Path]s forward direction
+    Left,
+    /// Perpendicular clean cut exactly at the end of the dash
+    Butt,
 }
 
+/// Defines the gaps in a stroked [Path].
+#[derive(Debug, Clone, Copy)]
+pub struct DashInterval {
+    /// Start of the gap to the next dash, thus end of the current dash.
+    ///
+    /// It is measured in terms of the [StrokeOptions::width].
+    pub gap_start: f32,
+    /// End of the current gap, thus start of the next dash.
+    ///
+    /// It is measured in terms of the [StrokeOptions::width].
+    pub gap_end: f32,
+    /// Cap at the start of the current dash, thus at the end of the last gap.
+    pub dash_start: Cap,
+    /// Cap at the end of the current dash, thus at the start of the next gap.
+    pub dash_end: Cap,
+}
+
+/// Maximum number of [DashInterval]s in [DynamicStrokeOptions]
+pub const MAX_DASH_INTERVALS: usize = 4;
+
+/// Dynamic part of [StrokeOptions].
+///
+/// It is grouped and can be used by multiple [Path]s in the same [Shape](crate::renderer::Shape).
+#[derive(Debug, Clone, Copy)]
+pub enum DynamicStrokeOptions<'a> {
+    /// Defines a dashed stroke pattern.
+    Dashed {
+        /// Defines what geometry is generated where [Path] segments meet.
+        join: Join,
+        /// Defines the [DashInterval]s which will be repeated along the stroked [Path].
+        pattern: &'a [DashInterval],
+        /// Translates the [DashInterval]s along the stroked [Path].
+        ///
+        /// Positive values translate towards the forward direction of the stroked [Path].
+        /// It is measured in terms of the [width](StrokeOptions::width).
+        phase: f32,
+    },
+    /// Defines a solid stroke pattern.
+    Solid {
+        /// Defines what geometry is generated where [Path] segments meet.
+        join: Join,
+        /// Defines what geometry is generated at the start of the [Path].
+        start: Cap,
+        /// Defines what geometry is generated at the end of the [Path].
+        end: Cap,
+    },
+}
+
+/// Defines the parametric sampling strategy for stroking curves.
 #[derive(Debug, Clone, Copy)]
 pub enum CurveApproximation {
     /// Parametric step size is `1.0 / n`.
@@ -92,46 +153,60 @@ pub enum CurveApproximation {
     UniformTangentAngle(f32),
 }
 
-/// Defines how a `Path` is stroked.
-#[derive(Debug, Clone, Copy)]
+/// Defines how a [Path] is stroked.
+#[derive(Debug, Clone)]
 pub struct StrokeOptions {
-    /// The width of the stroked `Path`
+    /// The width of the stroked [Path]
     ///
     /// The absolute value is used, so the sign has no effect.
     pub width: f32,
-    /// Offsets the stroke relative to the actual `Path`.
+    /// Offsets the stroke relative to the actual [Path].
     ///
-    /// It is measured in terms of the `width` and clamped to [-0.5, 0.5].
+    /// It is measured in terms of the [width](StrokeOptions::width) and clamped to [-0.5, 0.5].
     /// Negative values shift the stroke to the left and positive value shift the stroke to the right (in forward direction).
     pub offset: f32,
-    /// Defines what geometry is generated where `Path` segments meet.
-    pub join: Join,
-    /// Defines what geometry is generated at the start and the end of the `Path`.
-    pub cap: Cap,
-
+    /// Distance from the point where the adjacent [Path] segments meet to the clip line.
+    ///
+    /// It is measured in terms of the [width](StrokeOptions::width).
+    /// The absolute value is used, so the sign has no effect.
+    pub miter_clip: f32,
+    /// If set to [true] the start and the end of the [Path] will be connected by an implicit [LineSegment].
+    pub closed: bool,
+    /// Index of the [DynamicStrokeOptions] group to use
+    pub dynamic_stroke_options_group: usize,
+    /// Defines the parametric sampling strategy for stroking curves.
     pub curve_approximation: CurveApproximation,
 }
 
-/// A `Path` is a sequence of segments that can be either stroked or filled.
+impl StrokeOptions {
+    /// Call this to make sure all parameters are within the allowed limits
+    pub fn legalize(&mut self) {
+        self.width = self.width.abs();
+        self.offset = self.offset.clamp(-0.5, 0.5);
+        self.miter_clip = self.miter_clip.abs();
+    }
+}
+
+/// A sequence of segments that can be either stroked or filled
 ///
-/// Every "move to" command requires a new `Path`.
-/// The order of the segments defines the direction of the `Path` and its clockwise or counterclockwise orientation.
-/// Filled `Path`s increment the winding counter when they are counterclockwise and decrement it when they are clockwise.
+/// Every "move to" command requires a new [Path].
+/// The order of the segments defines the direction of the [Path] and its clockwise or counterclockwise orientation.
+/// Filled [Path]s increment the winding counter when they are counterclockwise and decrement it when they are clockwise.
 #[derive(Debug, Clone, Default)]
 pub struct Path {
-    /// If `Some()` then the `Path` will be stroked otherwise (if `None`) it will be filled.
+    /// If [Some] then the [Path] will be stroked otherwise (if [None]) it will be filled.
     pub stroke_options: Option<StrokeOptions>,
-    /// Beginning of the `Path` (position of "move to" command).
+    /// Beginning of the [Path] (position of "move to" command).
     pub start: glam::Vec2,
-    /// Storage for all the line segments of the `Path`.
+    /// Storage for all the line segments of the [Path].
     pub line_segments: Vec<LineSegment>,
-    /// Storage for all the integral quadratic curve segments of the `Path`.
+    /// Storage for all the integral quadratic curve segments of the [Path].
     pub integral_quadratic_curve_segments: Vec<IntegralQuadraticCurveSegment>,
-    /// Storage for all the integral cubic curve segments of the `Path`.
+    /// Storage for all the integral cubic curve segments of the [Path].
     pub integral_cubic_curve_segments: Vec<IntegralCubicCurveSegment>,
-    /// Storage for all the rational quadratic curve segments of the `Path`.
+    /// Storage for all the rational quadratic curve segments of the [Path].
     pub rational_quadratic_curve_segments: Vec<RationalQuadraticCurveSegment>,
-    /// Storage for all the rational cubic curve segments of the `Path`.
+    /// Storage for all the rational cubic curve segments of the [Path].
     pub rational_cubic_curve_segments: Vec<RationalCubicCurveSegment>,
     /// Defines how the segments of different types are interleaved.
     pub segement_types: Vec<SegmentType>,
@@ -168,9 +243,9 @@ impl Path {
         self.segement_types.push(SegmentType::RationalCubicCurve);
     }
 
-    /// Returns the current end of the `Path`.
+    /// Returns the current end of the [Path].
     ///
-    /// Returns the `start` if the `Path` is empty (has no segments).
+    /// Returns the `start` if the [Path] is empty (has no segments).
     pub fn get_end(&self) -> glam::Vec2 {
         match self.segement_types.last() {
             Some(SegmentType::Line) => {
@@ -197,9 +272,9 @@ impl Path {
         }
     }
 
-    /// Returns the normalized tangent at the start in direction of the `Path`.
+    /// Returns the normalized tangent at the start in direction of the [Path].
     ///
-    /// Returns the null vector if the `Path` is empty (has no segments).
+    /// Returns the null vector if the [Path] is empty (has no segments).
     /// Useful for arrow heads / tails.
     pub fn get_start_tangent(&self) -> glam::Vec2 {
         match self.segement_types.last() {
@@ -227,9 +302,9 @@ impl Path {
         }
     }
 
-    /// Returns the normalized tangent at the end in direction of the `Path`.
+    /// Returns the normalized tangent at the end in direction of the [Path].
     ///
-    /// Returns the null vector if the `Path` is empty (has no segments).
+    /// Returns the null vector if the [Path] is empty (has no segments).
     /// Useful for arrow heads / tails.
     pub fn get_end_tangent(&self) -> glam::Vec2 {
         match self.segement_types.last() {
@@ -280,7 +355,7 @@ impl Path {
         }
     }
 
-    /// Concatenates two `Path`s, leaving the `other` `Path` empty.
+    /// Concatenates two [Path]s, leaving the `other` [Path] empty.
     pub fn append(&mut self, other: &mut Self) {
         self.line_segments.append(&mut other.line_segments);
         self.integral_quadratic_curve_segments
@@ -291,7 +366,7 @@ impl Path {
         self.rational_cubic_curve_segments.append(&mut other.rational_cubic_curve_segments);
     }
 
-    /// Transforms all control points of the `Path` (including the `start` and all segments).
+    /// Transforms all control points of the [Path] (including the `start` and all segments).
     pub fn transform(&mut self, transform: &glam::Mat3) {
         self.start = transform.transform_point2(self.start);
         let mut line_segment_iter = self.line_segments.iter_mut();
@@ -335,7 +410,7 @@ impl Path {
         }
     }
 
-    /// Reverses the direction of the `Path` and all its segments.
+    /// Reverses the direction of the [Path] and all its segments.
     ///
     /// Thus, swaps the values of `start` and `get_end()`.
     /// Also flips the clockwise or counterclockwise orientation.
@@ -506,6 +581,19 @@ impl Path {
         self.rational_quadratic_curve_segments.clear();
     }
 
+    /// "close" command
+    ///
+    /// A filled [Path] or a closed stroked [Path] already has an implicit [LineSegment] at the end.
+    /// But this method can still be useful for reversing a closed stroked [Path] when the start and end should stay at the same location.
+    pub fn close(&mut self) {
+        if self.get_end().distance_squared(self.start) <= ERROR_MARGIN {
+            return;
+        }
+        self.push_line(LineSegment {
+            control_points: [self.start],
+        });
+    }
+
     /// "arc to" command
     pub fn push_arc(&mut self, tangent_crossing: glam::Vec2, to: glam::Vec2) {
         self.push_rational_quadratic_curve(RationalQuadraticCurveSegment {
@@ -521,7 +609,7 @@ impl Path {
         });
     }
 
-    /// Construct a polygon `Path` from a sequence of points.
+    /// Construct a polygon [Path] from a sequence of points.
     pub fn from_polygon(vertices: &[glam::Vec2]) -> Self {
         let mut vertices = vertices.iter();
         let mut result = Path {
@@ -536,7 +624,7 @@ impl Path {
         result
     }
 
-    /// Construct a polygon `Path` by approximating a circle using a finite number of points.
+    /// Construct a polygon [Path] by approximating a circle using a finite number of points.
     pub fn from_regular_polygon(center: glam::Vec2, radius: f32, rotation: f32, vertex_count: usize) -> Self {
         let mut vertices = Vec::with_capacity(vertex_count);
         for i in 0..vertex_count {
@@ -546,7 +634,7 @@ impl Path {
         Self::from_polygon(&vertices)
     }
 
-    /// Construct a polygon `Path` from a rectangle.
+    /// Construct a polygon [Path] from a rectangle.
     pub fn from_rect(center: glam::Vec2, half_extent: glam::Vec2) -> Self {
         Self::from_polygon(&[
             glam::vec2(center[0] - half_extent[0], center[1] - half_extent[1]),
@@ -556,7 +644,7 @@ impl Path {
         ])
     }
 
-    /// Construct a `Path` from a rectangle with quarter circle roundings at the corners.
+    /// Construct a [Path] from a rectangle with quarter circle roundings at the corners.
     pub fn from_rounded_rect(center: glam::Vec2, half_extent: glam::Vec2, radius: f32) -> Self {
         let vertices = [
             (
@@ -591,7 +679,7 @@ impl Path {
         result
     }
 
-    /// Constructs a `Path` from an ellipse.
+    /// Constructs a [Path] from an ellipse.
     pub fn from_ellipse(center: glam::Vec2, half_extent: glam::Vec2) -> Self {
         let vertices = [
             (
@@ -621,7 +709,7 @@ impl Path {
         result
     }
 
-    /// Constructs a `Path` from a circle.
+    /// Constructs a [Path] from a circle.
     pub fn from_circle(center: glam::Vec2, radius: f32) -> Self {
         Self::from_ellipse(center, glam::vec2(radius, radius))
     }

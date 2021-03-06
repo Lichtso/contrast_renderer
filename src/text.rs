@@ -1,3 +1,5 @@
+//! (Optional) Working with [font faces](ttf_parser::Face), converting glyphs and text to [Path]s
+
 use crate::path::{IntegralCubicCurveSegment, IntegralQuadraticCurveSegment, LineSegment, Path};
 
 #[derive(Default)]

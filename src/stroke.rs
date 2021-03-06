@@ -5,61 +5,47 @@ use crate::{
         rational_quadratic_control_points_to_power_basis, rational_quadratic_first_order_derivative, rational_quadratic_point,
         rational_quadratic_uniform_tangent_angle,
     },
-    error::ERROR_MARGIN,
-    path::{Cap, CurveApproximation, Join, Path, SegmentType, StrokeOptions},
+    error::{Error, ERROR_MARGIN},
+    path::{CurveApproximation, Path, SegmentType, StrokeOptions},
     utils::{line_line_intersection, rotate_90_degree_clockwise},
-    vertex::{Vertex0, Vertex3},
+    vertex::{Vertex0, Vertex2f1i, Vertex3f1i},
 };
 
-fn emit_stroke_vertex(proto_hull: &mut Vec<Vertex0>, path_solid_vertices: &mut Vec<Vertex0>, vertex: glam::Vec2) {
-    proto_hull.push(vertex);
-    path_solid_vertices.push(vertex);
+fn emit_stroke_vertex(path_line_vertices: &mut Vec<Vertex2f1i>, path_index: usize, offset_along_path: f32, vertex: glam::Vec2, side: f32) {
+    path_line_vertices.push(Vertex2f1i(vertex, glam::vec2(side, offset_along_path), path_index as u32));
 }
 
 fn emit_stroke_vertices(
-    proto_hull: &mut Vec<Vertex0>,
-    path_solid_vertices: &mut Vec<Vertex0>,
+    builder: &mut StrokeBuilder,
     stroke_options: &StrokeOptions,
+    path_index: usize,
+    length_accumulator: f32,
     point: glam::Vec2,
     tangent: glam::Vec2,
 ) {
+    let offset_along_path = length_accumulator / stroke_options.width;
     let normal = rotate_90_degree_clockwise(tangent);
-    let clamped_offset = stroke_options.offset.clamp(-0.5, 0.5);
-    let width_absolute = stroke_options.width.abs();
-    emit_stroke_vertex(proto_hull, path_solid_vertices, point + normal * (clamped_offset - 0.5) * width_absolute);
-    emit_stroke_vertex(proto_hull, path_solid_vertices, point + normal * (clamped_offset + 0.5) * width_absolute);
-}
-
-fn emit_stroke_rounding(proto_hull: &mut Vec<Vertex0>, builder: &mut StrokeBuilder, start: (glam::Vec2, glam::Vec2), end: (glam::Vec2, glam::Vec2)) {
-    if start.0.distance_squared(end.0) == 0.0 {
-        return;
-    }
-    let intersection_point = line_line_intersection(start, end);
-    proto_hull.push(intersection_point);
-    let weight = std::f32::consts::SQRT_2 / (1.0 + start.1.dot(end.1)).sqrt();
-    builder.quadratic_vertices.push(Vertex3(end.0, glam::vec3(1.0, 1.0, 1.0)));
-    builder
-        .quadratic_vertices
-        .push(Vertex3(intersection_point, glam::vec3(0.5 * weight, 0.0, weight)));
-    builder.quadratic_vertices.push(Vertex3(start.0, glam::vec3(0.0, 0.0, 1.0)));
-}
-
-fn emit_stroke_split_rounding(
-    proto_hull: &mut Vec<Vertex0>,
-    builder: &mut StrokeBuilder,
-    start: (glam::Vec2, glam::Vec2),
-    tip: (glam::Vec2, glam::Vec2),
-    end: (glam::Vec2, glam::Vec2),
-) {
-    emit_stroke_rounding(proto_hull, builder, start, tip);
-    emit_stroke_rounding(proto_hull, builder, tip, end);
+    emit_stroke_vertex(
+        &mut builder.path_line_vertices,
+        path_index,
+        offset_along_path,
+        point + normal * ((stroke_options.offset - 0.5) * stroke_options.width),
+        -0.5,
+    );
+    emit_stroke_vertex(
+        &mut builder.path_line_vertices,
+        path_index,
+        offset_along_path,
+        point + normal * ((stroke_options.offset + 0.5) * stroke_options.width),
+        0.5,
+    );
 }
 
 fn emit_stroke_join(
-    proto_hull: &mut Vec<Vertex0>,
     builder: &mut StrokeBuilder,
-    path_solid_vertices: &mut Vec<Vertex0>,
+    proto_hull: &mut Vec<Vertex0>,
     stroke_options: &StrokeOptions,
+    length_accumulator: &mut f32,
     control_point: glam::Vec2,
     previous_tangent: glam::Vec2,
     next_tangent: glam::Vec2,
@@ -68,60 +54,78 @@ fn emit_stroke_join(
     if (tangets_dot_product - 1.0).abs() <= ERROR_MARGIN {
         return;
     }
-    let side_sign = rotate_90_degree_clockwise(previous_tangent).dot(next_tangent);
-    let base_index = if side_sign < 0.0 { 1 } else { 2 };
-    let start_point_and_tagent = (path_solid_vertices[path_solid_vertices.len() - base_index], previous_tangent);
-    let mid_tangent = if (tangets_dot_product + 1.0).abs() <= ERROR_MARGIN {
-        rotate_90_degree_clockwise(previous_tangent)
+    let side_sign = rotate_90_degree_clockwise(previous_tangent).dot(next_tangent).signum();
+    let miter_clip = stroke_options.width * stroke_options.miter_clip;
+    let previous_normal = rotate_90_degree_clockwise(previous_tangent);
+    let next_normal = rotate_90_degree_clockwise(next_tangent);
+    let previous_edge_vertex = control_point + previous_normal * ((stroke_options.offset - side_sign * 0.5) * stroke_options.width);
+    let next_edge_vertex = control_point + next_normal * ((stroke_options.offset - side_sign * 0.5) * stroke_options.width);
+    let intersection = line_line_intersection((previous_edge_vertex, previous_tangent), (next_edge_vertex, next_tangent));
+    let mut vertices = [control_point, previous_edge_vertex, next_edge_vertex, intersection, intersection];
+    let anti_parallel = (tangets_dot_product + 1.0).abs() <= ERROR_MARGIN;
+    if anti_parallel || control_point.distance(intersection) > miter_clip {
+        let mid_tangent = if anti_parallel {
+            rotate_90_degree_clockwise(-previous_tangent)
+        } else {
+            (previous_tangent + next_tangent).normalize()
+        };
+        let mid_normal = rotate_90_degree_clockwise(mid_tangent);
+        let clip_line = (control_point - mid_normal * (side_sign * miter_clip), mid_tangent);
+        vertices[3] = line_line_intersection((previous_edge_vertex, previous_tangent), clip_line);
+        vertices[4] = line_line_intersection((next_edge_vertex, next_tangent), clip_line);
+        proto_hull.push(vertices[3]);
+        proto_hull.push(vertices[4]);
     } else {
-        (previous_tangent + next_tangent).normalize()
-    };
-    if stroke_options.join == Join::Miter || (stroke_options.join == Join::Round && tangets_dot_product < 0.0) {
-        emit_stroke_vertices(proto_hull, path_solid_vertices, stroke_options, control_point, mid_tangent);
+        proto_hull.push(vertices[3]);
     }
-    emit_stroke_vertices(proto_hull, path_solid_vertices, stroke_options, control_point, next_tangent);
-    let end_point_and_tagent = (path_solid_vertices[path_solid_vertices.len() - base_index], next_tangent);
-    match stroke_options.join {
-        Join::Miter => {
-            let mid_index = path_solid_vertices.len() - base_index - 2;
-            path_solid_vertices[mid_index] = line_line_intersection(start_point_and_tagent, end_point_and_tagent);
-        }
-        Join::Bevel => {}
-        Join::Round => {
-            if tangets_dot_product < 0.0 {
-                emit_stroke_split_rounding(
-                    proto_hull,
-                    builder,
-                    start_point_and_tagent,
-                    (path_solid_vertices[path_solid_vertices.len() - base_index - 2], mid_tangent),
-                    end_point_and_tagent,
-                );
-            } else {
-                emit_stroke_rounding(proto_hull, builder, start_point_and_tagent, end_point_and_tagent);
-            }
-        }
+    let start_index = builder.joint_vertices.len();
+    let offset_along_path = *length_accumulator / stroke_options.width;
+    for vertex in &vertices {
+        builder.joint_vertices.push(Vertex3f1i(
+            *vertex,
+            glam::vec3(
+                previous_normal.dot(*vertex - control_point) / (stroke_options.width * -side_sign),
+                previous_tangent.dot(*vertex - control_point) / stroke_options.width,
+                offset_along_path,
+            ),
+            stroke_options.dynamic_stroke_options_group as u32,
+        ));
     }
+    let mut indices: Vec<u16> = (start_index as u16..(builder.joint_vertices.len() + 1) as u16).collect();
+    *indices.iter_mut().last().unwrap() = (-1isize) as u16;
+    builder.joint_indices.append(&mut indices);
+    *length_accumulator += tangets_dot_product.acos() / (std::f32::consts::PI * 2.0) * stroke_options.width;
+    cut_stroke_polygon(builder, proto_hull);
+    emit_stroke_vertices(
+        builder,
+        stroke_options,
+        stroke_options.dynamic_stroke_options_group,
+        *length_accumulator,
+        control_point,
+        next_tangent,
+    );
 }
 
-fn cut_stroke_polygon(proto_hull: &mut Vec<Vertex0>, builder: &mut StrokeBuilder, path_solid_vertices: &mut Vec<Vertex0>) {
-    if !path_solid_vertices.is_empty() {
-        proto_hull.append(&mut path_solid_vertices.clone());
-        let start_index = builder.solid_vertices.len();
-        builder.solid_vertices.append(path_solid_vertices);
-        let mut indices: Vec<u16> = (start_index as u16..(builder.solid_vertices.len() + 1) as u16).collect();
+fn cut_stroke_polygon(builder: &mut StrokeBuilder, proto_hull: &mut Vec<Vertex0>) {
+    if !builder.path_line_vertices.is_empty() {
+        proto_hull.append(&mut builder.path_line_vertices.iter().map(|vertex| vertex.0).collect());
+        let start_index = builder.line_vertices.len();
+        builder.line_vertices.append(&mut builder.path_line_vertices);
+        let mut indices: Vec<u16> = (start_index as u16..(builder.line_vertices.len() + 1) as u16).collect();
         *indices.iter_mut().last().unwrap() = (-1isize) as u16;
-        builder.solid_indices.append(&mut indices);
+        builder.line_indices.append(&mut indices);
     }
 }
 
 macro_rules! emit_curve_stroke {
-    ($proto_hull:expr, $path_solid_vertices:expr, $stroke_options:expr,
-     $power_basis:expr, $angle_step:ident, $uniform_tangent_angle:expr,
+    ($builder:expr, $stroke_options:expr, $length_accumulator:expr,
+     $previous_control_point:expr, $power_basis:expr, $angle_step:ident, $uniform_tangent_angle:expr,
      $point:ident, $tangent:ident $(,)?) => {
         let parameters: Vec<f32> = match $stroke_options.curve_approximation {
-            CurveApproximation::UniformlySpacedParameters(steps) => (1..steps).map(|i| i as f32 / steps as f32).collect(),
+            CurveApproximation::UniformlySpacedParameters(steps) => (1..steps + 1).map(|i| i as f32 / steps as f32).collect(),
             CurveApproximation::UniformTangentAngle($angle_step) => $uniform_tangent_angle,
         };
+        let mut previous_point = $previous_control_point;
         for mut t in parameters {
             let mut tangent = $tangent(&$power_basis, t);
             if tangent.length_squared() == 0.0 {
@@ -134,22 +138,32 @@ macro_rules! emit_curve_stroke {
             }
             tangent = tangent.normalize();
             let point = $point(&$power_basis, t);
-            emit_stroke_vertices($proto_hull, $path_solid_vertices, &$stroke_options, point, tangent);
+            $length_accumulator += previous_point.distance(point);
+            emit_stroke_vertices(
+                $builder,
+                &$stroke_options,
+                $stroke_options.dynamic_stroke_options_group,
+                $length_accumulator,
+                point,
+                tangent,
+            );
+            previous_point = point;
         }
     };
 }
 
 #[derive(Default)]
 pub struct StrokeBuilder {
-    pub solid_indices: Vec<u16>,
-    pub solid_vertices: Vec<Vertex0>,
-    pub quadratic_vertices: Vec<Vertex3>,
+    pub line_indices: Vec<u16>,
+    pub joint_indices: Vec<u16>,
+    pub line_vertices: Vec<Vertex2f1i>,
+    pub joint_vertices: Vec<Vertex3f1i>,
+    path_line_vertices: Vec<Vertex2f1i>,
 }
 
 impl StrokeBuilder {
-    pub fn add_path(&mut self, proto_hull: &mut Vec<Vertex0>, path: &Path) {
-        let stroke_options = path.stroke_options.unwrap();
-        let mut path_solid_vertices: Vec<Vertex0> = Vec::with_capacity(path.line_segments.len() * 4);
+    pub fn add_path(&mut self, proto_hull: &mut Vec<Vertex0>, path: &Path) -> Result<(), Error> {
+        let stroke_options = path.stroke_options.as_ref().unwrap();
         let mut previous_control_point = path.start;
         let mut first_tangent = glam::Vec2::default();
         let mut previous_tangent = glam::Vec2::default();
@@ -158,6 +172,7 @@ impl StrokeBuilder {
         let mut integral_cubic_curve_segment_iter = path.integral_cubic_curve_segments.iter().peekable();
         let mut rational_quadratic_curve_segment_iter = path.rational_quadratic_curve_segments.iter().peekable();
         let mut rational_cubic_curve_segment_iter = path.rational_cubic_curve_segments.iter().peekable();
+        let mut length_accumulator = 0.0;
         for (i, segement_type) in path.segement_types.iter().enumerate() {
             let next_control_point;
             let segment_start_tangent;
@@ -196,47 +211,49 @@ impl StrokeBuilder {
             }
             if i == 0 {
                 first_tangent = segment_start_tangent;
-                let tip_point = previous_control_point - segment_start_tangent * stroke_options.width.abs() * 0.5;
-                match stroke_options.cap {
-                    Cap::Closed | Cap::Butt => {}
-                    Cap::Square => {
-                        emit_stroke_vertices(proto_hull, &mut path_solid_vertices, &stroke_options, tip_point, segment_start_tangent);
-                    }
-                    Cap::Bevel | Cap::Round => {
-                        emit_stroke_vertex(proto_hull, &mut path_solid_vertices, tip_point);
-                    }
-                }
-                if stroke_options.cap != Cap::Square || *segement_type != SegmentType::Line {
+                if !stroke_options.closed {
                     emit_stroke_vertices(
-                        proto_hull,
-                        &mut path_solid_vertices,
+                        self,
                         &stroke_options,
+                        stroke_options.dynamic_stroke_options_group,
+                        length_accumulator - 0.5 * stroke_options.width,
+                        previous_control_point - segment_start_tangent * stroke_options.width.abs() * 0.5,
+                        segment_start_tangent,
+                    );
+                }
+                if stroke_options.closed || *segement_type != SegmentType::Line {
+                    emit_stroke_vertices(
+                        self,
+                        &stroke_options,
+                        stroke_options.dynamic_stroke_options_group,
+                        length_accumulator,
                         previous_control_point,
                         segment_start_tangent,
                     );
                 }
-                if stroke_options.cap == Cap::Round {
-                    emit_stroke_split_rounding(
-                        proto_hull,
-                        self,
-                        (path_solid_vertices[path_solid_vertices.len() - 2], -segment_start_tangent),
-                        (tip_point, rotate_90_degree_clockwise(segment_start_tangent)),
-                        (path_solid_vertices[path_solid_vertices.len() - 1], segment_start_tangent),
-                    );
-                }
             } else {
                 emit_stroke_join(
-                    proto_hull,
                     self,
-                    &mut path_solid_vertices,
+                    proto_hull,
                     &stroke_options,
+                    &mut length_accumulator,
                     previous_control_point,
                     previous_tangent,
                     segment_start_tangent,
                 );
             }
             match segement_type {
-                SegmentType::Line => {}
+                SegmentType::Line => {
+                    length_accumulator += previous_control_point.distance(next_control_point);
+                    emit_stroke_vertices(
+                        self,
+                        &stroke_options,
+                        stroke_options.dynamic_stroke_options_group,
+                        length_accumulator,
+                        next_control_point,
+                        segment_end_tangent,
+                    );
+                }
                 SegmentType::IntegralQuadraticCurve => {
                     let segment = integral_quadratic_curve_segment_iter.next().unwrap();
                     let power_basis = rational_quadratic_control_points_to_power_basis(&[
@@ -245,9 +262,10 @@ impl StrokeBuilder {
                         segment.control_points[1].extend(1.0),
                     ]);
                     emit_curve_stroke!(
-                        proto_hull,
-                        &mut path_solid_vertices,
+                        self,
                         stroke_options,
+                        length_accumulator,
+                        previous_control_point,
                         power_basis,
                         angle_step,
                         integral_quadratic_uniform_tangent_angle(&power_basis, segment_start_tangent, segment_end_tangent, angle_step),
@@ -264,9 +282,10 @@ impl StrokeBuilder {
                         segment.control_points[2].extend(1.0),
                     ]);
                     emit_curve_stroke!(
-                        proto_hull,
-                        &mut path_solid_vertices,
+                        self,
                         stroke_options,
+                        length_accumulator,
+                        previous_control_point,
                         power_basis,
                         angle_step,
                         integral_cubic_uniform_tangent_angle(&power_basis, angle_step),
@@ -282,9 +301,10 @@ impl StrokeBuilder {
                         segment.control_points[1].extend(1.0),
                     ]);
                     emit_curve_stroke!(
-                        proto_hull,
-                        &mut path_solid_vertices,
+                        self,
                         stroke_options,
+                        length_accumulator,
+                        previous_control_point,
                         power_basis,
                         angle_step,
                         rational_quadratic_uniform_tangent_angle(&power_basis, segment_start_tangent, segment_end_tangent, angle_step),
@@ -301,9 +321,10 @@ impl StrokeBuilder {
                         segment.control_points[2].extend(segment.weights[3]),
                     ]);
                     emit_curve_stroke!(
-                        proto_hull,
-                        &mut path_solid_vertices,
+                        self,
                         stroke_options,
+                        length_accumulator,
+                        previous_control_point,
                         power_basis,
                         angle_step,
                         rational_cubic_uniform_tangent_angle(&power_basis, angle_step),
@@ -312,82 +333,72 @@ impl StrokeBuilder {
                     );
                 }
             }
-            emit_stroke_vertices(
-                proto_hull,
-                &mut path_solid_vertices,
-                &stroke_options,
-                next_control_point,
-                segment_end_tangent,
-            );
             previous_control_point = next_control_point;
             previous_tangent = segment_end_tangent;
         }
-        if (stroke_options.cap == Cap::Round || stroke_options.cap == Cap::Bevel)
-            || (stroke_options.cap == Cap::Square && *path.segement_types.last().unwrap() != SegmentType::Line)
-            || (stroke_options.cap == Cap::Butt && *path.segement_types.last().unwrap() == SegmentType::Line)
-        {
+        if stroke_options.closed {
+            let line_segment = path.start - previous_control_point;
+            let length = line_segment.length();
+            if length > 0.0 {
+                let segment_tangent = line_segment / length;
+                emit_stroke_join(
+                    self,
+                    proto_hull,
+                    &stroke_options,
+                    &mut length_accumulator,
+                    previous_control_point,
+                    previous_tangent,
+                    segment_tangent,
+                );
+                length_accumulator += length;
+                emit_stroke_vertices(
+                    self,
+                    &stroke_options,
+                    stroke_options.dynamic_stroke_options_group,
+                    length_accumulator,
+                    path.start,
+                    segment_tangent,
+                );
+                emit_stroke_join(
+                    self,
+                    proto_hull,
+                    &stroke_options,
+                    &mut length_accumulator,
+                    path.start,
+                    segment_tangent,
+                    first_tangent,
+                );
+            } else {
+                emit_stroke_join(
+                    self,
+                    proto_hull,
+                    &stroke_options,
+                    &mut length_accumulator,
+                    path.start,
+                    previous_tangent,
+                    first_tangent,
+                );
+            }
+        } else {
+            cut_stroke_polygon(self, proto_hull);
             emit_stroke_vertices(
-                proto_hull,
-                &mut path_solid_vertices,
+                self,
                 &stroke_options,
+                stroke_options.dynamic_stroke_options_group | 0x10000,
+                length_accumulator,
                 previous_control_point,
                 previous_tangent,
             );
-        }
-        let tip_point = previous_control_point + previous_tangent * stroke_options.width.abs() * 0.5;
-        if stroke_options.cap == Cap::Round {
-            emit_stroke_split_rounding(
-                proto_hull,
+            emit_stroke_vertices(
                 self,
-                (path_solid_vertices[path_solid_vertices.len() - 2], -previous_tangent),
-                (tip_point, rotate_90_degree_clockwise(previous_tangent)),
-                (path_solid_vertices[path_solid_vertices.len() - 1], previous_tangent),
+                &stroke_options,
+                stroke_options.dynamic_stroke_options_group | 0x10000,
+                length_accumulator + 0.5 * stroke_options.width,
+                previous_control_point + previous_tangent * stroke_options.width.abs() * 0.5,
+                previous_tangent,
             );
         }
-        match stroke_options.cap {
-            Cap::Closed => {
-                let line_segment = path.start - previous_control_point;
-                if line_segment.length_squared() > 0.0 {
-                    let segment_tangent = (line_segment).normalize();
-                    emit_stroke_join(
-                        proto_hull,
-                        self,
-                        &mut path_solid_vertices,
-                        &stroke_options,
-                        previous_control_point,
-                        previous_tangent,
-                        segment_tangent,
-                    );
-                    emit_stroke_vertices(proto_hull, &mut path_solid_vertices, &stroke_options, path.start, segment_tangent);
-                    emit_stroke_join(
-                        proto_hull,
-                        self,
-                        &mut path_solid_vertices,
-                        &stroke_options,
-                        path.start,
-                        segment_tangent,
-                        first_tangent,
-                    );
-                } else {
-                    emit_stroke_join(
-                        proto_hull,
-                        self,
-                        &mut path_solid_vertices,
-                        &stroke_options,
-                        path.start,
-                        previous_tangent,
-                        first_tangent,
-                    );
-                }
-            }
-            Cap::Butt => {}
-            Cap::Square => {
-                emit_stroke_vertices(proto_hull, &mut path_solid_vertices, &stroke_options, tip_point, previous_tangent);
-            }
-            Cap::Bevel | Cap::Round => {
-                emit_stroke_vertex(proto_hull, &mut path_solid_vertices, tip_point);
-            }
-        }
-        cut_stroke_polygon(proto_hull, self, &mut path_solid_vertices);
+        cut_stroke_polygon(self, proto_hull);
+        Ok(())
     }
 }

@@ -3,11 +3,11 @@ use crate::{
         integral_inflection_point_polynomial_coefficients, integral_inflection_points, rational_cubic_control_points_to_power_basis,
         rational_cubic_first_order_derivative, rational_inflection_point_polynomial_coefficients, rational_inflection_points,
     },
-    error::ERROR_MARGIN,
+    error::{Error, ERROR_MARGIN},
     path::{Path, SegmentType},
     polynomial::Root,
     utils::signed_triangle_area,
-    vertex::{triangle_fan_to_strip, Vertex0, Vertex2, Vertex3, Vertex4},
+    vertex::{triangle_fan_to_strip, Vertex0, Vertex2f, Vertex3f, Vertex4f},
 };
 use glam::const_mat4;
 
@@ -278,14 +278,14 @@ macro_rules! emit_cubic_curve {
 pub struct FillBuilder {
     pub solid_indices: Vec<u16>,
     pub solid_vertices: Vec<Vertex0>,
-    pub integral_quadratic_vertices: Vec<Vertex2>,
-    pub integral_cubic_vertices: Vec<Vertex3>,
-    pub rational_quadratic_vertices: Vec<Vertex3>,
-    pub rational_cubic_vertices: Vec<Vertex4>,
+    pub integral_quadratic_vertices: Vec<Vertex2f>,
+    pub integral_cubic_vertices: Vec<Vertex3f>,
+    pub rational_quadratic_vertices: Vec<Vertex3f>,
+    pub rational_cubic_vertices: Vec<Vertex4f>,
 }
 
 impl FillBuilder {
-    pub fn add_path(&mut self, proto_hull: &mut Vec<Vertex0>, path: &Path) {
+    pub fn add_path(&mut self, proto_hull: &mut Vec<Vertex0>, path: &Path) -> Result<(), Error> {
         let mut path_solid_vertices: Vec<Vertex0> = Vec::with_capacity(
             1 + path.line_segments.len()
                 + path.integral_quadratic_curve_segments.len()
@@ -310,11 +310,11 @@ impl FillBuilder {
                 SegmentType::IntegralQuadraticCurve => {
                     let segment = integral_quadratic_curve_segment_iter.next().unwrap();
                     self.integral_quadratic_vertices
-                        .push(Vertex2(segment.control_points[1], glam::vec2(1.0, 1.0)));
+                        .push(Vertex2f(segment.control_points[1], glam::vec2(1.0, 1.0)));
                     self.integral_quadratic_vertices
-                        .push(Vertex2(segment.control_points[0], glam::vec2(0.5, 0.0)));
+                        .push(Vertex2f(segment.control_points[0], glam::vec2(0.5, 0.0)));
                     self.integral_quadratic_vertices
-                        .push(Vertex2(*path_solid_vertices.last().unwrap(), glam::vec2(0.0, 0.0)));
+                        .push(Vertex2f(*path_solid_vertices.last().unwrap(), glam::vec2(0.0, 0.0)));
                     proto_hull.push(segment.control_points[0]);
                     proto_hull.push(segment.control_points[1]);
                     path_solid_vertices.push(segment.control_points[1]);
@@ -340,18 +340,18 @@ impl FillBuilder {
                         roots,
                         v,
                         w,
-                        Vertex3(v, w.truncate())
+                        Vertex3f(v, w.truncate())
                     );
                 }
                 SegmentType::RationalQuadraticCurve => {
                     let segment = rational_quadratic_curve_segment_iter.next().unwrap();
                     let weight = 1.0 / segment.weight;
                     self.rational_quadratic_vertices
-                        .push(Vertex3(segment.control_points[1], glam::vec3(1.0, 1.0, 1.0)));
+                        .push(Vertex3f(segment.control_points[1], glam::vec3(1.0, 1.0, 1.0)));
                     self.rational_quadratic_vertices
-                        .push(Vertex3(segment.control_points[0], glam::vec3(0.5 * weight, 0.0, weight)));
+                        .push(Vertex3f(segment.control_points[0], glam::vec3(0.5 * weight, 0.0, weight)));
                     self.rational_quadratic_vertices
-                        .push(Vertex3(*path_solid_vertices.last().unwrap(), glam::vec3(0.0, 0.0, 1.0)));
+                        .push(Vertex3f(*path_solid_vertices.last().unwrap(), glam::vec3(0.0, 0.0, 1.0)));
                     proto_hull.push(segment.control_points[0]);
                     proto_hull.push(segment.control_points[1]);
                     path_solid_vertices.push(segment.control_points[1]);
@@ -377,7 +377,7 @@ impl FillBuilder {
                         roots,
                         v,
                         w,
-                        Vertex4(v, w)
+                        Vertex4f(v, w)
                     );
                 }
             }
@@ -387,5 +387,6 @@ impl FillBuilder {
         let mut indices: Vec<u16> = (start_index as u16..(self.solid_vertices.len() + 1) as u16).collect();
         *indices.iter_mut().last().unwrap() = (-1isize) as u16;
         self.solid_indices.append(&mut indices);
+        Ok(())
     }
 }

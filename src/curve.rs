@@ -1,3 +1,7 @@
+//! Various math helper functions to work with bezier curves.
+//!
+//! All of these functions use the power basis matrix form.
+
 use crate::{
     complex_number::ComplexNumber,
     error::ERROR_MARGIN,
@@ -34,8 +38,10 @@ pub fn rational_cubic_control_points_to_power_basis(control_points: &[glam::Vec3
     glam::Mat4::from_cols(control_points[0], control_points[1], control_points[2], control_points[3]) * CUBIC_POWER_BASIS
 }
 
-/// Reparametrizes a rational quadratic bezier curve described by its power basis matrix form to a new parameter interval between `a` and `b`.
-pub fn reparametrize_rational_quadratic_power_basis(power_basis: &glam::Mat3, a: f32, b: f32) -> glam::Mat3 {
+/// Reparametrizes a rational quadratic bezier curve linearly to a new parameter interval between `a` and `b`.
+///
+/// Can be used for splitting, trimming and bloosoming.
+pub fn reparametrize_rational_quadratic(power_basis: &glam::Mat3, a: f32, b: f32) -> glam::Mat3 {
     glam::Mat3::from_cols(
         power_basis.x_axis + a * power_basis.y_axis + a.powi(2) * power_basis.z_axis,
         (b - a) * power_basis.y_axis + (-2.0 * a.powi(2) + 2.0 * a * b) * power_basis.z_axis,
@@ -43,8 +49,10 @@ pub fn reparametrize_rational_quadratic_power_basis(power_basis: &glam::Mat3, a:
     )
 }
 
-/// Reparametrizes a rational cubic bezier curve described by its power basis matrix form to a new parameter interval between `a` and `b`.
-pub fn reparametrize_rational_cubic_power_basis(power_basis: &glam::Mat4, a: f32, b: f32) -> glam::Mat4 {
+/// Reparametrizes a rational cubic bezier curve linearly to a new parameter interval between `a` and `b`.
+///
+/// Can be used for splitting, trimming and bloosoming.
+pub fn reparametrize_rational_cubic(power_basis: &glam::Mat4, a: f32, b: f32) -> glam::Mat4 {
     glam::Mat4::from_cols(
         power_basis.x_axis + a * power_basis.y_axis + a.powi(2) * power_basis.z_axis + a.powi(3) * power_basis.w_axis,
         (-a + b) * power_basis.y_axis
@@ -55,47 +63,47 @@ pub fn reparametrize_rational_cubic_power_basis(power_basis: &glam::Mat4, a: f32
     )
 }
 
-/// Calculates the point at parameter t of a rational quadratic bezier curve described by its power basis matrix form.
+/// Calculates the point at parameter t of a rational quadratic bezier curve.
 pub fn rational_quadratic_point(power_basis: &glam::Mat3, t: f32) -> glam::Vec2 {
     let p = *power_basis * glam::vec3(1.0, t, t * t);
     p.truncate() / p[2]
 }
 
-/// Calculates the first order derivative at parameter t of a rational quadratic bezier curve described by its power basis matrix form.
+/// Calculates the first order derivative at parameter t of a rational quadratic bezier curve.
 pub fn rational_quadratic_first_order_derivative(power_basis: &glam::Mat3, t: f32) -> glam::Vec2 {
     let p = *power_basis * glam::vec3(1.0, t, t * t);
     let d1 = *power_basis * glam::vec3(0.0, 1.0, 2.0 * t);
     (d1.truncate() * p[2] - p.truncate() * d1[2]) / (p[2] * p[2])
 }
 
-/// Calculates the second order derivative at parameter t of a rational quadratic bezier curve described by its power basis matrix form.
+/// Calculates the second order derivative at parameter t of a rational quadratic bezier curve.
 pub fn rational_quadratic_second_order_derivative(power_basis: &glam::Mat3, t: f32) -> glam::Vec2 {
     let p = *power_basis * glam::vec3(1.0, t, t * t);
     let d2 = *power_basis * glam::vec3(0.0, 0.0, 2.0);
     (d2.truncate() * p[2] - p.truncate() * d2[2]) / (p[2] * p[2])
 }
 
-/// Calculates the point at parameter t of a rational cubic bezier curve described by its power basis matrix form.
+/// Calculates the point at parameter t of a rational cubic bezier curve.
 pub fn rational_cubic_point(power_basis: &glam::Mat4, t: f32) -> glam::Vec2 {
     let p = *power_basis * glam::vec4(1.0, t, t * t, t * t * t);
     p.truncate().truncate() / p[2]
 }
 
-/// Calculates the first order derivative at parameter t of a rational cubic bezier curve described by its power basis matrix form.
+/// Calculates the first order derivative at parameter t of a rational cubic bezier curve.
 pub fn rational_cubic_first_order_derivative(power_basis: &glam::Mat4, t: f32) -> glam::Vec2 {
     let p = *power_basis * glam::vec4(1.0, t, t * t, t * t * t);
     let d1 = *power_basis * glam::vec4(0.0, 1.0, 2.0 * t, 3.0 * t * t);
     (d1.truncate().truncate() * p[2] - p.truncate().truncate() * d1[2]) / (p[2] * p[2])
 }
 
-/// Calculates the second order derivative at parameter t of a rational cubic bezier curve described by its power basis matrix form.
+/// Calculates the second order derivative at parameter t of a rational cubic bezier curve.
 pub fn rational_cubic_second_order_derivative(power_basis: &glam::Mat4, t: f32) -> glam::Vec2 {
     let p = *power_basis * glam::vec4(1.0, t, t * t, t * t * t);
     let d2 = *power_basis * glam::vec4(0.0, 0.0, 2.0, 6.0 * t);
     (d2.truncate().truncate() * p[2] - p.truncate().truncate() * d2[2]) / (p[2] * p[2])
 }
 
-/// Calculates the third order derivative at parameter t of a rational cubic bezier curve described by its power basis matrix form.
+/// Calculates the third order derivative at parameter t of a rational cubic bezier curve.
 pub fn rational_cubic_third_order_derivative(power_basis: &glam::Mat4, t: f32) -> glam::Vec2 {
     let p = *power_basis * glam::vec4(1.0, t, t * t, t * t * t);
     let d2 = *power_basis * glam::vec4(0.0, 0.0, 2.0, 6.0 * t);
@@ -171,7 +179,7 @@ pub fn rational_inflection_point_polynomial_coefficients(power_basis: &glam::Mat
 /// Finds the roots of the inflection point polynomial for an integral cubic bezier curve.
 ///
 /// It also returns the discriminant which can be used for classification of the curve.
-/// In case there is a loop (discriminant < 0.0) and the `loop_self_intersection` flag is `true`,
+/// In case there is a loop (discriminant < 0.0) and the `loop_self_intersection` flag is [true],
 /// two different roots will be located at the self intersection point.
 pub fn integral_inflection_points(ippc: glam::Vec4, loop_self_intersection: bool) -> (f32, [Root; 3]) {
     let discriminant = 3.0 * ippc[2].powi(2) - 4.0 * ippc[1] * ippc[3];
@@ -210,7 +218,7 @@ pub fn integral_inflection_points(ippc: glam::Vec4, loop_self_intersection: bool
 /// Finds the roots of the inflection point polynomial for a rational cubic bezier curve.
 ///
 /// It also returns the discriminant which can be used for classification of the curve.
-/// In case there is a loop (discriminant < 0.0) and the `loop_self_intersection` flag is `true`,
+/// In case there is a loop (discriminant < 0.0) and the `loop_self_intersection` flag is [true],
 /// two different roots will be located at the self intersection point.
 pub fn rational_inflection_points(ippc: glam::Vec4, loop_self_intersection: bool) -> (f32, [Root; 3]) {
     if ippc[0].abs() <= ERROR_MARGIN {
@@ -298,14 +306,11 @@ macro_rules! cubic_uniform_tangent_angle {
         }
         intervals.push((previous_split, 1.0));
         let mut parameters = Vec::new();
-        for (i, (a, b)) in intervals.iter().enumerate() {
-            let $trimmed_power_basis = reparametrize_rational_cubic_power_basis($power_basis, *a, *b);
+        for (a, b) in intervals.iter() {
+            let $trimmed_power_basis = reparametrize_rational_cubic($power_basis, *a, *b);
             let start_tangent = (rational_cubic_first_order_derivative($power_basis, *a)).normalize();
             let end_tangent = (rational_cubic_first_order_derivative($power_basis, *b)).normalize();
             $per_interval
-            if i > 0 {
-                parameters.push(*a);
-            }
             let mut interval_parameters = interpolate_normal!(
                 start_tangent,
                 end_tangent,
@@ -318,6 +323,7 @@ macro_rules! cubic_uniform_tangent_angle {
                 .collect::<Vec<f32>>();
             interval_parameters.sort_by(|a, b| a.partial_cmp(b).unwrap_or_else(|| unreachable!()));
             parameters.append(&mut interval_parameters);
+            parameters.push(*b);
         }
         parameters
     }};
@@ -332,13 +338,15 @@ pub fn integral_quadratic_uniform_tangent_angle(
 ) -> Vec<f32> {
     let vec_p1 = power_basis.y_axis.truncate();
     let vec_p2 = power_basis.z_axis.truncate() * 2.0;
-    interpolate_normal!(
+    let mut parameters = interpolate_normal!(
         start_tangent,
         end_tangent,
         angle_step,
         normal,
         solve_linear([vec_p1.dot(normal), vec_p2.dot(normal)]).1,
-    )
+    );
+    parameters.push(1.0);
+    parameters
 }
 
 /// Returns parameters of an integral cubic bezier curve, distributed so that they have uniform tangent angles of the given angle step size
@@ -373,7 +381,7 @@ pub fn rational_quadratic_uniform_tangent_angle(
     let vec_p0 = power_basis.x_axis;
     let vec_p1 = power_basis.y_axis;
     let vec_p2 = power_basis.z_axis;
-    interpolate_normal!(start_tangent, end_tangent, angle_step, normal, {
+    let mut parameters = interpolate_normal!(start_tangent, end_tangent, angle_step, normal, {
         let vec_a0 = glam::vec2(vec_p0.truncate().dot(normal), vec_p0[2]);
         let vec_a1 = glam::vec2(vec_p1.truncate().dot(normal), vec_p1[2]);
         let vec_a2 = glam::vec2(vec_p2.truncate().dot(normal), vec_p2[2]);
@@ -383,7 +391,9 @@ pub fn rational_quadratic_uniform_tangent_angle(
             glam::Mat2::from_cols(vec_a2, vec_a1).determinant(),
         ])
         .1
-    },)
+    },);
+    parameters.push(1.0);
+    parameters
 }
 
 /// Returns parameters of an rational cubic bezier curve, distributed so that they have uniform tangent angles of the given angle step size

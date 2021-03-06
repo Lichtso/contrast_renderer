@@ -1,3 +1,5 @@
+//! Miscellaneous utility and helper functions
+
 /// Transmutes a vector.
 pub fn transmute_vec<S, T>(mut vec: Vec<S>) -> Vec<T> {
     let ptr = vec.as_mut_ptr() as *mut T;
@@ -21,7 +23,7 @@ pub fn transmute_slice_mut<S, T>(slice: &mut [S]) -> &mut [T] {
     unsafe { std::slice::from_raw_parts_mut(ptr, len) }
 }
 
-/// Rotates a `glam::Vec2` 90° clockwise.
+/// Rotates a [glam::Vec2] 90° clockwise.
 pub fn rotate_90_degree_clockwise(v: glam::Vec2) -> glam::Vec2 {
     glam::vec2(v[1], -v[0])
 }

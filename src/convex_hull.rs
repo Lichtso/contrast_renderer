@@ -1,3 +1,5 @@
+//! 2D convex hull algorithms
+
 use crate::utils::signed_triangle_area;
 
 /// Andrew's (monotone chain) convex hull algorithm
