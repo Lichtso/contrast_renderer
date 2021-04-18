@@ -1,5 +1,7 @@
 //! Miscellaneous utility and helper functions
 
+use geometric_algebra::{ppga2d, OuterProduct};
+
 /// Transmutes a vector.
 pub fn transmute_vec<S, T>(mut vec: Vec<S>) -> Vec<T> {
     let ptr = vec.as_mut_ptr() as *mut T;
@@ -23,18 +25,34 @@ pub fn transmute_slice_mut<S, T>(slice: &mut [S]) -> &mut [T] {
     unsafe { std::slice::from_raw_parts_mut(ptr, len) }
 }
 
-/// Rotates a [glam::Vec2] 90° clockwise.
-pub fn rotate_90_degree_clockwise(v: glam::Vec2) -> glam::Vec2 {
-    glam::vec2(v[1], -v[0])
-}
-
 /// Returns the intersection point of two 2D lines (origin, direction).
-pub fn line_line_intersection(line_a: (glam::Vec2, glam::Vec2), line_b: (glam::Vec2, glam::Vec2)) -> glam::Vec2 {
-    let param_a = glam::Mat2::from_cols(line_b.0 - line_a.0, line_b.1).determinant() / glam::Mat2::from_cols(line_a.1, line_b.1).determinant();
-    line_a.0 + line_a.1 * param_a
+pub fn line_line_intersection(a: ppga2d::Plane, b: ppga2d::Plane) -> ppga2d::Point {
+    let p = a.outer_product(b);
+    p / ppga2d::Scalar { g0: p.g0[0] }
 }
 
-/// Returns double the area of a triangle defined by the three given points.
-pub fn signed_triangle_area(t: &[glam::Vec2]) -> f32 {
-    glam::Mat2::from_cols(t[0] - t[2], t[1] - t[2]).determinant()
+/// Rotates a [ppga2d::Plane] 90° clockwise.
+pub fn rotate_90_degree_clockwise(v: ppga2d::Plane) -> ppga2d::Plane {
+    ppga2d::Plane {
+        g0: [0.0, v.g0[2], -v.g0[1]].into(),
+    }
+}
+
+/// Projects a [ppga2d::Point].
+pub fn point_to_vec(p: ppga2d::Point) -> [f32; 2] {
+    [p.g0[1] / p.g0[0], p.g0[2] / p.g0[0]]
+}
+
+/// Creates an unweighted [ppga2d::Point].
+pub fn vec_to_point(v: [f32; 2]) -> ppga2d::Point {
+    ppga2d::Point {
+        g0: [1.0, v[0], v[1]].into(),
+    }
+}
+
+/// Creates a weighted [ppga2d::Point].
+pub fn weighted_vec_to_point(w: f32, v: [f32; 2]) -> ppga2d::Point {
+    ppga2d::Point {
+        g0: [w, v[0] * w, v[1] * w].into(),
+    }
 }

@@ -1,9 +1,7 @@
-pub extern crate glam;
 #[cfg(feature = "text")]
 pub extern crate ttf_parser;
 pub extern crate wgpu;
 
-mod complex_number;
 pub mod convex_hull;
 pub mod curve;
 pub mod error;

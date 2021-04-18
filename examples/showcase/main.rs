@@ -1,6 +1,66 @@
 #[path = "../application_framework.rs"]
 mod application_framework;
 
+use geometric_algebra::{
+    ppga3d::{Motor, Point, Rotor, Scalar, Translator},
+    One, Transformation, Zero,
+};
+use std::convert::TryInto;
+
+fn rotate_around_axis(angle: f32, axis: &[f32; 3]) -> Rotor {
+    let sinus = (angle * 0.5).sin();
+    Rotor {
+        g0: [(angle * 0.5).cos(), axis[0] * sinus, axis[1] * sinus, axis[2] * sinus].into(),
+    }
+}
+
+fn motor_to_mat4(motor: &Motor) -> [Point; 4] {
+    let result = [1, 2, 3, 0]
+        .iter()
+        .map(|index| {
+            let mut point = Point::zero();
+            point.g0[*index] = 1.0;
+            let row = motor.transformation(point);
+            Point {
+                g0: [row.g0[1], row.g0[2], row.g0[3], row.g0[0]].into(),
+            }
+        })
+        .collect::<Vec<_>>();
+    result.try_into().unwrap()
+}
+
+fn perspective_projection(field_of_view_y: f32, aspect_ratio: f32, near: f32, far: f32) -> [Point; 4] {
+    let height = 1.0 / (field_of_view_y * 0.5).tan();
+    let denominator = 1.0 / (near - far);
+    [
+        Point {
+            g0: [height / aspect_ratio, 0.0, 0.0, 0.0].into(),
+        },
+        Point {
+            g0: [0.0, height, 0.0, 0.0].into(),
+        },
+        Point {
+            g0: [0.0, 0.0, -far * denominator, 1.0].into(),
+        },
+        Point {
+            g0: [0.0, 0.0, near * far * denominator, 0.0].into(),
+        },
+    ]
+}
+
+fn matrix_multiplication(a: &[Point; 4], b: &[Point; 4]) -> [Point; 4] {
+    [
+        Scalar { g0: b[0].g0[0] } * a[0] + Scalar { g0: b[0].g0[1] } * a[1] + Scalar { g0: b[0].g0[2] } * a[2] + Scalar { g0: b[0].g0[3] } * a[3],
+        Scalar { g0: b[1].g0[0] } * a[0] + Scalar { g0: b[1].g0[1] } * a[1] + Scalar { g0: b[1].g0[2] } * a[2] + Scalar { g0: b[1].g0[3] } * a[3],
+        Scalar { g0: b[2].g0[0] } * a[0] + Scalar { g0: b[2].g0[1] } * a[1] + Scalar { g0: b[2].g0[2] } * a[2] + Scalar { g0: b[2].g0[3] } * a[3],
+        Scalar { g0: b[3].g0[0] } * a[0] + Scalar { g0: b[3].g0[1] } * a[1] + Scalar { g0: b[3].g0[2] } * a[2] + Scalar { g0: b[3].g0[3] } * a[3],
+    ]
+}
+
+pub fn transmute_matrix(matrix: [Point; 4]) -> [f32; 16] {
+    unsafe { std::mem::transmute(matrix) }
+}
+
 const MSAA_SAMPLE_COUNT: u32 = 4;
 
 struct Application<'a> {
@@ -10,7 +70,7 @@ struct Application<'a> {
     dynamic_stroke_options: [contrast_renderer::path::DynamicStrokeOptions<'a>; 1],
     shape: contrast_renderer::renderer::Shape,
     view_size: wgpu::Extent3d,
-    view_rotation: glam::Quat,
+    view_rotation: Rotor,
     view_distance: f32,
 }
 
@@ -52,17 +112,14 @@ impl<'a> application_framework::Application for Application<'a> {
             "Hello World",
         );
         for path in &mut paths {
-            path.transform(&glam::Mat3::from_scale_angle_translation(
-                glam::vec2(0.001, 0.001),
-                0.0,
-                glam::vec2(0.0, 0.0),
-            ));
+            let scalator = geometric_algebra::ppga2d::Scalar { g0: 0.001 };
+            let motor = geometric_algebra::ppga2d::Motor {
+                g0: [1.0, 0.0, 0.0, 0.0].into(),
+            };
+            path.transform(&scalator, &motor);
             path.reverse();
         }
-        paths.insert(
-            0,
-            contrast_renderer::path::Path::from_rounded_rect(glam::vec2(0.0, 0.0), glam::vec2(5.8, 1.3), 0.5),
-        );
+        paths.insert(0, contrast_renderer::path::Path::from_rounded_rect([0.0, 0.0], [5.8, 1.3], 0.5));
         paths[0].stroke_options = Some(contrast_renderer::path::StrokeOptions {
             width: 0.1,
             offset: 0.0,
@@ -84,7 +141,7 @@ impl<'a> application_framework::Application for Application<'a> {
                 height: swap_chain_descriptor.height,
                 depth: 1,
             },
-            view_rotation: glam::Quat::default(),
+            view_rotation: Rotor::one(),
             view_distance: 5.0,
         }
     }
@@ -135,13 +192,20 @@ impl<'a> application_framework::Application for Application<'a> {
             _ => unreachable!(),
         }
         self.shape.set_dynamic_stroke_options(queue, 0, &self.dynamic_stroke_options[0]).unwrap();
-        let transform_uniform_data = glam::Mat4::perspective_lh(
-            std::f32::consts::PI * 0.5,
-            self.view_size.width as f32 / self.view_size.height as f32,
-            1.0,
-            1000.0,
-        ) * glam::Mat4::from_rotation_translation(self.view_rotation, glam::vec3(0.0, 0.0, self.view_distance));
-        self.renderer.set_transform(&queue, &transform_uniform_data);
+        let transform_uniform_data = matrix_multiplication(
+            &perspective_projection(
+                std::f32::consts::PI * 0.5,
+                self.view_size.width as f32 / self.view_size.height as f32,
+                1.0,
+                1000.0,
+            ),
+            &motor_to_mat4(
+                &(Translator {
+                    g0: [1.0, 0.0, 0.0, -0.5 * self.view_distance].into(),
+                } * self.view_rotation),
+            ),
+        );
+        self.renderer.set_transform(&queue, &transmute_matrix(transform_uniform_data));
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -196,16 +260,16 @@ impl<'a> application_framework::Application for Application<'a> {
     fn window_event(&mut self, event: winit::event::WindowEvent) {
         match event {
             winit::event::WindowEvent::CursorMoved { position, .. } => {
-                let position = glam::vec2(
-                    position.x as f32 / self.view_size.width as f32 - 0.5,
-                    position.y as f32 / self.view_size.height as f32 - 0.5,
-                );
-                self.view_rotation = glam::Quat::from_rotation_ypr(-position[0] * std::f32::consts::PI, -position[1] * std::f32::consts::PI, 0.0);
+                let position = [
+                    std::f32::consts::PI * (position.x as f32 / self.view_size.width as f32 - 0.5),
+                    std::f32::consts::PI * (position.y as f32 / self.view_size.height as f32 - 0.5),
+                ];
+                self.view_rotation = rotate_around_axis(position[0], &[0.0, 1.0, 0.0]) * rotate_around_axis(position[1], &[1.0, 0.0, 0.0]);
             }
             winit::event::WindowEvent::MouseWheel { delta, .. } => {
                 let difference = match delta {
-                    winit::event::MouseScrollDelta::LineDelta(x, y) => glam::vec2(x, y),
-                    winit::event::MouseScrollDelta::PixelDelta(delta) => glam::vec2(delta.x as f32, delta.y as f32) * 0.1,
+                    winit::event::MouseScrollDelta::LineDelta(x, y) => [x, y],
+                    winit::event::MouseScrollDelta::PixelDelta(delta) => [delta.x as f32 * 0.1, delta.y as f32 * 0.1],
                 };
                 self.view_distance = (self.view_distance + difference[1]).clamp(2.0, 100.0);
             }

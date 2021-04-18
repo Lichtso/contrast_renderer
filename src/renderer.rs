@@ -707,9 +707,8 @@ impl Renderer {
     /// Set the model view projection matrix for subsequent stencil and color rendering calls.
     ///
     /// Call before creating the next [wgpu::RenderPass].
-    pub fn set_transform(&self, queue: &wgpu::Queue, transform: &glam::Mat4) {
-        let transform = transform.to_cols_array();
-        let data = transmute_slice(&transform);
+    pub fn set_transform(&self, queue: &wgpu::Queue, transform: &[f32; 16]) {
+        let data = transmute_slice(transform);
         queue.write_buffer(&self.transform_uniform_buffer, 0, &data);
     }
 

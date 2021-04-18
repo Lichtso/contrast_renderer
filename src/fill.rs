@@ -1,15 +1,15 @@
 use crate::{
     curve::{
-        integral_inflection_point_polynomial_coefficients, integral_inflection_points, rational_cubic_control_points_to_power_basis,
-        rational_cubic_first_order_derivative, rational_inflection_point_polynomial_coefficients, rational_inflection_points,
+        inflection_point_polynomial_coefficients, integral_inflection_points, rational_cubic_control_points_to_power_basis,
+        rational_cubic_first_order_derivative, rational_inflection_points,
     },
     error::{Error, ERROR_MARGIN},
     path::{Path, SegmentType},
     polynomial::Root,
-    utils::signed_triangle_area,
+    utils::{point_to_vec, vec_to_point, weighted_vec_to_point},
     vertex::{triangle_fan_to_strip, Vertex0, Vertex2f, Vertex3f, Vertex4f},
 };
-use glam::const_mat4;
+use geometric_algebra::{ppga2d, ppga3d, InnerProduct, RegressiveProduct, SquaredMagnitude, Zero};
 
 fn find_double_point_issue(discriminant: f32, roots: &[Root; 3]) -> Option<f32> {
     if discriminant < 0.0 {
@@ -31,8 +31,8 @@ fn find_double_point_issue(discriminant: f32, roots: &[Root; 3]) -> Option<f32> 
     None
 }
 
-fn weight_derivatives(roots: &[Root; 3]) -> glam::Vec4 {
-    glam::vec4(
+fn weight_derivatives(weights: &mut [[f32; 4]; 4], column: usize, roots: [Root; 3]) {
+    let power_basis = [
         roots[0].numerator_real * roots[1].numerator_real * roots[2].numerator_real,
         -roots[0].denominator * roots[1].numerator_real * roots[2].numerator_real
             - roots[0].numerator_real * roots[1].denominator * roots[2].numerator_real
@@ -41,102 +41,84 @@ fn weight_derivatives(roots: &[Root; 3]) -> glam::Vec4 {
             + roots[0].denominator * roots[1].numerator_real * roots[2].denominator
             + roots[0].denominator * roots[1].denominator * roots[2].numerator_real,
         -roots[0].denominator * roots[1].denominator * roots[2].denominator,
-    )
+    ];
+    weights[0][column] = power_basis[0];
+    weights[1][column] = power_basis[0] + power_basis[1] * 1.0 / 3.0;
+    weights[2][column] = power_basis[0] + power_basis[1] * 2.0 / 3.0 + power_basis[2] * 1.0 / 3.0;
+    weights[3][column] = power_basis[0] + power_basis[1] + power_basis[2] + power_basis[3];
 }
 
-const CUBIC_POWER_BASIS_INVERSE: glam::Mat4 = const_mat4!([
-    1.0,
-    0.0,
-    0.0,
-    0.0,
-    1.0,
-    1.0 / 3.0,
-    0.0,
-    0.0,
-    1.0,
-    2.0 / 3.0,
-    1.0 / 3.0,
-    0.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-]);
-
-fn weights(discriminant: f32, roots: &[Root; 3]) -> glam::Mat4 {
+fn weights(discriminant: f32, roots: &[Root; 3]) -> [[f32; 4]; 4] {
+    let mut weights = [[0.0; 4]; 4];
     if discriminant == 0.0 {
-        glam::mat4(
-            weight_derivatives(&[roots[0], roots[0], roots[2]]),
-            weight_derivatives(&[roots[0], roots[0], roots[0]]),
-            weight_derivatives(&[roots[0], roots[0], roots[0]]),
-            weight_derivatives(&[roots[2], roots[2], roots[2]]),
-        )
+        weight_derivatives(&mut weights, 0, [roots[0], roots[0], roots[2]]);
+        weight_derivatives(&mut weights, 1, [roots[0], roots[0], roots[0]]);
+        weight_derivatives(&mut weights, 2, [roots[0], roots[0], roots[0]]);
+        weight_derivatives(&mut weights, 3, [roots[2], roots[2], roots[2]]);
     } else if discriminant < 0.0 {
-        glam::mat4(
-            weight_derivatives(&[roots[0], roots[1], roots[2]]),
-            weight_derivatives(&[roots[0], roots[0], roots[1]]),
-            weight_derivatives(&[roots[1], roots[1], roots[0]]),
-            weight_derivatives(&[roots[2], roots[2], roots[2]]),
-        )
+        weight_derivatives(&mut weights, 0, [roots[0], roots[1], roots[2]]);
+        weight_derivatives(&mut weights, 1, [roots[0], roots[0], roots[1]]);
+        weight_derivatives(&mut weights, 2, [roots[1], roots[1], roots[0]]);
+        weight_derivatives(&mut weights, 3, [roots[2], roots[2], roots[2]]);
     } else {
-        glam::mat4(
-            weight_derivatives(&[roots[0], roots[1], roots[2]]),
-            weight_derivatives(&[roots[0], roots[0], roots[0]]),
-            weight_derivatives(&[roots[1], roots[1], roots[1]]),
-            weight_derivatives(&[roots[2], roots[2], roots[2]]),
-        )
+        weight_derivatives(&mut weights, 0, [roots[0], roots[1], roots[2]]);
+        weight_derivatives(&mut weights, 1, [roots[0], roots[0], roots[0]]);
+        weight_derivatives(&mut weights, 2, [roots[1], roots[1], roots[1]]);
+        weight_derivatives(&mut weights, 3, [roots[2], roots[2], roots[2]]);
     }
-    .transpose()
-        * CUBIC_POWER_BASIS_INVERSE
-    // let phi = f * c.transpose() * (c * c.transpose()).inverse();
+    weights
 }
 
-fn weight_planes(control_points: &[glam::Vec3; 4], weights: &glam::Mat4) -> [glam::Vec4; 4] {
-    let mut planes = [glam::Vec4::default(); 4];
-    for (i, plane) in planes.iter_mut().enumerate() {
-        let point_a = glam::vec3(control_points[0][0], control_points[0][1], weights.x_axis[i]);
-        let point_b = glam::vec3(control_points[1][0], control_points[1][1], weights.y_axis[i]);
-        let point_c = glam::vec3(control_points[2][0], control_points[2][1], weights.z_axis[i]);
-        let mut normal = (point_b - point_a).cross(point_c - point_a);
-        if normal.length_squared() < ERROR_MARGIN {
-            let point_d = glam::vec3(control_points[3][0], control_points[3][1], weights.z_axis[i]);
-            normal = (point_b - point_a).cross(point_d - point_a);
+fn weight_planes(control_points: &[ppga2d::Point; 4], weights: &[[f32; 4]; 4]) -> [ppga2d::Plane; 4] {
+    let mut planes = [ppga2d::Plane::zero(); 4];
+    let mut points = [ppga3d::Point::zero(); 4];
+    for (i, plane_2d) in planes.iter_mut().enumerate() {
+        for (j, control_point) in control_points.iter().enumerate() {
+            points[j] = ppga3d::Point {
+                g0: [control_point.g0[0], control_point.g0[1], control_point.g0[2], weights[j][i]].into(),
+            };
         }
-        normal = normal.normalize();
-        if normal[2] < 0.0 {
-            normal *= -1.0;
+        let mut plane_3d = points[0].regressive_product(points[1]).regressive_product(points[2]);
+        if plane_3d.squared_magnitude().g0 < ERROR_MARGIN {
+            plane_3d = points[0].regressive_product(points[1]).regressive_product(points[3]);
         }
-        *plane = glam::vec4(normal[0], normal[1], normal[2], normal.dot(point_a));
+        plane_3d = plane_3d / ppga3d::Scalar { g0: -plane_3d.g0[3] };
+        *plane_2d = ppga2d::Plane {
+            g0: [plane_3d.g0[0], plane_3d.g0[1], plane_3d.g0[2]].into(),
+        };
     }
     planes
 }
 
-/*fn weights_at(planes: &[glam::Vec4; 4], at: glam::Vec2) -> glam::Vec4 {
-    let mut weights = glam::Vec4::default();
-    for i in 0..4 {
-        weights[i] = (planes[i].truncate() * planes[i][3] - at.extend(0.0)).dot(planes[i].truncate()) / planes[i][2];
-    }
-    weights
-}*/
-
-fn implicit_curve_value(weights: glam::Vec4) -> f32 {
-    weights[0] * weights[0] * weights[0] - weights[1] * weights[2] * weights[3]
+fn implicit_curve_value(weights: ppga3d::Point) -> f32 {
+    weights.g0[0].powi(3) - weights.g0[1] * weights.g0[2] * weights.g0[3]
 }
 
-fn implicit_curve_gradient(planes: &[glam::Vec4; 4], weights: glam::Vec4) -> glam::Vec2 {
-    (3.0 * weights[0] * weights[0]) * planes[0].truncate().truncate() / planes[0].z
-        - (weights[2] * weights[3]) * planes[1].truncate().truncate() / planes[1].z
-        - (weights[1] * weights[3]) * planes[2].truncate().truncate() / planes[2].z
-        - (weights[1] * weights[2]) * planes[3].truncate().truncate() / planes[3].z
-}
-
-fn normalize_implicit_curve_side(planes: &mut [glam::Vec4; 4], weights: &mut glam::Mat4, c: &glam::Mat4, gradient: glam::Vec2) {
-    let tangent = rational_cubic_first_order_derivative(c, 0.0);
-    if glam::vec2(tangent[1], -tangent[0]).dot(gradient) < 0.0 {
-        for plane in planes {
-            *plane *= glam::vec4(-1.0, -1.0, 1.0, -1.0);
+fn implicit_curve_gradient(planes: &[ppga2d::Plane; 4], weights: &[f32; 4]) -> ppga2d::Plane {
+    planes[0]
+        * ppga2d::Scalar {
+            g0: 3.0 * weights[0] * weights[0],
         }
-        *weights = glam::Mat4::from_scale(glam::vec3(-1.0, -1.0, 1.0)) * *weights;
+        - planes[1] * ppga2d::Scalar { g0: weights[2] * weights[3] }
+        - planes[2] * ppga2d::Scalar { g0: weights[1] * weights[3] }
+        - planes[3] * ppga2d::Scalar { g0: weights[1] * weights[2] }
+}
+
+fn normalize_implicit_curve_side(
+    planes: &mut [ppga2d::Plane; 4],
+    weights: &mut [[f32; 4]; 4],
+    power_basis: &[ppga2d::Point; 4],
+    gradient: ppga2d::Plane,
+) {
+    let tangent = rational_cubic_first_order_derivative(power_basis, 0.0);
+    if tangent.inner_product(gradient).g0 > 0.0 {
+        for plane in planes {
+            *plane = -*plane;
+        }
+        for row in weights {
+            row[0] *= -1.0;
+            row[1] *= -1.0;
+        }
     }
 }
 
@@ -144,7 +126,7 @@ macro_rules! emit_cubic_curve_triangle {
     ($triangles:expr, $signed_triangle_areas:expr, $control_points:expr, $weights:expr, $v:ident, $w:ident, $emit_vertex:expr, $triangle_index:expr) => {
         let mut triangle = Vec::new();
         for vertex_index in (0..4).filter(|i| *i != $triangle_index) {
-            let $v = $control_points[vertex_index].truncate().into();
+            let $v = point_to_vec($control_points[vertex_index]);
             let $w = $weights[vertex_index];
             triangle.push($emit_vertex);
         }
@@ -162,13 +144,14 @@ macro_rules! triangulate_cubic_curve_quadrilateral {
     ($fill_solid_vertices:expr, $cubic_vertices:expr,
      $control_points:expr, $weights:expr, $v:ident, $w:ident, $emit_vertex:expr) => {{
         for (weights, control_point) in $weights.iter_mut().zip($control_points.iter()) {
-            *weights /= control_point[2];
+            *weights /= ppga3d::Scalar { g0: control_point.g0[0] };
         }
         let mut triangles = Vec::new();
         let signed_triangle_areas: Vec<f32> = (0..4)
             .map(|i| {
-                let control_points: Vec<_> = (0..4).filter(|j| i != *j).map(|j| $control_points[j].truncate()).collect();
-                signed_triangle_area(&control_points[0..3])
+                // $control_points[j].signum()
+                let points: Vec<_> = (0..4).filter(|j| i != *j).map(|j| $control_points[j]).collect();
+                points[0].regressive_product(points[1]).regressive_product(points[2]).g0
             })
             .collect();
         let triangle_area_sum =
@@ -194,11 +177,6 @@ macro_rules! triangulate_cubic_curve_quadrilateral {
         } else {
             let mut opposite_triangle = 0;
             for j in 1..4 {
-                /*let mut i = (1..4).filter(|i| *i != j);
-                let point_b = $control_points[i.next().unwrap()].truncate();
-                let point_c = $control_points[i.next().unwrap()].truncate();
-                let side_of_a = signed_triangle_area(&[$control_points[0].truncate(), point_b, point_c]);
-                let side_of_d = signed_triangle_area(&[$control_points[j].truncate(), point_b, point_c]);*/
                 let side_of_a = signed_triangle_areas[j];
                 let side_of_d = signed_triangle_areas[0] * if j == 2 { -1.0 } else { 1.0 };
                 if side_of_a * side_of_d < 0.0 {
@@ -222,7 +200,7 @@ macro_rules! triangulate_cubic_curve_quadrilateral {
         let mut additional_vertices = 0;
         for i in 1..3 {
             if enclosing_triangle != Some(i) && implicit_curve_value($weights[i]) < 0.0 {
-                $fill_solid_vertices.push($control_points[i].truncate());
+                $fill_solid_vertices.push(point_to_vec($control_points[i]));
                 additional_vertices += 1;
             }
         }
@@ -235,13 +213,13 @@ macro_rules! triangulate_cubic_curve_quadrilateral {
 }
 
 macro_rules! split_curve_at {
-    ($control_points:expr, $param:expr) => {{
-        let p10 = $control_points[0].lerp($control_points[1], $param);
-        let p11 = $control_points[1].lerp($control_points[2], $param);
-        let p12 = $control_points[2].lerp($control_points[3], $param);
-        let p20 = p10.lerp(p11, $param);
-        let p21 = p11.lerp(p12, $param);
-        let p30 = p20.lerp(p21, $param);
+    ($algebra:ident, $control_points:expr, $param:expr) => {{
+        let p10 = $control_points[0] * $algebra::Scalar { g0: 1.0 - $param } + $control_points[1] * $algebra::Scalar { g0: $param };
+        let p11 = $control_points[1] * $algebra::Scalar { g0: 1.0 - $param } + $control_points[2] * $algebra::Scalar { g0: $param };
+        let p12 = $control_points[2] * $algebra::Scalar { g0: 1.0 - $param } + $control_points[3] * $algebra::Scalar { g0: $param };
+        let p20 = p10 * $algebra::Scalar { g0: 1.0 - $param } + p11 * $algebra::Scalar { g0: $param };
+        let p21 = p11 * $algebra::Scalar { g0: 1.0 - $param } + p12 * $algebra::Scalar { g0: $param };
+        let p30 = p20 * $algebra::Scalar { g0: 1.0 - $param } + p21 * $algebra::Scalar { g0: $param };
         ([$control_points[0], p10, p20, p30], [p30, p21, p12, $control_points[3]])
     }};
 }
@@ -252,25 +230,31 @@ macro_rules! emit_cubic_curve {
      $v:ident, $w:ident, $emit_vertex:expr) => {{
         let mut weights = weights($discriminant, &$roots);
         let mut planes = weight_planes(&$control_points, &weights);
-        let gradient = implicit_curve_gradient(&planes, weights.x_axis);
+        let gradient = implicit_curve_gradient(&planes, &weights[0]);
         normalize_implicit_curve_side(&mut planes, &mut weights, &$c, gradient);
-        let mut weights = [weights.x_axis, weights.y_axis, weights.z_axis, weights.w_axis];
+        let mut weights = [
+            ppga3d::Point { g0: weights[0].into() },
+            ppga3d::Point { g0: weights[1].into() },
+            ppga3d::Point { g0: weights[2].into() },
+            ppga3d::Point { g0: weights[3].into() },
+        ];
         if let Some(param) = find_double_point_issue($discriminant, &$roots) {
-            let (control_points_a, control_points_b) = split_curve_at!(&$control_points, param);
-            let (mut weights_a, mut weights_b) = split_curve_at!(&weights, param);
+            let (control_points_a, control_points_b) = split_curve_at!(ppga2d, &$control_points, param);
+            let (mut weights_a, mut weights_b) = split_curve_at!(ppga3d, &weights, param);
             triangulate_cubic_curve_quadrilateral!($fill_solid_vertices, $cubic_vertices, &control_points_a, weights_a, $v, $w, $emit_vertex);
-            $fill_solid_vertices.push(control_points_b[0].truncate().into());
+            $fill_solid_vertices.push(point_to_vec(control_points_b[0]));
             for weights in &mut weights_b {
-                *weights = glam::vec4(-weights[0], -weights[1], weights[2], weights[3]);
+                weights.g0[0] *= -1.0;
+                weights.g0[1] *= -1.0;
             }
             triangulate_cubic_curve_quadrilateral!($fill_solid_vertices, $cubic_vertices, &control_points_b, weights_b, $v, $w, $emit_vertex);
         } else {
             triangulate_cubic_curve_quadrilateral!($fill_solid_vertices, $cubic_vertices, $control_points, weights, $v, $w, $emit_vertex);
         }
-        $proto_hull.push($control_points[1].truncate());
-        $proto_hull.push($control_points[2].truncate());
-        $proto_hull.push($control_points[3].truncate());
-        $fill_solid_vertices.push($control_points[3].truncate());
+        $proto_hull.push(point_to_vec($control_points[1]));
+        $proto_hull.push(point_to_vec($control_points[2]));
+        $proto_hull.push(point_to_vec($control_points[3]));
+        $fill_solid_vertices.push(point_to_vec($control_points[3]));
     }};
 }
 
@@ -309,12 +293,10 @@ impl FillBuilder {
                 }
                 SegmentType::IntegralQuadraticCurve => {
                     let segment = integral_quadratic_curve_segment_iter.next().unwrap();
+                    self.integral_quadratic_vertices.push(Vertex2f(segment.control_points[1], [1.0, 1.0]));
+                    self.integral_quadratic_vertices.push(Vertex2f(segment.control_points[0], [0.5, 0.0]));
                     self.integral_quadratic_vertices
-                        .push(Vertex2f(segment.control_points[1], glam::vec2(1.0, 1.0)));
-                    self.integral_quadratic_vertices
-                        .push(Vertex2f(segment.control_points[0], glam::vec2(0.5, 0.0)));
-                    self.integral_quadratic_vertices
-                        .push(Vertex2f(*path_solid_vertices.last().unwrap(), glam::vec2(0.0, 0.0)));
+                        .push(Vertex2f(*path_solid_vertices.last().unwrap(), [0.0, 0.0]));
                     proto_hull.push(segment.control_points[0]);
                     proto_hull.push(segment.control_points[1]);
                     path_solid_vertices.push(segment.control_points[1]);
@@ -322,14 +304,14 @@ impl FillBuilder {
                 SegmentType::IntegralCubicCurve => {
                     let segment = integral_cubic_curve_segment_iter.next().unwrap();
                     let control_points = [
-                        path_solid_vertices.last().unwrap().extend(1.0),
-                        segment.control_points[0].extend(1.0),
-                        segment.control_points[1].extend(1.0),
-                        segment.control_points[2].extend(1.0),
+                        vec_to_point(*path_solid_vertices.last().unwrap()),
+                        vec_to_point(segment.control_points[0]),
+                        vec_to_point(segment.control_points[1]),
+                        vec_to_point(segment.control_points[2]),
                     ];
                     let power_basis = rational_cubic_control_points_to_power_basis(&control_points);
-                    let ippc = integral_inflection_point_polynomial_coefficients(&power_basis);
-                    let (discriminant, roots) = integral_inflection_points(ippc, true);
+                    let ippc = inflection_point_polynomial_coefficients(&power_basis, true);
+                    let (discriminant, roots) = integral_inflection_points(&ippc, true);
                     emit_cubic_curve!(
                         proto_hull,
                         path_solid_vertices,
@@ -340,18 +322,18 @@ impl FillBuilder {
                         roots,
                         v,
                         w,
-                        Vertex3f(v, w.truncate())
+                        Vertex3f(v, [w.g0[0], w.g0[1], w.g0[2]])
                     );
                 }
                 SegmentType::RationalQuadraticCurve => {
                     let segment = rational_quadratic_curve_segment_iter.next().unwrap();
                     let weight = 1.0 / segment.weight;
                     self.rational_quadratic_vertices
-                        .push(Vertex3f(segment.control_points[1], glam::vec3(1.0, 1.0, 1.0)));
+                        .push(Vertex3f(segment.control_points[1], [1.0, 1.0, 1.0]));
                     self.rational_quadratic_vertices
-                        .push(Vertex3f(segment.control_points[0], glam::vec3(0.5 * weight, 0.0, weight)));
+                        .push(Vertex3f(segment.control_points[0], [0.5 * weight, 0.0, weight]));
                     self.rational_quadratic_vertices
-                        .push(Vertex3f(*path_solid_vertices.last().unwrap(), glam::vec3(0.0, 0.0, 1.0)));
+                        .push(Vertex3f(*path_solid_vertices.last().unwrap(), [0.0, 0.0, 1.0]));
                     proto_hull.push(segment.control_points[0]);
                     proto_hull.push(segment.control_points[1]);
                     path_solid_vertices.push(segment.control_points[1]);
@@ -359,14 +341,14 @@ impl FillBuilder {
                 SegmentType::RationalCubicCurve => {
                     let segment = rational_cubic_curve_segment_iter.next().unwrap();
                     let control_points = [
-                        path_solid_vertices.last().unwrap().extend(segment.weights[0]),
-                        segment.control_points[0].extend(segment.weights[1]),
-                        segment.control_points[1].extend(segment.weights[2]),
-                        segment.control_points[2].extend(segment.weights[3]),
+                        weighted_vec_to_point(segment.weights[0], *path_solid_vertices.last().unwrap()),
+                        weighted_vec_to_point(segment.weights[1], segment.control_points[0]),
+                        weighted_vec_to_point(segment.weights[2], segment.control_points[1]),
+                        weighted_vec_to_point(segment.weights[3], segment.control_points[2]),
                     ];
                     let power_basis = rational_cubic_control_points_to_power_basis(&control_points);
-                    let ippc = rational_inflection_point_polynomial_coefficients(&power_basis);
-                    let (discriminant, roots) = rational_inflection_points(ippc, true);
+                    let ippc = inflection_point_polynomial_coefficients(&power_basis, false);
+                    let (discriminant, roots) = rational_inflection_points(&ippc, true);
                     emit_cubic_curve!(
                         proto_hull,
                         path_solid_vertices,
@@ -377,7 +359,7 @@ impl FillBuilder {
                         roots,
                         v,
                         w,
-                        Vertex4f(v, w)
+                        Vertex4f(v, w.g0.into())
                     );
                 }
             }

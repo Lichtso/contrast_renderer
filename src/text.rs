@@ -1,6 +1,7 @@
 //! (Optional) Working with [font faces](ttf_parser::Face), converting glyphs and text to [Path]s
 
 use crate::path::{IntegralCubicCurveSegment, IntegralQuadraticCurveSegment, LineSegment, Path};
+use geometric_algebra::ppga2d;
 
 #[derive(Default)]
 struct OutlineBuilder {
@@ -10,24 +11,22 @@ struct OutlineBuilder {
 
 impl ttf_parser::OutlineBuilder for OutlineBuilder {
     fn move_to(&mut self, x: f32, y: f32) {
-        self.path.start = glam::vec2(x, y);
+        self.path.start = [x, y];
     }
 
     fn line_to(&mut self, x: f32, y: f32) {
-        self.path.push_line(LineSegment {
-            control_points: [glam::vec2(x, y)],
-        });
+        self.path.push_line(LineSegment { control_points: [[x, y]] });
     }
 
     fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
         self.path.push_integral_quadratic_curve(IntegralQuadraticCurveSegment {
-            control_points: [glam::vec2(x1, y1), glam::vec2(x, y)],
+            control_points: [[x1, y1], [x, y]],
         });
     }
 
     fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
         self.path.push_integral_cubic_curve(IntegralCubicCurveSegment {
-            control_points: [glam::vec2(x1, y1), glam::vec2(x2, y2), glam::vec2(x, y)],
+            control_points: [[x1, y1], [x2, y2], [x, y]],
         });
     }
 
@@ -119,10 +118,13 @@ pub fn paths_of_text(
     }
     let mut result = Vec::new();
     for ([x, y], glyph_id) in layout {
-        let transform = glam::Mat3::from_scale_angle_translation(glam::vec2(1.0, 1.0), 0.0, glam::vec2(x, y));
+        let scalator = ppga2d::Scalar { g0: 1.0 };
+        let motor = ppga2d::Motor {
+            g0: [1.0, 0.0, -0.5 * y, 0.5 * x].into(),
+        };
         let mut paths = paths_of_glyph(&face, glyph_id);
         for path in &mut paths {
-            path.transform(&transform);
+            path.transform(&scalator, &motor);
         }
         result.append(&mut paths);
     }

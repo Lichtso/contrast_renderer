@@ -1,7 +1,9 @@
 //! Solving polynomials up to degree 4
 
 #![allow(clippy::many_single_char_names)]
-use crate::{complex_number::ComplexNumber, error::ERROR_MARGIN};
+use crate::error::ERROR_MARGIN;
+use geometric_algebra::{complex::*, Conjugate, SquaredMagnitude};
+pub type ComplexNumber = MultiVector;
 
 /// Represents a complex root as homogeneous coordinates
 #[derive(Debug, Clone, Copy)]
@@ -44,26 +46,23 @@ pub fn solve_quadratic(coefficients: [f32; 3]) -> (f32, Vec<Root>) {
     }
     // https://en.wikipedia.org/wiki/Quadratic_formula
     let discriminant = coefficients[1].powi(2) - 4.0 * coefficients[2] * coefficients[0];
-    let q = ComplexNumber::<f32>::from_sqrt_real(discriminant);
+    let q = Scalar::new(discriminant).sqrt();
     let mut solutions = Vec::with_capacity(3);
     for s in &[-q, q] {
-        let numerator = *s - coefficients[1];
-        solutions.push(Root::new(numerator.real, numerator.imag, 2.0 * coefficients[2]));
+        let numerator = *s - ComplexNumber::new(coefficients[1], 0.0);
+        solutions.push(Root::new(numerator.real(), numerator.imaginary(), 2.0 * coefficients[2]));
     }
     (discriminant, solutions)
 }
 
-const ROOTS_OF_UNITY_3: [ComplexNumber<f32>; 3] = [
+const ROOTS_OF_UNITY_3: [ComplexNumber; 3] = [
     // 0.8660254037844386467637231707529361834714026269051903140279034897
     // ComplexNumber::from_polar(1.0, -120.0/180.0*std::f32::consts::PI),
     // ComplexNumber::from_polar(1.0, 120.0/180.0*std::f32::consts::PI),
     // ComplexNumber::from_polar(1.0, 0.0),
-    ComplexNumber {
-        real: -0.5,
-        imag: -0.8660254,
-    },
-    ComplexNumber { real: -0.5, imag: 0.8660254 },
-    ComplexNumber { real: 1.0, imag: 0.0 },
+    ComplexNumber::new(-0.5, -0.8660254),
+    ComplexNumber::new(-0.5, 0.8660254),
+    ComplexNumber::new(1.0, 0.0),
 ];
 
 /// Finds the discriminant and roots of a degree 3 polynomial.
@@ -77,19 +76,19 @@ pub fn solve_cubic(coefficients: [f32; 4]) -> (f32, Vec<Root>, usize) {
         return (discriminant, roots, 2);
     }
     // https://en.wikipedia.org/wiki/Cubic_equation
-    let d = glam::vec2(
+    let d = [
         coefficients[2].powi(2) - 3.0 * coefficients[3] * coefficients[1],
         2.0 * coefficients[2].powi(3) - 9.0 * coefficients[3] * coefficients[2] * coefficients[1] + 27.0 * coefficients[3].powi(2) * coefficients[0],
-    );
+    ];
     let mut solutions = Vec::with_capacity(3);
     let discriminant = d[1].powi(2) - 4.0 * d[0].powi(3);
-    let c = ComplexNumber::<f32>::from_sqrt_real(discriminant);
-    let c = ((c + if c.real + d[1] == 0.0 { -d[1] } else { d[1] }) * 0.5).powf(1.0 / 3.0);
+    let c = Scalar::new(discriminant).sqrt();
+    let c = ((c + ComplexNumber::new(if c.real() + d[1] == 0.0 { -d[1] } else { d[1] }, 0.0)) * Scalar::new(0.5)).powf(1.0 / 3.0);
     for root_of_unity in &ROOTS_OF_UNITY_3 {
         let ci = c * *root_of_unity;
-        let denominator = ci * (3.0 * coefficients[3]);
-        let numerator = (ci * -coefficients[2] - ci * ci - d[0]) * denominator.conjugate();
-        solutions.push(Root::new(numerator.real, numerator.imag, denominator.squared_abs()));
+        let denominator = ci * Scalar::new(3.0 * coefficients[3]);
+        let numerator = (ci * Scalar::new(-coefficients[2]) - ci * ci - ComplexNumber::new(d[0], 0.0)) * denominator.conjugate();
+        solutions.push(Root::new(numerator.real(), numerator.imaginary(), denominator.squared_magnitude().real()));
     }
     let real_root = (((std::f32::consts::PI - c.arg()) / (std::f32::consts::PI * 2.0 / 3.0)) as usize + 1) % 3;
     (discriminant, solutions, real_root)
@@ -115,17 +114,18 @@ pub fn solve_quartic(coefficients: [f32; 5]) -> (f32, Vec<Root>) {
             - 72.0 * coefficients[4] * coefficients[2] * coefficients[0],
     ];
     let discriminant = d[1].powi(2) - 4.0 * d[0].powi(3);
-    let c = ComplexNumber::<f32>::from_sqrt_real(discriminant);
-    let c = ((c + if c.real + d[1] == 0.0 { -d[1] } else { d[1] }) * 0.5).powf(1.0 / 3.0);
-    let e = ((c + ComplexNumber::<f32>::from(d[0]) / c) / (3.0 * coefficients[4]) - p * 2.0 / 3.0).powf(0.5) * 0.5;
+    let c = Scalar::new(discriminant).sqrt();
+    let c = ((c + ComplexNumber::new(if c.real() + d[1] == 0.0 { -d[1] } else { d[1] }, 0.0)) * Scalar::new(0.5)).powf(1.0 / 3.0);
+    let e = ((c + ComplexNumber::new(d[0], 0.0) / c) / Scalar::new(3.0 * coefficients[4]) - ComplexNumber::new(p * 2.0 / 3.0, 0.0)).powf(0.5)
+        * Scalar::new(0.5);
     let mut solutions = Vec::with_capacity(4);
     for i in 0..4 {
-        let f =
-            (e * e * -4.0 - ComplexNumber::<f32>::from(2.0 * p) + ComplexNumber::<f32>::from(if i & 2 == 0 { q } else { -q }) / e).powf(0.5) * 0.5;
-        let g = ComplexNumber::<f32>::from(-coefficients[3] / (4.0 * coefficients[4]))
-            + if i & 2 == 0 { -e } else { e }
-            + if i & 1 == 0 { -f } else { f };
-        solutions.push(Root::new(g.real, g.imag, 1.0));
+        let f = (e * e * Scalar::new(-4.0) - ComplexNumber::new(2.0 * p, 0.0) + ComplexNumber::new(if i & 2 == 0 { q } else { -q }, 0.0) / e)
+            .powf(0.5)
+            * Scalar::new(0.5);
+        let g =
+            ComplexNumber::new(-coefficients[3] / (4.0 * coefficients[4]), 0.0) + if i & 2 == 0 { -e } else { e } + if i & 1 == 0 { -f } else { f };
+        solutions.push(Root::new(g.real(), g.imaginary(), 1.0));
     }
     (discriminant / -27.0, solutions)
 }

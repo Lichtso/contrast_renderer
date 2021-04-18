@@ -27,19 +27,19 @@ $(SHADER_TARGET_PATH):
 	mkdir -p $(SHADER_TARGET_PATH)
 
 $(SHADER_TARGET_PATH)/%_vert.spv: src/shader/%.vert $(SHADER_TARGET_PATH)
-	glslangValidator -S vert -V460 -o $@ $<
+	glslc -fshader-stage=vert -o $@ $<
 
 $(SHADER_TARGET_PATH)/%_frag.spv: src/shader/%.frag $(SHADER_TARGET_PATH)
-	glslangValidator -S frag -V460 -o $@ $<
+	glslc -fshader-stage=frag -o $@ $<
 
 $(SHADER_TARGET_PATH)/%_comp.spv: src/shader/%.comp $(SHADER_TARGET_PATH)
-	glslangValidator -S comp -V460 -o $@ $<
+	glslc -fshader-stage=comp -o $@ $<
 
 $(DESKTOP_TARGET): $(RUST_SOURCES) spriv
 	cargo build --release --examples
 
 $(WASM_MODULE_TARGET): $(RUST_SOURCES) spriv
-	RUSTFLAGS=--cfg=web_sys_unstable_apis cargo build --release --examples --target wasm32-unknown-unknown
+	RUSTFLAGS="--cfg=web_sys_unstable_apis -C target-feature=+simd128" cargo +nightly build --release --examples --target wasm32-unknown-unknown
 
 $(WASM_BINDING_TAGRET): $(WASM_MODULE_TARGET)
 	# cargo install -f wasm-bindgen-cli --version 0.2.69
