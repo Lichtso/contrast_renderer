@@ -2,6 +2,10 @@
 name = "contrast_renderer"
 version = "0.1.0"
 authors = ["Alexander Meißner <AlexanderMeissner@gmx.net>"]
+description = "A web-gpu based 2D render engine"
+repository = "https://github.com/Lichtso/contrast_renderer/"
+keywords = ["2d", "graphics", "geometry", "bezier"]
+license = "MIT"
 edition = "2018"
 
 [features]
