@@ -10,6 +10,12 @@ use crate::{
 };
 use wgpu::{include_spirv, util::DeviceExt, vertex_attr_array};
 
+macro_rules! precompiled_shader {
+    ($name:literal, $type:literal) => {
+        include_spirv!(concat!(env!("OUT_DIR"), "/", $name, "_", $type, ".spv"))
+    };
+}
+
 #[repr(C)]
 struct DynamicStrokeDescriptor {
     gap_start: [f32; MAX_DASH_INTERVALS],
@@ -410,13 +416,13 @@ impl Renderer {
             return Err(Error::NumberOfStencilBitsIsUnsupported);
         }
 
-        let segment_0f_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment0f_vert.spv"));
-        let segment_2f_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment2f_vert.spv"));
-        let segment_2f1i_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment2f1i_vert.spv"));
-        let segment_3f_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment3f_vert.spv"));
-        let segment_3f1i_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment3f1i_vert.spv"));
-        let segment_4f_vertex_module = device.create_shader_module(&include_spirv!("../target/shader_modules/segment4f_vert.spv"));
-        let stencil_solid_fragment_module = device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_solid_frag.spv"));
+        let segment_0f_vertex_module = device.create_shader_module(&precompiled_shader!("segment0f", "vert"));
+        let segment_2f_vertex_module = device.create_shader_module(&precompiled_shader!("segment2f", "vert"));
+        let segment_2f1i_vertex_module = device.create_shader_module(&precompiled_shader!("segment2f1i", "vert"));
+        let segment_3f_vertex_module = device.create_shader_module(&precompiled_shader!("segment3f", "vert"));
+        let segment_3f1i_vertex_module = device.create_shader_module(&precompiled_shader!("segment3f1i", "vert"));
+        let segment_4f_vertex_module = device.create_shader_module(&precompiled_shader!("segment4f", "vert"));
+        let stencil_solid_fragment_module = device.create_shader_module(&precompiled_shader!("stencil_solid", "frag"));
         let segment_0f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (2 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
@@ -516,7 +522,7 @@ impl Renderer {
         let stroke_line_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stroke_line_pipeline_layout,
             &segment_2f1i_vertex_module,
-            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_stroke_line_frag.spv")),
+            &device.create_shader_module(&precompiled_shader!("stencil_stroke_line", "frag")),
             TriangleStrip,
             Some(wgpu::IndexFormat::Uint16),
             &[],
@@ -532,7 +538,7 @@ impl Renderer {
         let stroke_joint_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
             &segment_3f1i_vertex_module,
-            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_stroke_joint_frag.spv")),
+            &device.create_shader_module(&precompiled_shader!("stencil_stroke_joint", "frag")),
             TriangleStrip,
             None,
             &[],
@@ -554,7 +560,7 @@ impl Renderer {
         let fill_integral_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
             &segment_2f_vertex_module,
-            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_integral_quadratic_curve_frag.spv")),
+            &device.create_shader_module(&precompiled_shader!("stencil_integral_quadratic_curve", "frag")),
             TriangleList,
             None,
             &[],
@@ -565,7 +571,7 @@ impl Renderer {
         let fill_integral_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
             &segment_3f_vertex_module,
-            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_integral_cubic_curve_frag.spv")),
+            &device.create_shader_module(&precompiled_shader!("stencil_integral_cubic_curve", "frag")),
             TriangleList,
             None,
             &[],
@@ -576,7 +582,7 @@ impl Renderer {
         let fill_rational_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
             &segment_3f_vertex_module,
-            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_rational_quadratic_curve_frag.spv")),
+            &device.create_shader_module(&precompiled_shader!("stencil_rational_quadratic_curve", "frag")),
             TriangleList,
             None,
             &[],
@@ -587,7 +593,7 @@ impl Renderer {
         let fill_rational_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
             &segment_4f_vertex_module,
-            &device.create_shader_module(&include_spirv!("../target/shader_modules/stencil_rational_cubic_curve_frag.spv")),
+            &device.create_shader_module(&precompiled_shader!("stencil_rational_cubic_curve", "frag")),
             TriangleList,
             None,
             &[],
@@ -669,7 +675,7 @@ impl Renderer {
         let color_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &color_solid_pipeline_layout,
             &segment_0f_vertex_module,
-            &device.create_shader_module(&include_spirv!("../target/shader_modules/fill_solid_frag.spv")),
+            &device.create_shader_module(&precompiled_shader!("fill_solid", "frag")),
             TriangleStrip,
             None,
             &[blending],
