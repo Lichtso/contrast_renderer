@@ -2,8 +2,7 @@
 
 #![allow(clippy::many_single_char_names)]
 use crate::error::ERROR_MARGIN;
-use geometric_algebra::{complex::*, Conjugate, SquaredMagnitude};
-pub type ComplexNumber = MultiVector;
+use geometric_algebra::{epga1d::*, Reversal, SquaredMagnitude};
 
 /// Represents a complex root as homogeneous coordinates
 #[derive(Debug, Clone, Copy)]
@@ -87,7 +86,7 @@ pub fn solve_cubic(coefficients: [f32; 4]) -> (f32, Vec<Root>, usize) {
     for root_of_unity in &ROOTS_OF_UNITY_3 {
         let ci = c * *root_of_unity;
         let denominator = ci * Scalar::new(3.0 * coefficients[3]);
-        let numerator = (ci * Scalar::new(-coefficients[2]) - ci * ci - ComplexNumber::new(d[0], 0.0)) * denominator.conjugate();
+        let numerator = (ci * Scalar::new(-coefficients[2]) - ci * ci - ComplexNumber::new(d[0], 0.0)) * denominator.reversal();
         solutions.push(Root::new(numerator.real(), numerator.imaginary(), denominator.squared_magnitude().real()));
     }
     let real_root = (((std::f32::consts::PI - c.arg()) / (std::f32::consts::PI * 2.0 / 3.0)) as usize + 1) % 3;

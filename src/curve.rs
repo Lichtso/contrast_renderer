@@ -4,10 +4,10 @@
 
 use crate::{
     error::ERROR_MARGIN,
-    polynomial::{solve_cubic, solve_linear, solve_quadratic, solve_quartic, ComplexNumber, Root},
+    polynomial::{solve_cubic, solve_linear, solve_quadratic, solve_quartic, Root},
     utils::rotate_90_degree_clockwise,
 };
-use geometric_algebra::{ppga2d, ppga3d, Dual, InnerProduct, Powi, RegressiveProduct, Signum, Zero};
+use geometric_algebra::{epga1d, ppga2d, ppga3d, Dual, InnerProduct, Powi, RegressiveProduct, Signum, Zero};
 
 macro_rules! mat_vec_transform {
     (expand, $power_basis:expr, $i:expr, $at:expr) => {
@@ -222,16 +222,16 @@ pub fn rational_inflection_points(ippc: &[f32; 4], loop_self_intersection: bool)
 
 macro_rules! interpolate_normal {
     ($start_tangent:expr, $end_tangent:expr, $angle_step:expr, $normal:ident, $solutions:expr $(,)?) => {{
-        let polar_start = ComplexNumber::new(-$start_tangent.g0[1], $start_tangent.g0[2]);
-        let polar_end = ComplexNumber::new(-$end_tangent.g0[1], $end_tangent.g0[2]);
+        let polar_start = epga1d::ComplexNumber::new($start_tangent.g0[1], $start_tangent.g0[2]);
+        let polar_end = epga1d::ComplexNumber::new($end_tangent.g0[1], $end_tangent.g0[2]);
         let polar_range = polar_end / polar_start;
         let steps = ((polar_range.arg() / $angle_step).abs() + 0.5) as usize;
         let polar_step = polar_range.powf(1.0 / steps as f32);
         (1..steps)
             .map(|i| {
-                let interpolated = (polar_start * polar_step.powi(i as isize));
+                let interpolated = polar_start * polar_step.powi(i as isize);
                 let $normal = ppga2d::Plane {
-                    g0: [0.0, -interpolated.real(), interpolated.imaginary()].into(),
+                    g0: [0.0, interpolated.real(), interpolated.imaginary()].into(),
                 };
                 for solution in $solutions {
                     if solution.denominator == 0.0 {

@@ -681,7 +681,7 @@ impl Renderer {
             &[blending],
             wgpu::StencilState {
                 front: stencil_descriptor!(Less, Zero, Zero),
-                back: stencil_descriptor!(Less, Zero, Zero),
+                back: stencil_descriptor!(Never, Zero, Zero),
                 read_mask: clip_nesting_counter_mask | winding_counter_mask,
                 write_mask: winding_counter_mask,
             },
