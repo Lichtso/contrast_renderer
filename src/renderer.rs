@@ -43,7 +43,7 @@ fn convert_dynamic_stroke_options(dynamic_stroke_options: &DynamicStrokeOptions)
             for (i, dash_interval) in pattern.iter().enumerate() {
                 result.gap_start[i] = dash_interval.gap_start;
                 result.gap_end[i] = dash_interval.gap_end;
-                result.caps |= (dash_interval.dash_start as u32) << (((i - 1 + pattern.len()) % pattern.len()) * 8);
+                result.caps |= (dash_interval.dash_start as u32) << (((i + pattern.len() - 1) % pattern.len()) * 8);
                 result.caps |= (dash_interval.dash_end as u32) << (i * 8 + 4);
             }
             Ok(result)
