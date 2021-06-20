@@ -6,35 +6,29 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Install GLSL Compiler
-        run: |
-          curl -GO https://storage.googleapis.com/shaderc/artifacts/prod/graphics_shader_compiler/shaderc/linux/continuous_clang_release/357/20210315-190728/install.tgz
-          tar -xzf install.tgz install/bin/glslc
-          echo "install/bin/" >> $GITHUB_PATH
+      - name: Install WASM Toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+      - name: Install WASM Binding Generator
+        uses: actions-rs/install@v0.1
+        with:
+          crate: wasm-bindgen-cli
+          version: 0.2.74
+          # use-tool-cache: true
       - name: Compile Native
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --release --examples
-      - name: Install Rust Nightly
-        uses: actions-rs/toolchain@v1
-        with:
-          target: wasm32-unknown-unknown
-          toolchain: nightly
       - name: Compile WASM
         uses: actions-rs/cargo@v1
         env:
-          RUSTFLAGS: --cfg=web_sys_unstable_apis -C target-feature=+simd128
+          RUSTFLAGS: --cfg=web_sys_unstable_apis
         with:
           command: build
-          toolchain: nightly
           args: --release --examples --target wasm32-unknown-unknown
-      - name: Install WASM Binding Generator
-        uses: actions-rs/install@v0.1
-        with:
-          crate: wasm-bindgen-cli
-          version: 0.2.69
-          # use-tool-cache: true
       - name: Generate WASM Binding
         run: wasm-bindgen --out-dir target/wasm --web target/wasm32-unknown-unknown/release/examples/showcase.wasm
       - uses: actions/upload-artifact@v2

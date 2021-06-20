@@ -171,7 +171,7 @@ impl ApplicationManager {
         self.window.request_redraw();
         let swap_chain_descriptor = wgpu::SwapChainDescriptor {
             usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
-            format: self.adapter.get_swap_chain_preferred_format(&self.surface),
+            format: self.adapter.get_swap_chain_preferred_format(&self.surface).unwrap(),
             width: self.size.width,
             height: self.size.height,
             present_mode: wgpu::PresentMode::Mailbox,

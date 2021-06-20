@@ -143,11 +143,11 @@ impl Shape {
                 layout: &renderer.stroke_bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::Buffer {
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                         buffer: &stroke_uniform_buffer,
                         offset: 0,
                         size: wgpu::BufferSize::new(dynamic_stroke_descriptors.len() as u64),
-                    },
+                    }),
                 }],
             });
             (Some(stroke_uniform_buffer), Some(stroke_bind_group))
@@ -358,7 +358,9 @@ macro_rules! render_pipeline_descriptor {
                 topology: wgpu::PrimitiveTopology::$primitive_topology,
                 strip_index_format: $primitive_index_format,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::None,
+                clamp_depth: false,
+                cull_mode: None,
+                conservative: false,
                 polygon_mode: wgpu::PolygonMode::Fill,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
@@ -366,7 +368,6 @@ macro_rules! render_pipeline_descriptor {
                 depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::Always,
                 bias: wgpu::DepthBiasState::default(),
-                clamp_depth: false,
                 stencil: $stencil_state,
             }),
             multisample: wgpu::MultisampleState {
@@ -427,32 +428,32 @@ impl Renderer {
         let segment_0f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (2 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
-            attributes: &vertex_attr_array![0 => Float2],
+            attributes: &vertex_attr_array![0 => Float32x2],
         };
         let segment_2f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (4 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
-            attributes: &vertex_attr_array![0 => Float2, 1 => Float2],
+            attributes: &vertex_attr_array![0 => Float32x2, 1 => Float32x2],
         };
         let segment_2f1i_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (5 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
-            attributes: &vertex_attr_array![0 => Float2, 1 => Float2, 2 => Uint],
+            attributes: &vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Uint32],
         };
         let segment_3f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (5 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
-            attributes: &vertex_attr_array![0 => Float2, 1 => Float3],
+            attributes: &vertex_attr_array![0 => Float32x2, 1 => Float32x3],
         };
         let segment_3f1i_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (6 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
-            attributes: &vertex_attr_array![0 => Float2, 1 => Float3, 2 => Uint],
+            attributes: &vertex_attr_array![0 => Float32x2, 1 => Float32x3, 2 => Uint32],
         };
         let segment_4f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (6 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
-            attributes: &vertex_attr_array![0 => Float2, 1 => Float4],
+            attributes: &vertex_attr_array![0 => Float32x2, 1 => Float32x4],
         };
 
         const TRANSFORM_UNIFORM_BUFFER_SIZE: usize = std::mem::size_of::<[f32; 4 * 4]>();
@@ -480,11 +481,11 @@ impl Renderer {
             layout: &transform_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer {
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: &transform_uniform_buffer,
                     offset: 0,
                     size: wgpu::BufferSize::new(TRANSFORM_UNIFORM_BUFFER_SIZE as u64),
-                },
+                }),
             }],
         });
 
@@ -665,11 +666,11 @@ impl Renderer {
             layout: &color_solid_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer {
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: &color_solid_uniform_buffer,
                     offset: 0,
                     size: wgpu::BufferSize::new(COLOR_SOLID_UNIFORM_BUFFER_SIZE as u64),
-                },
+                }),
             }],
         });
         let color_solid_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

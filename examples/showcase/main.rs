@@ -23,16 +23,18 @@ impl application_framework::Application for Application {
     fn new(device: &wgpu::Device, _queue: &mut wgpu::Queue, swap_chain_descriptor: &wgpu::SwapChainDescriptor) -> Self {
         let blending = wgpu::ColorTargetState {
             format: swap_chain_descriptor.format,
-            color_blend: wgpu::BlendState {
-                src_factor: wgpu::BlendFactor::SrcAlpha,
-                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha_blend: wgpu::BlendState {
-                src_factor: wgpu::BlendFactor::SrcAlpha,
-                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                operation: wgpu::BlendOperation::Add,
-            },
+            blend: Some(wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                    operation: wgpu::BlendOperation::Add,
+                },
+            }),
             write_mask: wgpu::ColorWrite::ALL,
         };
         let renderer = contrast_renderer::renderer::Renderer::new(&device, blending, MSAA_SAMPLE_COUNT, 4, 4).unwrap();
@@ -91,7 +93,7 @@ impl application_framework::Application for Application {
         self.viewport_size = wgpu::Extent3d {
             width: swap_chain_descriptor.width,
             height: swap_chain_descriptor.height,
-            depth: 1,
+            depth_or_array_layers: 1,
         };
         let depth_stencil_texture_descriptor = wgpu::TextureDescriptor {
             size: self.viewport_size,
@@ -153,8 +155,8 @@ impl application_framework::Application for Application {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: &self.depth_stencil_texture_view.as_ref().unwrap(),
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_stencil_texture_view.as_ref().unwrap(),
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(0.0),
                         store: false,
@@ -170,8 +172,8 @@ impl application_framework::Application for Application {
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
-                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                    attachment: if MSAA_SAMPLE_COUNT == 1 {
+                color_attachments: &[wgpu::RenderPassColorAttachment {
+                    view: if MSAA_SAMPLE_COUNT == 1 {
                         &frame.view
                     } else {
                         &self.msaa_color_texture_view.as_ref().unwrap()
@@ -182,8 +184,8 @@ impl application_framework::Application for Application {
                         store: true,
                     },
                 }],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: &self.depth_stencil_texture_view.as_ref().unwrap(),
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_stencil_texture_view.as_ref().unwrap(),
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Load,
                         store: false,
