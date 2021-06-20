@@ -2,79 +2,24 @@
 mod application_framework;
 
 use geometric_algebra::{
-    ppga3d::{Motor, Point, Rotor, Scalar, Translator},
-    One, Transformation, Zero,
+    ppga3d::{Rotor, Translator},
+    One,
 };
-use std::convert::TryInto;
-
-fn rotate_around_axis(angle: f32, axis: &[f32; 3]) -> Rotor {
-    let sinus = (angle * 0.5).sin();
-    Rotor {
-        g0: [(angle * 0.5).cos(), axis[0] * sinus, axis[1] * sinus, axis[2] * sinus].into(),
-    }
-}
-
-fn motor_to_mat4(motor: &Motor) -> [Point; 4] {
-    let result = [1, 2, 3, 0]
-        .iter()
-        .map(|index| {
-            let mut point = Point::zero();
-            point.g0[*index] = 1.0;
-            let row = motor.transformation(point);
-            Point {
-                g0: [row.g0[1], row.g0[2], row.g0[3], row.g0[0]].into(),
-            }
-        })
-        .collect::<Vec<_>>();
-    result.try_into().unwrap()
-}
-
-fn perspective_projection(field_of_view_y: f32, aspect_ratio: f32, near: f32, far: f32) -> [Point; 4] {
-    let height = 1.0 / (field_of_view_y * 0.5).tan();
-    let denominator = 1.0 / (near - far);
-    [
-        Point {
-            g0: [height / aspect_ratio, 0.0, 0.0, 0.0].into(),
-        },
-        Point {
-            g0: [0.0, height, 0.0, 0.0].into(),
-        },
-        Point {
-            g0: [0.0, 0.0, -far * denominator, 1.0].into(),
-        },
-        Point {
-            g0: [0.0, 0.0, near * far * denominator, 0.0].into(),
-        },
-    ]
-}
-
-fn matrix_multiplication(a: &[Point; 4], b: &[Point; 4]) -> [Point; 4] {
-    [
-        Scalar { g0: b[0].g0[0] } * a[0] + Scalar { g0: b[0].g0[1] } * a[1] + Scalar { g0: b[0].g0[2] } * a[2] + Scalar { g0: b[0].g0[3] } * a[3],
-        Scalar { g0: b[1].g0[0] } * a[0] + Scalar { g0: b[1].g0[1] } * a[1] + Scalar { g0: b[1].g0[2] } * a[2] + Scalar { g0: b[1].g0[3] } * a[3],
-        Scalar { g0: b[2].g0[0] } * a[0] + Scalar { g0: b[2].g0[1] } * a[1] + Scalar { g0: b[2].g0[2] } * a[2] + Scalar { g0: b[2].g0[3] } * a[3],
-        Scalar { g0: b[3].g0[0] } * a[0] + Scalar { g0: b[3].g0[1] } * a[1] + Scalar { g0: b[3].g0[2] } * a[2] + Scalar { g0: b[3].g0[3] } * a[3],
-    ]
-}
-
-pub fn transmute_matrix(matrix: [Point; 4]) -> [f32; 16] {
-    unsafe { std::mem::transmute(matrix) }
-}
 
 const MSAA_SAMPLE_COUNT: u32 = 4;
 
-struct Application<'a> {
+struct Application {
     depth_stencil_texture_view: Option<wgpu::TextureView>,
     msaa_color_texture_view: Option<wgpu::TextureView>,
     renderer: contrast_renderer::renderer::Renderer,
-    dynamic_stroke_options: [contrast_renderer::path::DynamicStrokeOptions<'a>; 1],
+    dynamic_stroke_options: [contrast_renderer::path::DynamicStrokeOptions; 1],
     shape: contrast_renderer::renderer::Shape,
-    view_size: wgpu::Extent3d,
+    viewport_size: wgpu::Extent3d,
     view_rotation: Rotor,
     view_distance: f32,
 }
 
-impl<'a> application_framework::Application for Application<'a> {
+impl application_framework::Application for Application {
     fn new(device: &wgpu::Device, _queue: &mut wgpu::Queue, swap_chain_descriptor: &wgpu::SwapChainDescriptor) -> Self {
         let blending = wgpu::ColorTargetState {
             format: swap_chain_descriptor.format,
@@ -94,7 +39,7 @@ impl<'a> application_framework::Application for Application<'a> {
 
         let dynamic_stroke_options = [contrast_renderer::path::DynamicStrokeOptions::Dashed {
             join: contrast_renderer::path::Join::Miter,
-            pattern: &[contrast_renderer::path::DashInterval {
+            pattern: vec![contrast_renderer::path::DashInterval {
                 gap_start: 3.0,
                 gap_end: 4.0,
                 dash_start: contrast_renderer::path::Cap::Butt,
@@ -103,10 +48,10 @@ impl<'a> application_framework::Application for Application<'a> {
             phase: 0.0,
         }];
 
-        let data = include_bytes!("fonts/OpenSans-Regular.ttf");
-        let face = ttf_parser::Face::from_slice(data, 0).unwrap();
+        let data = include_bytes!("../fonts/OpenSans-Regular.ttf");
+        let font_face = ttf_parser::Face::from_slice(data, 0).unwrap();
         let mut paths = contrast_renderer::text::paths_of_text(
-            &face,
+            &font_face,
             contrast_renderer::text::HorizontalAlignment::Center,
             contrast_renderer::text::VerticalAlignment::Center,
             "Hello World",
@@ -136,24 +81,20 @@ impl<'a> application_framework::Application for Application<'a> {
             renderer,
             dynamic_stroke_options,
             shape,
-            view_size: wgpu::Extent3d {
-                width: swap_chain_descriptor.width,
-                height: swap_chain_descriptor.height,
-                depth: 1,
-            },
+            viewport_size: wgpu::Extent3d::default(),
             view_rotation: Rotor::one(),
             view_distance: 5.0,
         }
     }
 
     fn resize(&mut self, device: &wgpu::Device, _queue: &mut wgpu::Queue, swap_chain_descriptor: &wgpu::SwapChainDescriptor) {
-        self.view_size = wgpu::Extent3d {
+        self.viewport_size = wgpu::Extent3d {
             width: swap_chain_descriptor.width,
             height: swap_chain_descriptor.height,
             depth: 1,
         };
         let depth_stencil_texture_descriptor = wgpu::TextureDescriptor {
-            size: self.view_size,
+            size: self.viewport_size,
             mip_level_count: 1,
             sample_count: MSAA_SAMPLE_COUNT,
             dimension: wgpu::TextureDimension::D2,
@@ -168,7 +109,7 @@ impl<'a> application_framework::Application for Application<'a> {
         }));
         if MSAA_SAMPLE_COUNT > 1 {
             let msaa_color_texture_descriptor = wgpu::TextureDescriptor {
-                size: self.view_size,
+                size: self.viewport_size,
                 mip_level_count: 1,
                 sample_count: MSAA_SAMPLE_COUNT,
                 dimension: wgpu::TextureDimension::D2,
@@ -192,20 +133,21 @@ impl<'a> application_framework::Application for Application<'a> {
             _ => unreachable!(),
         }
         self.shape.set_dynamic_stroke_options(queue, 0, &self.dynamic_stroke_options[0]).unwrap();
-        let transform_uniform_data = matrix_multiplication(
-            &perspective_projection(
+        let projection_matrix = contrast_renderer::utils::matrix_multiplication(
+            &contrast_renderer::utils::perspective_projection(
                 std::f32::consts::PI * 0.5,
-                self.view_size.width as f32 / self.view_size.height as f32,
+                self.viewport_size.width as f32 / self.viewport_size.height as f32,
                 1.0,
                 1000.0,
             ),
-            &motor_to_mat4(
+            &contrast_renderer::utils::motor3d_to_mat4(
                 &(Translator {
                     g0: [1.0, 0.0, 0.0, -0.5 * self.view_distance].into(),
                 } * self.view_rotation),
             ),
         );
-        self.renderer.set_transform(&queue, &transmute_matrix(transform_uniform_data));
+        self.renderer
+            .set_transform(&queue, &contrast_renderer::utils::transmute_matrix(projection_matrix));
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -261,10 +203,11 @@ impl<'a> application_framework::Application for Application<'a> {
         match event {
             winit::event::WindowEvent::CursorMoved { position, .. } => {
                 let position = [
-                    std::f32::consts::PI * (position.x as f32 / self.view_size.width as f32 - 0.5),
-                    std::f32::consts::PI * (position.y as f32 / self.view_size.height as f32 - 0.5),
+                    std::f32::consts::PI * (position.x as f32 / self.viewport_size.width as f32 - 0.5),
+                    std::f32::consts::PI * (position.y as f32 / self.viewport_size.height as f32 - 0.5),
                 ];
-                self.view_rotation = rotate_around_axis(position[0], &[0.0, 1.0, 0.0]) * rotate_around_axis(position[1], &[1.0, 0.0, 0.0]);
+                self.view_rotation = contrast_renderer::utils::rotate_around_axis(position[0], &[0.0, 1.0, 0.0]);
+                self.view_rotation *= contrast_renderer::utils::rotate_around_axis(position[1], &[1.0, 0.0, 0.0]);
             }
             winit::event::WindowEvent::MouseWheel { delta, .. } => {
                 let difference = match delta {

@@ -1,6 +1,7 @@
 //! Miscellaneous utility and helper functions
 
-use geometric_algebra::{ppga2d, OuterProduct};
+use geometric_algebra::{ppga2d, ppga3d, OuterProduct, Transformation, Zero};
+use std::convert::TryInto;
 
 /// Transmutes a vector.
 pub fn transmute_vec<S, T>(mut vec: Vec<S>) -> Vec<T> {
@@ -55,4 +56,72 @@ pub fn weighted_vec_to_point(w: f32, v: [f32; 2]) -> ppga2d::Point {
     ppga2d::Point {
         g0: [w, v[0] * w, v[1] * w].into(),
     }
+}
+
+/// Creates a [ppga3d::Rotor] which represents a rotation by `angle` radians around `axis`.
+pub fn rotate_around_axis(angle: f32, axis: &[f32; 3]) -> ppga3d::Rotor {
+    let sinus = (angle * 0.5).sin();
+    ppga3d::Rotor {
+        g0: [(angle * 0.5).cos(), axis[0] * sinus, axis[1] * sinus, axis[2] * sinus].into(),
+    }
+}
+
+/// Converts a [ppga2d::Motor] to a [ppga3d::Motor].
+pub fn motor2d_to_motor3d(motor: &ppga2d::Motor) -> ppga3d::Motor {
+    ppga3d::Motor {
+        g0: [motor.g0[0], 0.0, 0.0, motor.g0[1]].into(),
+        g1: [0.0, motor.g0[2], -motor.g0[3], 0.0].into(),
+    }
+}
+
+/// Converts a [ppga3d::Motor] to a 4x4 matrix for GLSL.
+pub fn motor3d_to_mat4(motor: &ppga3d::Motor) -> [ppga3d::Point; 4] {
+    let result = [1, 2, 3, 0]
+        .iter()
+        .map(|index| {
+            let mut point = ppga3d::Point::zero();
+            point.g0[*index] = 1.0;
+            let row = motor.transformation(point);
+            ppga3d::Point {
+                g0: [row.g0[1], row.g0[2], row.g0[3], row.g0[0]].into(),
+            }
+        })
+        .collect::<Vec<_>>();
+    result.try_into().unwrap()
+}
+
+/// Creates a 4x4 perspective projection matrix for GLSL.
+pub fn perspective_projection(field_of_view_y: f32, aspect_ratio: f32, near: f32, far: f32) -> [ppga3d::Point; 4] {
+    let height = 1.0 / (field_of_view_y * 0.5).tan();
+    let denominator = 1.0 / (near - far);
+    [
+        ppga3d::Point {
+            g0: [height / aspect_ratio, 0.0, 0.0, 0.0].into(),
+        },
+        ppga3d::Point {
+            g0: [0.0, height, 0.0, 0.0].into(),
+        },
+        ppga3d::Point {
+            g0: [0.0, 0.0, -far * denominator, 1.0].into(),
+        },
+        ppga3d::Point {
+            g0: [0.0, 0.0, near * far * denominator, 0.0].into(),
+        },
+    ]
+}
+
+/// Calculates the product of two 4x4 matrices for GLSL.
+pub fn matrix_multiplication(a: &[ppga3d::Point; 4], b: &[ppga3d::Point; 4]) -> [ppga3d::Point; 4] {
+    use ppga3d::Scalar;
+    [
+        Scalar { g0: b[0].g0[0] } * a[0] + Scalar { g0: b[0].g0[1] } * a[1] + Scalar { g0: b[0].g0[2] } * a[2] + Scalar { g0: b[0].g0[3] } * a[3],
+        Scalar { g0: b[1].g0[0] } * a[0] + Scalar { g0: b[1].g0[1] } * a[1] + Scalar { g0: b[1].g0[2] } * a[2] + Scalar { g0: b[1].g0[3] } * a[3],
+        Scalar { g0: b[2].g0[0] } * a[0] + Scalar { g0: b[2].g0[1] } * a[1] + Scalar { g0: b[2].g0[2] } * a[2] + Scalar { g0: b[2].g0[3] } * a[3],
+        Scalar { g0: b[3].g0[0] } * a[0] + Scalar { g0: b[3].g0[1] } * a[1] + Scalar { g0: b[3].g0[2] } * a[2] + Scalar { g0: b[3].g0[3] } * a[3],
+    ]
+}
+
+/// Converts a 4x4 matrix to a 16 element array for GLSL.
+pub fn transmute_matrix(matrix: [ppga3d::Point; 4]) -> [f32; 16] {
+    unsafe { std::mem::transmute(matrix) }
 }

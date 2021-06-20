@@ -16,6 +16,7 @@ macro_rules! precompiled_shader {
     };
 }
 
+#[derive(Default, Clone)]
 #[repr(C)]
 struct DynamicStrokeDescriptor {
     gap_start: [f32; MAX_DASH_INTERVALS],
@@ -127,27 +128,27 @@ impl Shape {
         let (stroke_uniform_buffer, stroke_bind_group) = if dynamic_stroke_options.is_empty() {
             (None, None)
         } else {
-            let dynamic_stroke_descriptors = dynamic_stroke_options
-                .iter()
-                .map(|dynamic_stroke_options| convert_dynamic_stroke_options(dynamic_stroke_options))
-                .collect::<Result<Vec<DynamicStrokeDescriptor>, Error>>()?;
-            let dynamic_stroke_options_data = transmute_vec(dynamic_stroke_descriptors);
+            let mut dynamic_stroke_descriptors = vec![DynamicStrokeDescriptor::default(); max_dynamic_stroke_options_group];
+            for (i, dynamic_stroke_descriptor) in dynamic_stroke_options.iter().enumerate() {
+                dynamic_stroke_descriptors[i] = convert_dynamic_stroke_options(dynamic_stroke_descriptor)?;
+            }
+            let dynamic_stroke_descriptors = transmute_slice(dynamic_stroke_descriptors.as_slice());
             let stroke_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: None,
-                contents: dynamic_stroke_options_data.as_slice(),
+                contents: dynamic_stroke_descriptors,
                 usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             });
             let stroke_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
                 layout: &renderer.stroke_bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::Buffer {
                         buffer: &stroke_uniform_buffer,
                         offset: 0,
-                        size: wgpu::BufferSize::new(dynamic_stroke_options_data.len() as u64),
+                        size: wgpu::BufferSize::new(dynamic_stroke_descriptors.len() as u64),
                     },
                 }],
-                label: None,
             });
             (Some(stroke_uniform_buffer), Some(stroke_bind_group))
         };
@@ -186,9 +187,9 @@ impl Shape {
 
     /// Renderes the [Shape] into the stencil buffer.
     pub fn render_stencil<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
+        render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
         if let Some(stroke_bind_group) = &self.stroke_bind_group {
             render_pass.set_pipeline(&renderer.stroke_line_pipeline);
-            render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
             render_pass.set_bind_group(1, stroke_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(0..self.vertex_offsets[0] as u64));
             render_pass.set_index_buffer(self.index_buffer.slice(0..self.index_offsets[0] as u64), wgpu::IndexFormat::Uint16);
@@ -475,6 +476,7 @@ impl Renderer {
             }],
         });
         let transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
             layout: &transform_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -484,7 +486,6 @@ impl Renderer {
                     size: wgpu::BufferSize::new(TRANSFORM_UNIFORM_BUFFER_SIZE as u64),
                 },
             }],
-            label: None,
         });
 
         let winding_counter_mask = (1 << winding_counter_bits) - 1;
@@ -501,6 +502,8 @@ impl Renderer {
             read_mask: clip_nesting_counter_mask | winding_counter_mask,
             write_mask: winding_counter_mask,
         };
+        let max_dynamic_stroke_options_group =
+            device.limits().max_uniform_buffer_binding_size as usize / std::mem::size_of::<DynamicStrokeDescriptor>();
         let stroke_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -509,7 +512,9 @@ impl Renderer {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<DynamicStrokeDescriptor>() as u64),
+                    min_binding_size: wgpu::BufferSize::new(
+                        (max_dynamic_stroke_options_group * std::mem::size_of::<DynamicStrokeDescriptor>()) as u64,
+                    ),
                 },
                 count: None,
             }],
@@ -517,6 +522,11 @@ impl Renderer {
         let stroke_line_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&transform_bind_group_layout, &stroke_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let stencil_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&transform_bind_group_layout],
             push_constant_ranges: &[],
         });
         let stroke_line_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -530,13 +540,8 @@ impl Renderer {
             segment_2f1i_vertex_buffer_descriptor.clone(),
             msaa_sample_count,
         ));
-        let stencil_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&transform_bind_group_layout],
-            push_constant_ranges: &[],
-        });
         let stroke_joint_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
-            &stencil_pipeline_layout,
+            &stroke_line_pipeline_layout,
             &segment_3f1i_vertex_module,
             &device.create_shader_module(&precompiled_shader!("stencil_stroke_joint", "frag")),
             TriangleStrip,
@@ -656,6 +661,7 @@ impl Renderer {
             }],
         });
         let color_solid_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
             layout: &color_solid_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -665,7 +671,6 @@ impl Renderer {
                     size: wgpu::BufferSize::new(COLOR_SOLID_UNIFORM_BUFFER_SIZE as u64),
                 },
             }],
-            label: None,
         });
         let color_solid_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,

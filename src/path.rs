@@ -7,28 +7,28 @@ use crate::{
 use geometric_algebra::{ppga2d, InnerProduct, RegressiveProduct, Signum, SquaredMagnitude, Transformation, Zero};
 
 /// A line
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LineSegment {
     /// The start is excluded as it is implicitly defined as the end of the previous [Path] segment.
     pub control_points: [[f32; 2]; 1],
 }
 
 /// An integral quadratic bezier curve
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct IntegralQuadraticCurveSegment {
     /// The start is excluded as it is implicitly defined as the end of the previous [Path] segment.
     pub control_points: [[f32; 2]; 2],
 }
 
 /// An integral cubic bezier curve
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct IntegralCubicCurveSegment {
     /// The start is excluded as it is implicitly defined as the end of the previous [Path] segment.
     pub control_points: [[f32; 2]; 3],
 }
 
 /// A rational quadratic bezier curve
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RationalQuadraticCurveSegment {
     /// Weight of `control_points[0]` (the middle).
     ///
@@ -39,7 +39,7 @@ pub struct RationalQuadraticCurveSegment {
 }
 
 /// A rational cubic bezier curve
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RationalCubicCurveSegment {
     /// Weights including the start, thus shifted by one compared to the control_points.
     pub weights: [f32; 4],
@@ -78,7 +78,7 @@ pub enum Join {
 }
 
 /// Defines what geometry is generated at the start and the end of a dash.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cap {
     /// Rectangular polygon extending half the [width](StrokeOptions::width) beyond the end of the dash
     Square,
@@ -97,7 +97,7 @@ pub enum Cap {
 }
 
 /// Defines the gaps in a stroked [Path].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DashInterval {
     /// Start of the gap to the next dash, thus end of the current dash.
     ///
@@ -119,14 +119,14 @@ pub const MAX_DASH_INTERVALS: usize = 4;
 /// Dynamic part of [StrokeOptions].
 ///
 /// It is grouped and can be used by multiple [Path]s in the same [Shape](crate::renderer::Shape).
-#[derive(Debug, Clone, Copy)]
-pub enum DynamicStrokeOptions<'a> {
+#[derive(Debug, Clone, PartialEq)]
+pub enum DynamicStrokeOptions {
     /// Defines a dashed stroke pattern.
     Dashed {
         /// Defines what geometry is generated where [Path] segments meet.
         join: Join,
         /// Defines the [DashInterval]s which will be repeated along the stroked [Path].
-        pattern: &'a [DashInterval],
+        pattern: Vec<DashInterval>,
         /// Translates the [DashInterval]s along the stroked [Path].
         ///
         /// Positive values translate towards the forward direction of the stroked [Path].
@@ -145,7 +145,7 @@ pub enum DynamicStrokeOptions<'a> {
 }
 
 /// Defines the parametric sampling strategy for stroking curves.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CurveApproximation {
     /// Parametric step size is `1.0 / n`.
     ///
@@ -155,10 +155,15 @@ pub enum CurveApproximation {
     ///
     /// Thus there are `(polar_range.arg() / a + 0.5) as usize + 1` parameters (including start and end).
     UniformTangentAngle(f32),
+    /*
+    /// Euclidian distance is `d`.
+    ///
+    /// Thus there are `(arc_length / d + 0.5) as usize + 1` parameters (including start and end).
+    UniformArcLength(f32),*/
 }
 
 /// Defines how a [Path] is stroked.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StrokeOptions {
     /// The width of the stroked [Path]
     ///
@@ -200,7 +205,7 @@ fn tangent_from_points(a: [f32; 2], b: [f32; 2]) -> ppga2d::Plane {
 /// Every "move to" command requires a new [Path].
 /// The order of the segments defines the direction of the [Path] and its clockwise or counterclockwise orientation.
 /// Filled [Path]s increment the winding counter when they are counterclockwise and decrement it when they are clockwise.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Path {
     /// If [Some] then the [Path] will be stroked otherwise (if [None]) it will be filled.
     pub stroke_options: Option<StrokeOptions>,
