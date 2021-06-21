@@ -84,9 +84,6 @@ To get started, checkout the [showcase example](examples/showcase/main.rs).
 
 ## Dependencies
 
-### Dev-Dependencies
-- GLSL to SPIRV compiler: [shaderc](https://github.com/google/shaderc)
-
 ### Dependencies of the Library
 - Graphics API: [wgpu](https://wgpu.rs/)
 - Geometric Algebra: [geometric_algebra](https://github.com/Lichtso/geometric_algebra)
