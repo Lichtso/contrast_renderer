@@ -70,11 +70,27 @@ pub fn rotate_around_axis(angle: f32, axis: &[f32; 3]) -> ppga3d::Rotor {
 pub fn motor2d_to_motor3d(motor: &ppga2d::Motor) -> ppga3d::Motor {
     ppga3d::Motor {
         g0: [motor.g0[0], 0.0, 0.0, motor.g0[1]].into(),
-        g1: [0.0, motor.g0[2], -motor.g0[3], 0.0].into(),
+        g1: [0.0, motor.g0[3], -motor.g0[2], 0.0].into(),
     }
 }
 
-/// Converts a [ppga3d::Motor] to a 4x4 matrix for GLSL.
+/// Converts a [ppga2d::Motor] to a 3x3 matrix for WebGPU.
+pub fn motor2d_to_mat3(motor: &ppga2d::Motor) -> [ppga2d::Point; 3] {
+    let result = [1, 2, 0]
+        .iter()
+        .map(|index| {
+            let mut point = ppga2d::Point::zero();
+            point.g0[*index] = 1.0;
+            let row = motor.transformation(point);
+            ppga2d::Point {
+                g0: [row.g0[1], row.g0[2], row.g0[0]].into(),
+            }
+        })
+        .collect::<Vec<_>>();
+    result.try_into().unwrap()
+}
+
+/// Converts a [ppga3d::Motor] to a 4x4 matrix for WebGPU.
 pub fn motor3d_to_mat4(motor: &ppga3d::Motor) -> [ppga3d::Point; 4] {
     let result = [1, 2, 3, 0]
         .iter()

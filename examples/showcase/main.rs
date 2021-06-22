@@ -42,12 +42,12 @@ impl application_framework::Application for Application {
         let dynamic_stroke_options = [contrast_renderer::path::DynamicStrokeOptions::Dashed {
             join: contrast_renderer::path::Join::Miter,
             pattern: vec![contrast_renderer::path::DashInterval {
-                gap_start: 3.0,
-                gap_end: 4.0,
+                gap_start: 3.0.into(),
+                gap_end: 4.0.into(),
                 dash_start: contrast_renderer::path::Cap::Butt,
                 dash_end: contrast_renderer::path::Cap::Butt,
             }],
-            phase: 0.0,
+            phase: 0.0.into(),
         }];
 
         let data = include_bytes!("../fonts/OpenSans-Regular.ttf");
@@ -68,12 +68,12 @@ impl application_framework::Application for Application {
         }
         paths.insert(0, contrast_renderer::path::Path::from_rounded_rect([0.0, 0.0], [5.8, 1.3], 0.5));
         paths[0].stroke_options = Some(contrast_renderer::path::StrokeOptions {
-            width: 0.1,
-            offset: 0.0,
-            miter_clip: 1.0,
+            width: 0.1.into(),
+            offset: 0.0.into(),
+            miter_clip: 1.0.into(),
             closed: true,
             dynamic_stroke_options_group: 0,
-            curve_approximation: contrast_renderer::path::CurveApproximation::UniformTangentAngle(0.1),
+            curve_approximation: contrast_renderer::path::CurveApproximation::UniformTangentAngle(0.1.into()),
         });
         let shape = contrast_renderer::renderer::Shape::from_paths(&device, &renderer, &dynamic_stroke_options, paths.as_slice()).unwrap();
 
@@ -130,7 +130,7 @@ impl application_framework::Application for Application {
     fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SwapChainTexture, animation_time: f64) {
         match &mut self.dynamic_stroke_options[0] {
             contrast_renderer::path::DynamicStrokeOptions::Dashed { phase, .. } => {
-                *phase = animation_time as f32;
+                *phase = (animation_time as f32).into();
             }
             _ => unreachable!(),
         }

@@ -2,53 +2,54 @@
 
 use crate::{
     error::ERROR_MARGIN,
-    utils::{point_to_vec, vec_to_point, weighted_vec_to_point},
+    safe_float::SafeFloat,
+    utils::{motor2d_to_mat3, point_to_vec, vec_to_point, weighted_vec_to_point},
 };
-use geometric_algebra::{ppga2d, InnerProduct, RegressiveProduct, Signum, SquaredMagnitude, Transformation, Zero};
+use geometric_algebra::{ppga2d, InnerProduct, RegressiveProduct, Signum, SquaredMagnitude, Zero};
 
 /// A line
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LineSegment {
     /// The start is excluded as it is implicitly defined as the end of the previous [Path] segment.
-    pub control_points: [[f32; 2]; 1],
+    pub control_points: [SafeFloat<f32, 2>; 1],
 }
 
 /// An integral quadratic bezier curve
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct IntegralQuadraticCurveSegment {
     /// The start is excluded as it is implicitly defined as the end of the previous [Path] segment.
-    pub control_points: [[f32; 2]; 2],
+    pub control_points: [SafeFloat<f32, 2>; 2],
 }
 
 /// An integral cubic bezier curve
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct IntegralCubicCurveSegment {
     /// The start is excluded as it is implicitly defined as the end of the previous [Path] segment.
-    pub control_points: [[f32; 2]; 3],
+    pub control_points: [SafeFloat<f32, 2>; 3],
 }
 
 /// A rational quadratic bezier curve
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RationalQuadraticCurveSegment {
     /// Weight of `control_points[0]` (the middle).
     ///
     /// The weights of the start and end control points are fixed to [1.0].
-    pub weight: f32,
+    pub weight: SafeFloat<f32, 1>,
     /// The start is excluded as it is implicitly defined as the end of the previous [Path] segment.
-    pub control_points: [[f32; 2]; 2],
+    pub control_points: [SafeFloat<f32, 2>; 2],
 }
 
 /// A rational cubic bezier curve
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RationalCubicCurveSegment {
     /// Weights including the start, thus shifted by one compared to the control_points.
-    pub weights: [f32; 4],
+    pub weights: SafeFloat<f32, 4>,
     /// The start is excluded as it is implicitly defined as the end of the previous [Path] segment.
-    pub control_points: [[f32; 2]; 3],
+    pub control_points: [SafeFloat<f32, 2>; 3],
 }
 
 /// Different types of [Path] segments as an enum
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SegmentType {
     /// For lines
     Line,
@@ -63,7 +64,7 @@ pub enum SegmentType {
 }
 
 /// Defines what geometry is generated where [Path] segments meet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Join {
     /// Polygon of the intersection of the adjacent [Path] segments
     ///
@@ -78,7 +79,7 @@ pub enum Join {
 }
 
 /// Defines what geometry is generated at the start and the end of a dash.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Cap {
     /// Rectangular polygon extending half the [width](StrokeOptions::width) beyond the end of the dash
     Square,
@@ -97,16 +98,16 @@ pub enum Cap {
 }
 
 /// Defines the gaps in a stroked [Path].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DashInterval {
     /// Start of the gap to the next dash, thus end of the current dash.
     ///
     /// It is measured in terms of the [StrokeOptions::width].
-    pub gap_start: f32,
+    pub gap_start: SafeFloat<f32, 1>,
     /// End of the current gap, thus start of the next dash.
     ///
     /// It is measured in terms of the [StrokeOptions::width].
-    pub gap_end: f32,
+    pub gap_end: SafeFloat<f32, 1>,
     /// Cap at the start of the current dash, thus at the end of the last gap.
     pub dash_start: Cap,
     /// Cap at the end of the current dash, thus at the start of the next gap.
@@ -119,7 +120,7 @@ pub const MAX_DASH_INTERVALS: usize = 4;
 /// Dynamic part of [StrokeOptions].
 ///
 /// It is grouped and can be used by multiple [Path]s in the same [Shape](crate::renderer::Shape).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DynamicStrokeOptions {
     /// Defines a dashed stroke pattern.
     Dashed {
@@ -131,7 +132,7 @@ pub enum DynamicStrokeOptions {
         ///
         /// Positive values translate towards the forward direction of the stroked [Path].
         /// It is measured in terms of the [width](StrokeOptions::width).
-        phase: f32,
+        phase: SafeFloat<f32, 1>,
     },
     /// Defines a solid stroke pattern.
     Solid {
@@ -145,7 +146,7 @@ pub enum DynamicStrokeOptions {
 }
 
 /// Defines the parametric sampling strategy for stroking curves.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CurveApproximation {
     /// Parametric step size is `1.0 / n`.
     ///
@@ -154,7 +155,7 @@ pub enum CurveApproximation {
     /// Tangent step angle in radians is `a`.
     ///
     /// Thus there are `(polar_range.arg() / a + 0.5) as usize + 1` parameters (including start and end).
-    UniformTangentAngle(f32),
+    UniformTangentAngle(SafeFloat<f32, 1>),
     /*
     /// Euclidian distance is `d`.
     ///
@@ -163,22 +164,22 @@ pub enum CurveApproximation {
 }
 
 /// Defines how a [Path] is stroked.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StrokeOptions {
     /// The width of the stroked [Path]
     ///
     /// The absolute value is used, so the sign has no effect.
-    pub width: f32,
+    pub width: SafeFloat<f32, 1>,
     /// Offsets the stroke relative to the actual [Path].
     ///
     /// It is measured in terms of the [width](StrokeOptions::width) and clamped to [-0.5, 0.5].
     /// Negative values shift the stroke to the left and positive value shift the stroke to the right (in forward direction).
-    pub offset: f32,
+    pub offset: SafeFloat<f32, 1>,
     /// Distance from the point where the adjacent [Path] segments meet to the clip line.
     ///
     /// It is measured in terms of the [width](StrokeOptions::width).
     /// The absolute value is used, so the sign has no effect.
-    pub miter_clip: f32,
+    pub miter_clip: SafeFloat<f32, 1>,
     /// If set to [true] the start and the end of the [Path] will be connected by an implicit [LineSegment].
     pub closed: bool,
     /// Index of the [DynamicStrokeOptions] group to use
@@ -190,9 +191,9 @@ pub struct StrokeOptions {
 impl StrokeOptions {
     /// Call this to make sure all parameters are within the allowed limits
     pub fn legalize(&mut self) {
-        self.width = self.width.abs();
-        self.offset = self.offset.clamp(-0.5, 0.5);
-        self.miter_clip = self.miter_clip.abs();
+        self.width = self.width.unwrap().abs().into();
+        self.offset = self.offset.unwrap().clamp(-0.5, 0.5).into();
+        self.miter_clip = self.miter_clip.unwrap().abs().into();
     }
 }
 
@@ -205,12 +206,12 @@ fn tangent_from_points(a: [f32; 2], b: [f32; 2]) -> ppga2d::Plane {
 /// Every "move to" command requires a new [Path].
 /// The order of the segments defines the direction of the [Path] and its clockwise or counterclockwise orientation.
 /// Filled [Path]s increment the winding counter when they are counterclockwise and decrement it when they are clockwise.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Path {
     /// If [Some] then the [Path] will be stroked otherwise (if [None]) it will be filled.
     pub stroke_options: Option<StrokeOptions>,
     /// Beginning of the [Path] (position of "move to" command).
-    pub start: [f32; 2],
+    pub start: SafeFloat<f32, 2>,
     /// Storage for all the line segments of the [Path].
     pub line_segments: Vec<LineSegment>,
     /// Storage for all the integral quadratic curve segments of the [Path].
@@ -222,66 +223,66 @@ pub struct Path {
     /// Storage for all the rational cubic curve segments of the [Path].
     pub rational_cubic_curve_segments: Vec<RationalCubicCurveSegment>,
     /// Defines how the segments of different types are interleaved.
-    pub segement_types: Vec<SegmentType>,
+    pub segment_types: Vec<SegmentType>,
 }
 
 impl Path {
     /// "line to" command
     pub fn push_line(&mut self, segment: LineSegment) {
         self.line_segments.push(segment);
-        self.segement_types.push(SegmentType::Line);
+        self.segment_types.push(SegmentType::Line);
     }
 
     /// "quadratic to" command
     pub fn push_integral_quadratic_curve(&mut self, segment: IntegralQuadraticCurveSegment) {
         self.integral_quadratic_curve_segments.push(segment);
-        self.segement_types.push(SegmentType::IntegralQuadraticCurve);
+        self.segment_types.push(SegmentType::IntegralQuadraticCurve);
     }
 
     /// "cubic to" command
     pub fn push_integral_cubic_curve(&mut self, segment: IntegralCubicCurveSegment) {
         self.integral_cubic_curve_segments.push(segment);
-        self.segement_types.push(SegmentType::IntegralCubicCurve);
+        self.segment_types.push(SegmentType::IntegralCubicCurve);
     }
 
     /// "quadratic to" command with weights
     pub fn push_rational_quadratic_curve(&mut self, segment: RationalQuadraticCurveSegment) {
         self.rational_quadratic_curve_segments.push(segment);
-        self.segement_types.push(SegmentType::RationalQuadraticCurve);
+        self.segment_types.push(SegmentType::RationalQuadraticCurve);
     }
 
     /// "cubic to" command with weights
     pub fn push_rational_cubic_curve(&mut self, segment: RationalCubicCurveSegment) {
         self.rational_cubic_curve_segments.push(segment);
-        self.segement_types.push(SegmentType::RationalCubicCurve);
+        self.segment_types.push(SegmentType::RationalCubicCurve);
     }
 
     /// Returns the current end of the [Path].
     ///
     /// Returns the `start` if the [Path] is empty (has no segments).
     pub fn get_end(&self) -> [f32; 2] {
-        match self.segement_types.last() {
+        match self.segment_types.last() {
             Some(SegmentType::Line) => {
                 let segment = self.line_segments.last().unwrap();
-                segment.control_points[0]
+                segment.control_points[0].unwrap()
             }
             Some(SegmentType::IntegralQuadraticCurve) => {
                 let segment = self.integral_quadratic_curve_segments.last().unwrap();
-                segment.control_points[1]
+                segment.control_points[1].unwrap()
             }
             Some(SegmentType::IntegralCubicCurve) => {
                 let segment = self.integral_cubic_curve_segments.last().unwrap();
-                segment.control_points[2]
+                segment.control_points[2].unwrap()
             }
             Some(SegmentType::RationalQuadraticCurve) => {
                 let segment = self.rational_quadratic_curve_segments.last().unwrap();
-                segment.control_points[1]
+                segment.control_points[1].unwrap()
             }
             Some(SegmentType::RationalCubicCurve) => {
                 let segment = self.rational_cubic_curve_segments.last().unwrap();
-                segment.control_points[2]
+                segment.control_points[2].unwrap()
             }
-            None => self.start,
+            None => self.start.unwrap(),
         }
     }
 
@@ -290,26 +291,26 @@ impl Path {
     /// Returns zero if the [Path] is empty (has no segments).
     /// Useful for arrow heads / tails.
     pub fn get_start_tangent(&self) -> ppga2d::Plane {
-        match self.segement_types.last() {
+        match self.segment_types.last() {
             Some(SegmentType::Line) => {
                 let segment = self.line_segments.last().unwrap();
-                tangent_from_points(self.start, segment.control_points[0]).signum()
+                tangent_from_points(self.start.unwrap(), segment.control_points[0].unwrap()).signum()
             }
             Some(SegmentType::IntegralQuadraticCurve) => {
                 let segment = self.integral_quadratic_curve_segments.last().unwrap();
-                tangent_from_points(self.start, segment.control_points[0]).signum()
+                tangent_from_points(self.start.unwrap(), segment.control_points[0].unwrap()).signum()
             }
             Some(SegmentType::IntegralCubicCurve) => {
                 let segment = self.integral_cubic_curve_segments.last().unwrap();
-                tangent_from_points(self.start, segment.control_points[0]).signum()
+                tangent_from_points(self.start.unwrap(), segment.control_points[0].unwrap()).signum()
             }
             Some(SegmentType::RationalQuadraticCurve) => {
                 let segment = self.rational_quadratic_curve_segments.last().unwrap();
-                tangent_from_points(self.start, segment.control_points[0]).signum()
+                tangent_from_points(self.start.unwrap(), segment.control_points[0].unwrap()).signum()
             }
             Some(SegmentType::RationalCubicCurve) => {
                 let segment = self.rational_cubic_curve_segments.last().unwrap();
-                tangent_from_points(self.start, segment.control_points[0]).signum()
+                tangent_from_points(self.start.unwrap(), segment.control_points[0].unwrap()).signum()
             }
             None => ppga2d::Plane::zero(),
         }
@@ -320,49 +321,49 @@ impl Path {
     /// Returns zero if the [Path] is empty (has no segments).
     /// Useful for arrow heads / tails.
     pub fn get_end_tangent(&self) -> ppga2d::Plane {
-        match self.segement_types.last() {
+        match self.segment_types.last() {
             Some(SegmentType::Line) => {
-                let previous_point = match self.segement_types.iter().rev().nth(1) {
+                let previous_point = match self.segment_types.iter().rev().nth(1) {
                     Some(SegmentType::Line) => {
                         let segment = self.line_segments.iter().rev().nth(1).unwrap();
-                        segment.control_points[0]
+                        segment.control_points[0].unwrap()
                     }
                     Some(SegmentType::IntegralQuadraticCurve) => {
                         let segment = self.integral_quadratic_curve_segments.last().unwrap();
-                        segment.control_points[1]
+                        segment.control_points[1].unwrap()
                     }
                     Some(SegmentType::IntegralCubicCurve) => {
                         let segment = self.integral_cubic_curve_segments.last().unwrap();
-                        segment.control_points[2]
+                        segment.control_points[2].unwrap()
                     }
                     Some(SegmentType::RationalQuadraticCurve) => {
                         let segment = self.rational_quadratic_curve_segments.last().unwrap();
-                        segment.control_points[1]
+                        segment.control_points[1].unwrap()
                     }
                     Some(SegmentType::RationalCubicCurve) => {
                         let segment = self.rational_cubic_curve_segments.last().unwrap();
-                        segment.control_points[2]
+                        segment.control_points[2].unwrap()
                     }
-                    None => self.start,
+                    None => self.start.unwrap(),
                 };
                 let segment = self.line_segments.last().unwrap();
-                tangent_from_points(previous_point, segment.control_points[0]).signum()
+                tangent_from_points(previous_point, segment.control_points[0].unwrap()).signum()
             }
             Some(SegmentType::IntegralQuadraticCurve) => {
                 let segment = self.integral_quadratic_curve_segments.last().unwrap();
-                tangent_from_points(segment.control_points[0], segment.control_points[1]).signum()
+                tangent_from_points(segment.control_points[0].unwrap(), segment.control_points[1].unwrap()).signum()
             }
             Some(SegmentType::IntegralCubicCurve) => {
                 let segment = self.integral_cubic_curve_segments.last().unwrap();
-                tangent_from_points(segment.control_points[1], segment.control_points[2]).signum()
+                tangent_from_points(segment.control_points[1].unwrap(), segment.control_points[2].unwrap()).signum()
             }
             Some(SegmentType::RationalQuadraticCurve) => {
                 let segment = self.rational_quadratic_curve_segments.last().unwrap();
-                tangent_from_points(segment.control_points[0], segment.control_points[1]).signum()
+                tangent_from_points(segment.control_points[0].unwrap(), segment.control_points[1].unwrap()).signum()
             }
             Some(SegmentType::RationalCubicCurve) => {
                 let segment = self.rational_cubic_curve_segments.last().unwrap();
-                tangent_from_points(segment.control_points[1], segment.control_points[2]).signum()
+                tangent_from_points(segment.control_points[1].unwrap(), segment.control_points[2].unwrap()).signum()
             }
             None => ppga2d::Plane::zero(),
         }
@@ -381,57 +382,53 @@ impl Path {
 
     /// Transforms all control points of the [Path] (including the `start` and all segments).
     pub fn transform(&mut self, scalator: &ppga2d::Scalar, motor: &ppga2d::Motor) {
-        let transformator = [
-            motor.transformation(ppga2d::Point { g0: [1.0, 0.0, 0.0].into() }),
-            motor.transformation(ppga2d::Point {
-                g0: [0.0, scalator.g0, 0.0].into(),
-            }),
-            motor.transformation(ppga2d::Point {
-                g0: [0.0, 0.0, scalator.g0].into(),
-            }),
-        ];
-        fn transform_point(transformator: &[ppga2d::Point; 3], p: [f32; 2]) -> [f32; 2] {
+        let mut transform = motor2d_to_mat3(motor);
+        transform[0].g0[0] *= scalator.g0;
+        transform[1].g0[1] *= scalator.g0;
+        fn transform_point(transform: &[ppga2d::Point; 3], p: SafeFloat<f32, 2>) -> SafeFloat<f32, 2> {
+            let p = p.unwrap();
             [
-                transformator[0].g0[1] + p[0] * transformator[1].g0[1] + p[1] * transformator[2].g0[1],
-                transformator[0].g0[2] + p[0] * transformator[1].g0[2] + p[1] * transformator[2].g0[2],
+                transform[2].g0[0] + p[0] * transform[0].g0[0] + p[1] * transform[1].g0[0],
+                transform[2].g0[1] + p[0] * transform[0].g0[1] + p[1] * transform[1].g0[1],
             ]
+            .into()
         }
-        self.start = transform_point(&transformator, self.start);
+        self.start = transform_point(&transform, self.start);
         let mut line_segment_iter = self.line_segments.iter_mut();
         let mut integral_quadratic_curve_segment_iter = self.integral_quadratic_curve_segments.iter_mut();
         let mut integral_cubic_curve_segment_iter = self.integral_cubic_curve_segments.iter_mut();
         let mut rational_quadratic_curve_segment_iter = self.rational_quadratic_curve_segments.iter_mut();
         let mut rational_cubic_curve_segment_iter = self.rational_cubic_curve_segments.iter_mut();
-        for segement_type in &mut self.segement_types {
-            match *segement_type {
+        for segment_type in &mut self.segment_types {
+            match *segment_type {
                 SegmentType::Line => {
                     let segment = line_segment_iter.next().unwrap();
                     for control_point in &mut segment.control_points {
-                        *control_point = transform_point(&transformator, *control_point);
+                        *control_point = transform_point(&transform, *control_point);
                     }
                 }
                 SegmentType::IntegralQuadraticCurve => {
                     let segment = integral_quadratic_curve_segment_iter.next().unwrap();
                     for control_point in &mut segment.control_points {
-                        *control_point = transform_point(&transformator, *control_point);
+                        *control_point = transform_point(&transform, *control_point);
                     }
                 }
                 SegmentType::IntegralCubicCurve => {
                     let segment = integral_cubic_curve_segment_iter.next().unwrap();
                     for control_point in &mut segment.control_points {
-                        *control_point = transform_point(&transformator, *control_point);
+                        *control_point = transform_point(&transform, *control_point);
                     }
                 }
                 SegmentType::RationalQuadraticCurve => {
                     let segment = rational_quadratic_curve_segment_iter.next().unwrap();
                     for control_point in &mut segment.control_points {
-                        *control_point = transform_point(&transformator, *control_point);
+                        *control_point = transform_point(&transform, *control_point);
                     }
                 }
                 SegmentType::RationalCubicCurve => {
                     let segment = rational_cubic_curve_segment_iter.next().unwrap();
                     for control_point in &mut segment.control_points {
-                        *control_point = transform_point(&transformator, *control_point);
+                        *control_point = transform_point(&transform, *control_point);
                     }
                 }
             }
@@ -449,8 +446,8 @@ impl Path {
         let mut integral_cubic_curve_segment_iter = self.integral_cubic_curve_segments.iter_mut();
         let mut rational_quadratic_curve_segment_iter = self.rational_quadratic_curve_segments.iter_mut();
         let mut rational_cubic_curve_segment_iter = self.rational_cubic_curve_segments.iter_mut();
-        for segement_type in &mut self.segement_types {
-            match *segement_type {
+        for segment_type in &mut self.segment_types {
+            match *segment_type {
                 SegmentType::Line => {
                     let segment = line_segment_iter.next().unwrap();
                     std::mem::swap(&mut previous_control_point, &mut segment.control_points[0]);
@@ -470,14 +467,16 @@ impl Path {
                 }
                 SegmentType::RationalCubicCurve => {
                     let segment = rational_cubic_curve_segment_iter.next().unwrap();
-                    segment.weights.reverse();
+                    let mut weights = segment.weights.unwrap();
+                    weights.reverse();
+                    segment.weights = weights.into();
                     segment.control_points.swap(0, 1);
                     std::mem::swap(&mut previous_control_point, &mut segment.control_points[2]);
                 }
             }
         }
         self.start = previous_control_point;
-        self.segement_types.reverse();
+        self.segment_types.reverse();
         self.line_segments.reverse();
         self.integral_quadratic_curve_segments.reverse();
         self.integral_cubic_curve_segments.reverse();
@@ -492,32 +491,32 @@ impl Path {
         let mut integral_cubic_curve_segment_iter = self.integral_cubic_curve_segments.iter();
         let mut rational_quadratic_curve_segment_index = 0;
         let mut rational_cubic_curve_segment_index = 0;
-        for segement_type in &mut self.segement_types {
-            match *segement_type {
+        for segment_type in &mut self.segment_types {
+            match *segment_type {
                 SegmentType::Line => {}
                 SegmentType::IntegralQuadraticCurve => {
                     let segment = integral_quadratic_curve_segment_iter.next().unwrap();
                     self.rational_quadratic_curve_segments.insert(
                         rational_quadratic_curve_segment_index,
                         RationalQuadraticCurveSegment {
-                            weight: 1.0,
+                            weight: 1.0.into(),
                             control_points: segment.control_points,
                         },
                     );
                     rational_quadratic_curve_segment_index += 1;
-                    *segement_type = SegmentType::RationalQuadraticCurve;
+                    *segment_type = SegmentType::RationalQuadraticCurve;
                 }
                 SegmentType::IntegralCubicCurve => {
                     let segment = integral_cubic_curve_segment_iter.next().unwrap();
                     self.rational_cubic_curve_segments.insert(
                         rational_cubic_curve_segment_index,
                         RationalCubicCurveSegment {
-                            weights: [1.0, 1.0, 1.0, 1.0],
+                            weights: [1.0, 1.0, 1.0, 1.0].into(),
                             control_points: segment.control_points,
                         },
                     );
                     rational_cubic_curve_segment_index += 1;
-                    *segement_type = SegmentType::RationalCubicCurve;
+                    *segment_type = SegmentType::RationalCubicCurve;
                 }
                 SegmentType::RationalQuadraticCurve => {
                     rational_quadratic_curve_segment_index += 1;
@@ -539,45 +538,49 @@ impl Path {
         let mut integral_cubic_curve_segment_index = 0;
         let mut rational_quadratic_curve_segment_iter = self.rational_quadratic_curve_segments.iter();
         let mut rational_cubic_curve_segment_index = 0;
-        let mut previous_control_point = self.start;
-        for segement_type in &mut self.segement_types {
-            match *segement_type {
+        let mut previous_control_point = self.start.unwrap();
+        for segment_type in &mut self.segment_types {
+            match *segment_type {
                 SegmentType::Line => {
                     let segment = line_segment_iter.next().unwrap();
-                    previous_control_point = segment.control_points[0];
+                    previous_control_point = segment.control_points[0].unwrap();
                 }
                 SegmentType::IntegralQuadraticCurve => {
                     let segment = integral_quadratic_curve_segment_iter.next().unwrap();
+                    let control_point_a = segment.control_points[0].unwrap();
+                    let control_point_b = segment.control_points[1].unwrap();
                     self.integral_cubic_curve_segments.insert(
                         integral_cubic_curve_segment_index,
                         IntegralCubicCurveSegment {
                             control_points: [
                                 [
-                                    previous_control_point[0] + (segment.control_points[0][0] - previous_control_point[0]) * 2.0 / 3.0,
-                                    previous_control_point[1] + (segment.control_points[0][1] - previous_control_point[1]) * 2.0 / 3.0,
-                                ],
+                                    previous_control_point[0] + (control_point_a[0] - previous_control_point[0]) * 2.0 / 3.0,
+                                    previous_control_point[1] + (control_point_a[1] - previous_control_point[1]) * 2.0 / 3.0,
+                                ]
+                                .into(),
                                 [
-                                    segment.control_points[1][0] + (segment.control_points[0][0] - segment.control_points[1][0]) * 2.0 / 3.0,
-                                    segment.control_points[1][1] + (segment.control_points[0][1] - segment.control_points[1][1]) * 2.0 / 3.0,
-                                ],
+                                    control_point_b[0] + (control_point_a[0] - control_point_b[0]) * 2.0 / 3.0,
+                                    control_point_b[1] + (control_point_a[1] - control_point_b[1]) * 2.0 / 3.0,
+                                ]
+                                .into(),
                                 segment.control_points[1],
                             ],
                         },
                     );
                     integral_cubic_curve_segment_index += 1;
-                    *segement_type = SegmentType::IntegralCubicCurve;
-                    previous_control_point = segment.control_points[1];
+                    *segment_type = SegmentType::IntegralCubicCurve;
+                    previous_control_point = segment.control_points[1].unwrap();
                 }
                 SegmentType::IntegralCubicCurve => {
-                    previous_control_point = self.integral_cubic_curve_segments[integral_cubic_curve_segment_index].control_points[2];
+                    previous_control_point = self.integral_cubic_curve_segments[integral_cubic_curve_segment_index].control_points[2].unwrap();
                     integral_cubic_curve_segment_index += 1;
                 }
                 SegmentType::RationalQuadraticCurve => {
                     let segment = rational_quadratic_curve_segment_iter.next().unwrap();
                     let control_points = [
                         vec_to_point(previous_control_point),
-                        weighted_vec_to_point(segment.weight, segment.control_points[0]),
-                        vec_to_point(segment.control_points[1]),
+                        weighted_vec_to_point(segment.weight.unwrap(), segment.control_points[0].unwrap()),
+                        vec_to_point(segment.control_points[1].unwrap()),
                     ];
                     let new_control_points = [
                         control_points[0] + (control_points[1] - control_points[0]) * ppga2d::Scalar { g0: 2.0 / 3.0 },
@@ -586,20 +589,20 @@ impl Path {
                     self.rational_cubic_curve_segments.insert(
                         rational_cubic_curve_segment_index,
                         RationalCubicCurveSegment {
-                            weights: [1.0, new_control_points[0].g0[0], new_control_points[1].g0[0], 1.0],
+                            weights: [1.0, new_control_points[0].g0[0], new_control_points[1].g0[0], 1.0].into(),
                             control_points: [
-                                point_to_vec(new_control_points[0]),
-                                point_to_vec(new_control_points[1]),
+                                point_to_vec(new_control_points[0]).into(),
+                                point_to_vec(new_control_points[1]).into(),
                                 segment.control_points[1],
                             ],
                         },
                     );
                     rational_cubic_curve_segment_index += 1;
-                    *segement_type = SegmentType::RationalCubicCurve;
-                    previous_control_point = segment.control_points[1];
+                    *segment_type = SegmentType::RationalCubicCurve;
+                    previous_control_point = segment.control_points[1].unwrap();
                 }
                 SegmentType::RationalCubicCurve => {
-                    previous_control_point = self.rational_cubic_curve_segments[rational_cubic_curve_segment_index].control_points[2];
+                    previous_control_point = self.rational_cubic_curve_segments[rational_cubic_curve_segment_index].control_points[2].unwrap();
                     rational_cubic_curve_segment_index += 1;
                 }
             }
@@ -613,7 +616,7 @@ impl Path {
     /// A filled [Path] or a closed stroked [Path] already has an implicit [LineSegment] at the end.
     /// But this method can still be useful for reversing a closed stroked [Path] when the start and end should stay at the same location.
     pub fn close(&mut self) {
-        if tangent_from_points(self.start, self.get_end()).squared_magnitude().g0 <= ERROR_MARGIN {
+        if tangent_from_points(self.start.unwrap(), self.get_end()).squared_magnitude().g0 <= ERROR_MARGIN {
             return;
         }
         self.push_line(LineSegment {
@@ -625,15 +628,15 @@ impl Path {
     pub fn push_arc(&mut self, tangent_crossing: [f32; 2], to: [f32; 2]) {
         let inner_product = tangent_from_points(tangent_crossing, self.get_end()).inner_product(tangent_from_points(tangent_crossing, to));
         self.push_rational_quadratic_curve(RationalQuadraticCurveSegment {
-            weight: (inner_product.g0.acos() * 0.5).sin(),
-            control_points: [tangent_crossing, to],
+            weight: (inner_product.g0.acos() * 0.5).sin().into(),
+            control_points: [tangent_crossing.into(), to.into()],
         });
     }
 
     fn push_quarter_ellipse(&mut self, tangent_crossing: [f32; 2], to: [f32; 2]) {
         self.push_rational_quadratic_curve(RationalQuadraticCurveSegment {
-            weight: std::f32::consts::FRAC_1_SQRT_2,
-            control_points: [tangent_crossing, to],
+            weight: std::f32::consts::FRAC_1_SQRT_2.into(),
+            control_points: [tangent_crossing.into(), to.into()],
         });
     }
 
@@ -641,12 +644,12 @@ impl Path {
     pub fn from_polygon(vertices: &[[f32; 2]]) -> Self {
         let mut vertices = vertices.iter();
         let mut result = Path {
-            start: *vertices.next().unwrap(),
+            start: vertices.next().unwrap().into(),
             ..Path::default()
         };
         for control_point in vertices {
             result.push_line(LineSegment {
-                control_points: [*control_point],
+                control_points: [control_point.into()],
             });
         }
         result
@@ -697,11 +700,13 @@ impl Path {
             ),
         ];
         let mut result = Path {
-            start: vertices[3].2,
+            start: vertices[3].2.into(),
             ..Path::default()
         };
         for (from, corner, to) in &vertices {
-            result.push_line(LineSegment { control_points: [*from] });
+            result.push_line(LineSegment {
+                control_points: [from.into()],
+            });
             result.push_quarter_ellipse(*corner, *to);
         }
         result
@@ -728,7 +733,7 @@ impl Path {
             ),
         ];
         let mut result = Path {
-            start: vertices[3].1,
+            start: vertices[3].1.into(),
             ..Path::default()
         };
         for (corner, to) in &vertices {

@@ -11,22 +11,24 @@ struct OutlineBuilder {
 
 impl ttf_parser::OutlineBuilder for OutlineBuilder {
     fn move_to(&mut self, x: f32, y: f32) {
-        self.path.start = [x, y];
+        self.path.start = [x, y].into();
     }
 
     fn line_to(&mut self, x: f32, y: f32) {
-        self.path.push_line(LineSegment { control_points: [[x, y]] });
+        self.path.push_line(LineSegment {
+            control_points: [[x, y].into()],
+        });
     }
 
     fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
         self.path.push_integral_quadratic_curve(IntegralQuadraticCurveSegment {
-            control_points: [[x1, y1], [x, y]],
+            control_points: [[x1, y1].into(), [x, y].into()],
         });
     }
 
     fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
         self.path.push_integral_cubic_curve(IntegralCubicCurveSegment {
-            control_points: [[x1, y1], [x2, y2], [x, y]],
+            control_points: [[x1, y1].into(), [x2, y2].into(), [x, y].into()],
         });
     }
 

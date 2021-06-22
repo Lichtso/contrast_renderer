@@ -9,6 +9,7 @@ mod fill;
 pub mod path;
 pub mod polynomial;
 pub mod renderer;
+pub mod safe_float;
 mod stroke;
 #[cfg(feature = "text")]
 pub mod text;

@@ -4,11 +4,15 @@ use crate::{
     error::Error,
     fill::FillBuilder,
     path::{DynamicStrokeOptions, Path, MAX_DASH_INTERVALS},
+    safe_float::SafeFloat,
     stroke::StrokeBuilder,
     utils::{transmute_slice, transmute_vec},
     vertex::{triangle_fan_to_strip, Vertex0, Vertex2f, Vertex3f, Vertex4f},
 };
 use wgpu::{include_wgsl, util::DeviceExt, vertex_attr_array};
+
+/// Color used in [Renderer::set_solid_color]
+pub type Color = SafeFloat<f32, 4>;
 
 #[derive(Default, Clone)]
 #[repr(C)]
@@ -32,12 +36,12 @@ fn convert_dynamic_stroke_options(dynamic_stroke_options: &DynamicStrokeOptions)
                 gap_end: [0.0; MAX_DASH_INTERVALS],
                 caps: 0,
                 meta: ((pattern.len() as u32 - 1) << 3) | 4 | *join as u32,
-                phase: *phase,
+                phase: phase.unwrap(),
                 _padding: 0,
             };
             for (i, dash_interval) in pattern.iter().enumerate() {
-                result.gap_start[i] = dash_interval.gap_start;
-                result.gap_end[i] = dash_interval.gap_end;
+                result.gap_start[i] = dash_interval.gap_start.unwrap();
+                result.gap_end[i] = dash_interval.gap_end.unwrap();
                 result.caps |= (dash_interval.dash_start as u32) << (((i + pattern.len() - 1) % pattern.len()) * 8);
                 result.caps |= (dash_interval.dash_end as u32) << (i * 8 + 4);
             }
@@ -204,17 +208,21 @@ impl Shape {
                 );
             }
         }
-        render_pass.set_pipeline(&renderer.fill_solid_pipeline);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(self.vertex_offsets[1] as u64..self.vertex_offsets[2] as u64));
-        render_pass.set_index_buffer(
-            self.index_buffer.slice(self.index_offsets[1] as u64..self.index_offsets[2] as u64),
-            wgpu::IndexFormat::Uint16,
-        );
-        render_pass.draw_indexed(
-            0..((self.index_offsets[2] - self.index_offsets[1]) / std::mem::size_of::<u16>()) as u32,
-            0,
-            0..1,
-        );
+        let begin_offset = self.vertex_offsets[1];
+        let end_offset = self.vertex_offsets[2];
+        if begin_offset < end_offset {
+            render_pass.set_pipeline(&renderer.fill_solid_pipeline);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
+            render_pass.set_index_buffer(
+                self.index_buffer.slice(self.index_offsets[1] as u64..self.index_offsets[2] as u64),
+                wgpu::IndexFormat::Uint16,
+            );
+            render_pass.draw_indexed(
+                0..((self.index_offsets[2] - self.index_offsets[1]) / std::mem::size_of::<u16>()) as u32,
+                0,
+                0..1,
+            );
+        }
         for (i, (pipeline, vertex_size)) in [
             (&renderer.fill_integral_quadratic_curve_pipeline, std::mem::size_of::<Vertex2f>()),
             (&renderer.fill_integral_cubic_curve_pipeline, std::mem::size_of::<Vertex3f>()),
@@ -639,10 +647,10 @@ impl Renderer {
         ));
 
         const COLOR_SOLID_UNIFORM_BUFFER_SIZE: usize = std::mem::size_of::<[f32; 4]>();
-        let color_solid_uniform_data: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+        let color_solid_uniform_data = Color::from([1.0; 4]);
         let color_solid_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: transmute_slice(&color_solid_uniform_data),
+            contents: transmute_slice(&color_solid_uniform_data.unwrap()),
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
         });
         let color_solid_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -725,8 +733,9 @@ impl Renderer {
     /// Set the color of subsequent [Shape::render_color_solid] calls.
     ///
     /// Call before creating the next [wgpu::RenderPass].
-    pub fn set_solid_color(&self, queue: &wgpu::Queue, color: &[f32; 4]) {
-        let data = transmute_slice(color);
+    pub fn set_solid_color(&self, queue: &wgpu::Queue, color: Color) {
+        let color = color.unwrap();
+        let data = transmute_slice(&color);
         queue.write_buffer(&self.color_solid_uniform_buffer, 0, &data);
     }
 }

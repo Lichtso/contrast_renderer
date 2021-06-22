@@ -7,8 +7,9 @@ use crate::{
     },
     error::{Error, ERROR_MARGIN},
     path::{CurveApproximation, Path, SegmentType, StrokeOptions},
+    safe_float::SafeFloat,
     utils::{line_line_intersection, point_to_vec, rotate_90_degree_clockwise, vec_to_point, weighted_vec_to_point},
-    vertex::{Vertex0, Vertex2f1i, Vertex3f1i},
+    vertex::{Vertex2f1i, Vertex3f1i},
 };
 use geometric_algebra::{ppga2d, Dual, GeometricProduct, InnerProduct, Magnitude, OuterProduct, RegressiveProduct, Signum, SquaredMagnitude, Zero};
 
@@ -31,26 +32,26 @@ fn emit_stroke_vertices(
     point: ppga2d::Point,
     tangent: ppga2d::Plane,
 ) {
-    let offset_along_path = length_accumulator / stroke_options.width;
+    let offset_along_path = length_accumulator / stroke_options.width.unwrap();
     emit_stroke_vertex(
         &mut builder.path_line_vertices,
         path_index,
         offset_along_path,
-        offset_control_point(point, tangent, (stroke_options.offset - 0.5) * stroke_options.width),
+        offset_control_point(point, tangent, (stroke_options.offset.unwrap() - 0.5) * stroke_options.width.unwrap()),
         -0.5,
     );
     emit_stroke_vertex(
         &mut builder.path_line_vertices,
         path_index,
         offset_along_path,
-        offset_control_point(point, tangent, (stroke_options.offset + 0.5) * stroke_options.width),
+        offset_control_point(point, tangent, (stroke_options.offset.unwrap() + 0.5) * stroke_options.width.unwrap()),
         0.5,
     );
 }
 
 fn emit_stroke_join(
     builder: &mut StrokeBuilder,
-    proto_hull: &mut Vec<Vertex0>,
+    proto_hull: &mut Vec<SafeFloat<f32, 2>>,
     stroke_options: &StrokeOptions,
     length_accumulator: &mut f32,
     control_point: ppga2d::Point,
@@ -62,8 +63,8 @@ fn emit_stroke_join(
         return;
     }
     let side_sign = previous_tangent.outer_product(next_tangent).g0[0].signum();
-    let miter_clip = stroke_options.width * stroke_options.miter_clip;
-    let side_offset = (stroke_options.offset - side_sign * 0.5) * stroke_options.width;
+    let miter_clip = stroke_options.width.unwrap() * stroke_options.miter_clip.unwrap();
+    let side_offset = (stroke_options.offset.unwrap() - side_sign * 0.5) * stroke_options.width.unwrap();
     let previous_edge_vertex = offset_control_point(control_point, previous_tangent, side_offset);
     let next_edge_vertex = offset_control_point(control_point, next_tangent, side_offset);
     let previous_edge_tangent: ppga2d::Plane = previous_tangent
@@ -84,14 +85,17 @@ fn emit_stroke_join(
         let clipping_plane: ppga2d::Plane = mid_tangent.inner_product(clipping_vertex).geometric_product(clipping_vertex).into();
         vertices[3] = line_line_intersection(previous_edge_tangent, clipping_plane);
         vertices[4] = line_line_intersection(clipping_plane, next_edge_tangent);
-        proto_hull.push(point_to_vec(vertices[3]));
-        proto_hull.push(point_to_vec(vertices[4]));
+        proto_hull.push(point_to_vec(vertices[3]).into());
+        proto_hull.push(point_to_vec(vertices[4]).into());
     } else {
-        proto_hull.push(point_to_vec(vertices[3]));
+        proto_hull.push(point_to_vec(vertices[3]).into());
     }
-    let scaled_tangent = previous_tangent / ppga2d::Scalar { g0: -stroke_options.width };
+    let scaled_tangent = previous_tangent
+        / ppga2d::Scalar {
+            g0: -stroke_options.width.unwrap(),
+        };
     let start_index = builder.joint_vertices.len();
-    let offset_along_path = *length_accumulator / stroke_options.width;
+    let offset_along_path = *length_accumulator / stroke_options.width.unwrap();
     for vertex in vertices.iter() {
         builder.joint_vertices.push(Vertex3f1i(
             point_to_vec(*vertex),
@@ -106,7 +110,7 @@ fn emit_stroke_join(
     let mut indices: Vec<u16> = (start_index as u16..(builder.joint_vertices.len() + 1) as u16).collect();
     *indices.iter_mut().last().unwrap() = (-1isize) as u16;
     builder.joint_indices.append(&mut indices);
-    *length_accumulator += tangets_dot_product.acos() / (std::f32::consts::PI * 2.0) * stroke_options.width;
+    *length_accumulator += tangets_dot_product.acos() / (std::f32::consts::PI * 2.0) * stroke_options.width.unwrap();
     cut_stroke_polygon(builder, proto_hull);
     emit_stroke_vertices(
         builder,
@@ -118,9 +122,9 @@ fn emit_stroke_join(
     );
 }
 
-fn cut_stroke_polygon(builder: &mut StrokeBuilder, proto_hull: &mut Vec<Vertex0>) {
+fn cut_stroke_polygon(builder: &mut StrokeBuilder, proto_hull: &mut Vec<SafeFloat<f32, 2>>) {
     if !builder.path_line_vertices.is_empty() {
-        proto_hull.append(&mut builder.path_line_vertices.iter().map(|vertex| vertex.0).collect());
+        proto_hull.append(&mut builder.path_line_vertices.iter().map(|vertex| vertex.0.into()).collect());
         let start_index = builder.line_vertices.len();
         builder.line_vertices.append(&mut builder.path_line_vertices);
         let mut indices: Vec<u16> = (start_index as u16..(builder.line_vertices.len() + 1) as u16).collect();
@@ -175,9 +179,9 @@ pub struct StrokeBuilder {
 }
 
 impl StrokeBuilder {
-    pub fn add_path(&mut self, proto_hull: &mut Vec<Vertex0>, path: &Path) -> Result<(), Error> {
+    pub fn add_path(&mut self, proto_hull: &mut Vec<SafeFloat<f32, 2>>, path: &Path) -> Result<(), Error> {
         let stroke_options = path.stroke_options.as_ref().unwrap();
-        let mut previous_control_point = vec_to_point(path.start);
+        let mut previous_control_point = vec_to_point(path.start.unwrap());
         let mut first_tangent = ppga2d::Plane::zero();
         let mut previous_tangent = ppga2d::Plane::zero();
         let mut line_segment_iter = path.line_segments.iter();
@@ -186,48 +190,56 @@ impl StrokeBuilder {
         let mut rational_quadratic_curve_segment_iter = path.rational_quadratic_curve_segments.iter().peekable();
         let mut rational_cubic_curve_segment_iter = path.rational_cubic_curve_segments.iter().peekable();
         let mut length_accumulator = 0.0;
-        for (i, segement_type) in path.segement_types.iter().enumerate() {
+        for (i, segment_type) in path.segment_types.iter().enumerate() {
             let next_control_point;
             let segment_start_tangent;
             let segment_end_tangent;
-            match segement_type {
+            match segment_type {
                 SegmentType::Line => {
                     let segment = line_segment_iter.next().unwrap();
-                    next_control_point = vec_to_point(segment.control_points[0]);
+                    next_control_point = vec_to_point(segment.control_points[0].unwrap());
                     segment_start_tangent = previous_control_point.regressive_product(next_control_point).signum();
                     segment_end_tangent = segment_start_tangent;
                 }
                 SegmentType::IntegralQuadraticCurve => {
                     let segment = integral_quadratic_curve_segment_iter.peek().unwrap();
-                    next_control_point = vec_to_point(segment.control_points[1]);
+                    next_control_point = vec_to_point(segment.control_points[1].unwrap());
                     segment_start_tangent = previous_control_point
-                        .regressive_product(vec_to_point(segment.control_points[0]))
+                        .regressive_product(vec_to_point(segment.control_points[0].unwrap()))
                         .signum();
-                    segment_end_tangent = vec_to_point(segment.control_points[0]).regressive_product(next_control_point).signum();
+                    segment_end_tangent = vec_to_point(segment.control_points[0].unwrap())
+                        .regressive_product(next_control_point)
+                        .signum();
                 }
                 SegmentType::IntegralCubicCurve => {
                     let segment = integral_cubic_curve_segment_iter.peek().unwrap();
-                    next_control_point = vec_to_point(segment.control_points[2]);
+                    next_control_point = vec_to_point(segment.control_points[2].unwrap());
                     segment_start_tangent = previous_control_point
-                        .regressive_product(vec_to_point(segment.control_points[0]))
+                        .regressive_product(vec_to_point(segment.control_points[0].unwrap()))
                         .signum();
-                    segment_end_tangent = vec_to_point(segment.control_points[1]).regressive_product(next_control_point).signum();
+                    segment_end_tangent = vec_to_point(segment.control_points[1].unwrap())
+                        .regressive_product(next_control_point)
+                        .signum();
                 }
                 SegmentType::RationalQuadraticCurve => {
                     let segment = rational_quadratic_curve_segment_iter.peek().unwrap();
-                    next_control_point = vec_to_point(segment.control_points[1]);
+                    next_control_point = vec_to_point(segment.control_points[1].unwrap());
                     segment_start_tangent = previous_control_point
-                        .regressive_product(vec_to_point(segment.control_points[0]))
+                        .regressive_product(vec_to_point(segment.control_points[0].unwrap()))
                         .signum();
-                    segment_end_tangent = vec_to_point(segment.control_points[0]).regressive_product(next_control_point).signum();
+                    segment_end_tangent = vec_to_point(segment.control_points[0].unwrap())
+                        .regressive_product(next_control_point)
+                        .signum();
                 }
                 SegmentType::RationalCubicCurve => {
                     let segment = rational_cubic_curve_segment_iter.peek().unwrap();
-                    next_control_point = vec_to_point(segment.control_points[2]);
+                    next_control_point = vec_to_point(segment.control_points[2].unwrap());
                     segment_start_tangent = previous_control_point
-                        .regressive_product(vec_to_point(segment.control_points[0]))
+                        .regressive_product(vec_to_point(segment.control_points[0].unwrap()))
                         .signum();
-                    segment_end_tangent = vec_to_point(segment.control_points[1]).regressive_product(next_control_point).signum();
+                    segment_end_tangent = vec_to_point(segment.control_points[1].unwrap())
+                        .regressive_product(next_control_point)
+                        .signum();
                 }
             }
             if i == 0 {
@@ -238,12 +250,12 @@ impl StrokeBuilder {
                         self,
                         &stroke_options,
                         stroke_options.dynamic_stroke_options_group,
-                        length_accumulator - 0.5 * stroke_options.width,
-                        offset_control_point(previous_control_point, normal, 0.5 * stroke_options.width.abs()),
+                        length_accumulator - 0.5 * stroke_options.width.unwrap(),
+                        offset_control_point(previous_control_point, normal, 0.5 * stroke_options.width.unwrap().abs()),
                         segment_start_tangent,
                     );
                 }
-                if stroke_options.closed || *segement_type != SegmentType::Line {
+                if stroke_options.closed || *segment_type != SegmentType::Line {
                     emit_stroke_vertices(
                         self,
                         &stroke_options,
@@ -264,7 +276,7 @@ impl StrokeBuilder {
                     segment_start_tangent,
                 );
             }
-            match segement_type {
+            match segment_type {
                 SegmentType::Line => {
                     length_accumulator += previous_control_point.regressive_product(next_control_point).magnitude().g0;
                     emit_stroke_vertices(
@@ -280,8 +292,8 @@ impl StrokeBuilder {
                     let segment = integral_quadratic_curve_segment_iter.next().unwrap();
                     let power_basis = rational_quadratic_control_points_to_power_basis(&[
                         previous_control_point,
-                        vec_to_point(segment.control_points[0]),
-                        vec_to_point(segment.control_points[1]),
+                        vec_to_point(segment.control_points[0].unwrap()),
+                        vec_to_point(segment.control_points[1].unwrap()),
                     ]);
                     emit_curve_stroke!(
                         self,
@@ -290,7 +302,7 @@ impl StrokeBuilder {
                         previous_control_point,
                         power_basis,
                         angle_step,
-                        integral_quadratic_uniform_tangent_angle(&power_basis, segment_start_tangent, segment_end_tangent, angle_step),
+                        integral_quadratic_uniform_tangent_angle(&power_basis, segment_start_tangent, segment_end_tangent, angle_step.unwrap()),
                         rational_quadratic_point,
                         rational_quadratic_first_order_derivative,
                     );
@@ -299,9 +311,9 @@ impl StrokeBuilder {
                     let segment = integral_cubic_curve_segment_iter.next().unwrap();
                     let power_basis = rational_cubic_control_points_to_power_basis(&[
                         previous_control_point,
-                        vec_to_point(segment.control_points[0]),
-                        vec_to_point(segment.control_points[1]),
-                        vec_to_point(segment.control_points[2]),
+                        vec_to_point(segment.control_points[0].unwrap()),
+                        vec_to_point(segment.control_points[1].unwrap()),
+                        vec_to_point(segment.control_points[2].unwrap()),
                     ]);
                     emit_curve_stroke!(
                         self,
@@ -310,7 +322,7 @@ impl StrokeBuilder {
                         previous_control_point,
                         power_basis,
                         angle_step,
-                        integral_cubic_uniform_tangent_angle(&power_basis, angle_step),
+                        integral_cubic_uniform_tangent_angle(&power_basis, angle_step.unwrap()),
                         rational_cubic_point,
                         rational_cubic_first_order_derivative,
                     );
@@ -319,8 +331,8 @@ impl StrokeBuilder {
                     let segment = rational_quadratic_curve_segment_iter.next().unwrap();
                     let power_basis = rational_quadratic_control_points_to_power_basis(&[
                         previous_control_point,
-                        weighted_vec_to_point(segment.weight, segment.control_points[0]),
-                        vec_to_point(segment.control_points[1]),
+                        weighted_vec_to_point(segment.weight.unwrap(), segment.control_points[0].unwrap()),
+                        vec_to_point(segment.control_points[1].unwrap()),
                     ]);
                     emit_curve_stroke!(
                         self,
@@ -329,18 +341,19 @@ impl StrokeBuilder {
                         previous_control_point,
                         power_basis,
                         angle_step,
-                        rational_quadratic_uniform_tangent_angle(&power_basis, segment_start_tangent, segment_end_tangent, angle_step),
+                        rational_quadratic_uniform_tangent_angle(&power_basis, segment_start_tangent, segment_end_tangent, angle_step.unwrap()),
                         rational_quadratic_point,
                         rational_quadratic_first_order_derivative,
                     );
                 }
                 SegmentType::RationalCubicCurve => {
                     let segment = rational_cubic_curve_segment_iter.next().unwrap();
+                    let weights = segment.weights.unwrap();
                     let power_basis = rational_cubic_control_points_to_power_basis(&[
-                        weighted_vec_to_point(segment.weights[0], point_to_vec(previous_control_point)),
-                        weighted_vec_to_point(segment.weights[1], segment.control_points[0]),
-                        weighted_vec_to_point(segment.weights[2], segment.control_points[1]),
-                        weighted_vec_to_point(segment.weights[3], segment.control_points[2]),
+                        weighted_vec_to_point(weights[0], point_to_vec(previous_control_point)),
+                        weighted_vec_to_point(weights[1], segment.control_points[0].unwrap()),
+                        weighted_vec_to_point(weights[2], segment.control_points[1].unwrap()),
+                        weighted_vec_to_point(weights[3], segment.control_points[2].unwrap()),
                     ]);
                     emit_curve_stroke!(
                         self,
@@ -349,7 +362,7 @@ impl StrokeBuilder {
                         previous_control_point,
                         power_basis,
                         angle_step,
-                        rational_cubic_uniform_tangent_angle(&power_basis, angle_step),
+                        rational_cubic_uniform_tangent_angle(&power_basis, angle_step.unwrap()),
                         rational_cubic_point,
                         rational_cubic_first_order_derivative,
                     );
@@ -359,7 +372,7 @@ impl StrokeBuilder {
             previous_tangent = segment_end_tangent;
         }
         if stroke_options.closed {
-            let line_segment = previous_control_point.regressive_product(vec_to_point(path.start));
+            let line_segment = previous_control_point.regressive_product(vec_to_point(path.start.unwrap()));
             let length = line_segment.magnitude();
             if length.g0 > 0.0 {
                 let segment_tangent = line_segment / length;
@@ -378,7 +391,7 @@ impl StrokeBuilder {
                     &stroke_options,
                     stroke_options.dynamic_stroke_options_group,
                     length_accumulator,
-                    vec_to_point(path.start),
+                    vec_to_point(path.start.unwrap()),
                     segment_tangent,
                 );
                 emit_stroke_join(
@@ -386,7 +399,7 @@ impl StrokeBuilder {
                     proto_hull,
                     &stroke_options,
                     &mut length_accumulator,
-                    vec_to_point(path.start),
+                    vec_to_point(path.start.unwrap()),
                     segment_tangent,
                     first_tangent,
                 );
@@ -396,7 +409,7 @@ impl StrokeBuilder {
                     proto_hull,
                     &stroke_options,
                     &mut length_accumulator,
-                    vec_to_point(path.start),
+                    vec_to_point(path.start.unwrap()),
                     previous_tangent,
                     first_tangent,
                 );
@@ -416,8 +429,8 @@ impl StrokeBuilder {
                 self,
                 &stroke_options,
                 stroke_options.dynamic_stroke_options_group | 0x10000,
-                length_accumulator + 0.5 * stroke_options.width,
-                offset_control_point(previous_control_point, normal, -0.5 * stroke_options.width.abs()),
+                length_accumulator + 0.5 * stroke_options.width.unwrap(),
+                offset_control_point(previous_control_point, normal, -0.5 * stroke_options.width.unwrap().abs()),
                 previous_tangent,
             );
         }

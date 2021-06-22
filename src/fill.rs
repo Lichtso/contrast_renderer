@@ -6,6 +6,7 @@ use crate::{
     error::{Error, ERROR_MARGIN},
     path::{Path, SegmentType},
     polynomial::Root,
+    safe_float::SafeFloat,
     utils::{point_to_vec, vec_to_point, weighted_vec_to_point},
     vertex::{triangle_fan_to_strip, Vertex0, Vertex2f, Vertex3f, Vertex4f},
 };
@@ -54,18 +55,16 @@ fn weights(discriminant: f32, roots: &[Root; 3]) -> [[f32; 4]; 4] {
         weight_derivatives(&mut weights, 0, [roots[0], roots[0], roots[2]]);
         weight_derivatives(&mut weights, 1, [roots[0], roots[0], roots[0]]);
         weight_derivatives(&mut weights, 2, [roots[0], roots[0], roots[0]]);
-        weight_derivatives(&mut weights, 3, [roots[2], roots[2], roots[2]]);
     } else if discriminant < 0.0 {
         weight_derivatives(&mut weights, 0, [roots[0], roots[1], roots[2]]);
         weight_derivatives(&mut weights, 1, [roots[0], roots[0], roots[1]]);
         weight_derivatives(&mut weights, 2, [roots[1], roots[1], roots[0]]);
-        weight_derivatives(&mut weights, 3, [roots[2], roots[2], roots[2]]);
     } else {
         weight_derivatives(&mut weights, 0, [roots[0], roots[1], roots[2]]);
         weight_derivatives(&mut weights, 1, [roots[0], roots[0], roots[0]]);
         weight_derivatives(&mut weights, 2, [roots[1], roots[1], roots[1]]);
-        weight_derivatives(&mut weights, 3, [roots[2], roots[2], roots[2]]);
     }
+    weight_derivatives(&mut weights, 3, [roots[2], roots[2], roots[2]]);
     weights
 }
 
@@ -251,9 +250,9 @@ macro_rules! emit_cubic_curve {
         } else {
             triangulate_cubic_curve_quadrilateral!($fill_solid_vertices, $cubic_vertices, $control_points, weights, $v, $w, $emit_vertex);
         }
-        $proto_hull.push(point_to_vec($control_points[1]));
-        $proto_hull.push(point_to_vec($control_points[2]));
-        $proto_hull.push(point_to_vec($control_points[3]));
+        $proto_hull.push(point_to_vec($control_points[1]).into());
+        $proto_hull.push(point_to_vec($control_points[2]).into());
+        $proto_hull.push(point_to_vec($control_points[3]).into());
         $fill_solid_vertices.push(point_to_vec($control_points[3]));
     }};
 }
@@ -269,7 +268,7 @@ pub struct FillBuilder {
 }
 
 impl FillBuilder {
-    pub fn add_path(&mut self, proto_hull: &mut Vec<Vertex0>, path: &Path) -> Result<(), Error> {
+    pub fn add_path(&mut self, proto_hull: &mut Vec<SafeFloat<f32, 2>>, path: &Path) -> Result<(), Error> {
         let mut path_solid_vertices: Vec<Vertex0> = Vec::with_capacity(
             1 + path.line_segments.len()
                 + path.integral_quadratic_curve_segments.len()
@@ -277,37 +276,39 @@ impl FillBuilder {
                 + path.rational_quadratic_curve_segments.len()
                 + path.rational_cubic_curve_segments.len() * 5,
         );
-        path_solid_vertices.push(path.start);
+        path_solid_vertices.push(path.start.unwrap());
         proto_hull.push(path.start);
         let mut line_segment_iter = path.line_segments.iter();
         let mut integral_quadratic_curve_segment_iter = path.integral_quadratic_curve_segments.iter();
         let mut integral_cubic_curve_segment_iter = path.integral_cubic_curve_segments.iter();
         let mut rational_quadratic_curve_segment_iter = path.rational_quadratic_curve_segments.iter();
         let mut rational_cubic_curve_segment_iter = path.rational_cubic_curve_segments.iter();
-        for segement_type in &path.segement_types {
-            match segement_type {
+        for segment_type in &path.segment_types {
+            match segment_type {
                 SegmentType::Line => {
                     let segment = line_segment_iter.next().unwrap();
                     proto_hull.push(segment.control_points[0]);
-                    path_solid_vertices.push(segment.control_points[0]);
+                    path_solid_vertices.push(segment.control_points[0].unwrap());
                 }
                 SegmentType::IntegralQuadraticCurve => {
                     let segment = integral_quadratic_curve_segment_iter.next().unwrap();
-                    self.integral_quadratic_vertices.push(Vertex2f(segment.control_points[1], [1.0, 1.0]));
-                    self.integral_quadratic_vertices.push(Vertex2f(segment.control_points[0], [0.5, 0.0]));
+                    self.integral_quadratic_vertices
+                        .push(Vertex2f(segment.control_points[1].unwrap(), [1.0, 1.0]));
+                    self.integral_quadratic_vertices
+                        .push(Vertex2f(segment.control_points[0].unwrap(), [0.5, 0.0]));
                     self.integral_quadratic_vertices
                         .push(Vertex2f(*path_solid_vertices.last().unwrap(), [0.0, 0.0]));
                     proto_hull.push(segment.control_points[0]);
                     proto_hull.push(segment.control_points[1]);
-                    path_solid_vertices.push(segment.control_points[1]);
+                    path_solid_vertices.push(segment.control_points[1].unwrap());
                 }
                 SegmentType::IntegralCubicCurve => {
                     let segment = integral_cubic_curve_segment_iter.next().unwrap();
                     let control_points = [
                         vec_to_point(*path_solid_vertices.last().unwrap()),
-                        vec_to_point(segment.control_points[0]),
-                        vec_to_point(segment.control_points[1]),
-                        vec_to_point(segment.control_points[2]),
+                        vec_to_point(segment.control_points[0].unwrap()),
+                        vec_to_point(segment.control_points[1].unwrap()),
+                        vec_to_point(segment.control_points[2].unwrap()),
                     ];
                     let power_basis = rational_cubic_control_points_to_power_basis(&control_points);
                     let ippc = inflection_point_polynomial_coefficients(&power_basis, true);
@@ -327,24 +328,25 @@ impl FillBuilder {
                 }
                 SegmentType::RationalQuadraticCurve => {
                     let segment = rational_quadratic_curve_segment_iter.next().unwrap();
-                    let weight = 1.0 / segment.weight;
+                    let weight = 1.0 / segment.weight.unwrap();
                     self.rational_quadratic_vertices
-                        .push(Vertex3f(segment.control_points[1], [1.0, 1.0, 1.0]));
+                        .push(Vertex3f(segment.control_points[1].unwrap(), [1.0, 1.0, 1.0]));
                     self.rational_quadratic_vertices
-                        .push(Vertex3f(segment.control_points[0], [0.5 * weight, 0.0, weight]));
+                        .push(Vertex3f(segment.control_points[0].unwrap(), [0.5 * weight, 0.0, weight]));
                     self.rational_quadratic_vertices
                         .push(Vertex3f(*path_solid_vertices.last().unwrap(), [0.0, 0.0, 1.0]));
                     proto_hull.push(segment.control_points[0]);
                     proto_hull.push(segment.control_points[1]);
-                    path_solid_vertices.push(segment.control_points[1]);
+                    path_solid_vertices.push(segment.control_points[1].unwrap());
                 }
                 SegmentType::RationalCubicCurve => {
                     let segment = rational_cubic_curve_segment_iter.next().unwrap();
+                    let weights = segment.weights.unwrap();
                     let control_points = [
-                        weighted_vec_to_point(segment.weights[0], *path_solid_vertices.last().unwrap()),
-                        weighted_vec_to_point(segment.weights[1], segment.control_points[0]),
-                        weighted_vec_to_point(segment.weights[2], segment.control_points[1]),
-                        weighted_vec_to_point(segment.weights[3], segment.control_points[2]),
+                        weighted_vec_to_point(weights[0], *path_solid_vertices.last().unwrap()),
+                        weighted_vec_to_point(weights[1], segment.control_points[0].unwrap()),
+                        weighted_vec_to_point(weights[2], segment.control_points[1].unwrap()),
+                        weighted_vec_to_point(weights[3], segment.control_points[2].unwrap()),
                     ];
                     let power_basis = rational_cubic_control_points_to_power_basis(&control_points);
                     let ippc = inflection_point_polynomial_coefficients(&power_basis, false);
