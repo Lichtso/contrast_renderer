@@ -54,16 +54,15 @@ impl application_framework::Application for Application {
         let font_face = ttf_parser::Face::from_slice(data, 0).unwrap();
         let mut paths = contrast_renderer::text::paths_of_text(
             &font_face,
-            contrast_renderer::text::HorizontalAlignment::Center,
-            contrast_renderer::text::VerticalAlignment::Center,
+            &contrast_renderer::text::Layout {
+                size: 2.7.into(),
+                orientation: contrast_renderer::text::Orientation::LeftToRight,
+                major_alignment: contrast_renderer::text::Alignment::Center,
+                minor_alignment: contrast_renderer::text::Alignment::Center,
+            },
             "Hello World",
         );
         for path in &mut paths {
-            let scalator = geometric_algebra::ppga2d::Scalar { g0: 0.001 };
-            let motor = geometric_algebra::ppga2d::Motor {
-                g0: [1.0, 0.0, 0.0, 0.0].into(),
-            };
-            path.transform(&scalator, &motor);
             path.reverse();
         }
         paths.insert(0, contrast_renderer::path::Path::from_rounded_rect([0.0, 0.0], [5.8, 1.3], 0.5));
