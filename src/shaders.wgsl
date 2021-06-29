@@ -1,10 +1,3 @@
-[[block]]
-struct Transform {
-    transform: mat4x4<f32>;
-};
-[[group(0), binding(0)]]
-var u_transform: Transform;
-
 let MAX_DASH_INTERVALS: u32 = 4u32;
 let MAX_OPTION_GROUPS: u32 = 241u32;
 
@@ -19,17 +12,26 @@ struct DynamicStrokeDescriptor {
 struct DynamicStrokeDescriptors {
     groups: array<DynamicStrokeDescriptor, MAX_OPTION_GROUPS>;
 };
-[[group(1), binding(0)]]
+[[group(0), binding(0)]]
 var u_stroke: DynamicStrokeDescriptors;
 
-[[block]]
-struct SolidFill {
-    color: vec4<f32>;
+
+
+struct Instance {
+    [[location(0)]] transform_row_0: vec4<f32>;
+    [[location(1)]] transform_row_1: vec4<f32>;
+    [[location(2)]] transform_row_2: vec4<f32>;
+    [[location(3)]] transform_row_3: vec4<f32>;
 };
-[[group(1), binding(0)]]
-var u_fill_solid: SolidFill;
 
-
+fn instance_transform(instance: Instance) -> mat4x4<f32> {
+    return mat4x4<f32>(
+        instance.transform_row_0,
+        instance.transform_row_1,
+        instance.transform_row_2,
+        instance.transform_row_3,
+    );
+}
 
 struct Fragment0 {
     [[builtin(position)]] gl_Position: vec4<f32>;
@@ -63,34 +65,42 @@ struct Fragment4f {
     [[location(0), interpolate(perspective, sample)]] weights: vec4<f32>;
 };
 
+struct FragmentColor {
+    [[builtin(position)]] gl_Position: vec4<f32>;
+    [[location(0), interpolate(flat)]] color: vec4<f32>;
+};
+
 [[stage(vertex)]]
 fn vertex0(
-    [[location(0)]] position: vec2<f32>,
+    instance: Instance,
+    [[location(4)]] position: vec2<f32>,
 ) -> Fragment0 {
     var out: Fragment0;
-    out.gl_Position = u_transform.transform * vec4<f32>(position, 0.0, 1.0);
+    out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
     return out;
 }
 
 [[stage(vertex)]]
 fn vertex2f(
-    [[location(0)]] position: vec2<f32>,
-    [[location(1)]] weights: vec2<f32>,
+    instance: Instance,
+    [[location(4)]] position: vec2<f32>,
+    [[location(5)]] weights: vec2<f32>,
 ) -> Fragment2f {
     var out: Fragment2f;
-    out.gl_Position = u_transform.transform * vec4<f32>(position, 0.0, 1.0);
+    out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
     out.weights = weights;
     return out;
 }
 
 [[stage(vertex)]]
 fn vertex2f1u(
-    [[location(0)]] position: vec2<f32>,
-    [[location(1)]] texcoord: vec2<f32>,
-    [[location(2)]] meta: u32,
+    instance: Instance,
+    [[location(4)]] position: vec2<f32>,
+    [[location(5)]] texcoord: vec2<f32>,
+    [[location(6)]] meta: u32,
 ) -> Fragment2f1u {
     var out: Fragment2f1u;
-    out.gl_Position = u_transform.transform * vec4<f32>(position, 0.0, 1.0);
+    out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
     out.texcoord = texcoord;
     out.meta = meta;
     out.end_texcoord_y = texcoord.y;
@@ -99,23 +109,25 @@ fn vertex2f1u(
 
 [[stage(vertex)]]
 fn vertex3f(
-    [[location(0)]] position: vec2<f32>,
-    [[location(1)]] weights: vec3<f32>,
+    instance: Instance,
+    [[location(4)]] position: vec2<f32>,
+    [[location(5)]] weights: vec3<f32>,
 ) -> Fragment3f {
     var out: Fragment3f;
-    out.gl_Position = u_transform.transform * vec4<f32>(position, 0.0, 1.0);
+    out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
     out.weights = weights;
     return out;
 }
 
 [[stage(vertex)]]
 fn vertex3f1u(
-    [[location(0)]] position: vec2<f32>,
-    [[location(1)]] texcoord: vec3<f32>,
-    [[location(2)]] meta: u32,
+    instance: Instance,
+    [[location(4)]] position: vec2<f32>,
+    [[location(5)]] texcoord: vec3<f32>,
+    [[location(6)]] meta: u32,
 ) -> Fragment3f1u {
     var out: Fragment3f1u;
-    out.gl_Position = u_transform.transform * vec4<f32>(position, 0.0, 1.0);
+    out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
     out.texcoord = texcoord;
     out.meta = meta;
     return out;
@@ -123,12 +135,25 @@ fn vertex3f1u(
 
 [[stage(vertex)]]
 fn vertex4f(
-    [[location(0)]] position: vec2<f32>,
-    [[location(1)]] weights: vec4<f32>,
+    instance: Instance,
+    [[location(4)]] position: vec2<f32>,
+    [[location(5)]] weights: vec4<f32>,
 ) -> Fragment4f {
     var out: Fragment4f;
-    out.gl_Position = u_transform.transform * vec4<f32>(position, 0.0, 1.0);
+    out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
     out.weights = weights;
+    return out;
+}
+
+[[stage(vertex)]]
+fn vertex_color(
+    instance: Instance,
+    [[location(4)]] position: vec2<f32>,
+    [[location(5)]] color: vec4<f32>,
+) -> FragmentColor {
+    var out: FragmentColor;
+    out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
+    out.color = color;
     return out;
 }
 
@@ -282,6 +307,8 @@ fn stencil_stroke_joint(
 
 
 [[stage(fragment)]]
-fn fill_solid() -> [[location(0)]] vec4<f32> {
-    return u_fill_solid.color;
+fn fill_solid(
+    in: FragmentColor,
+) -> [[location(0)]] vec4<f32> {
+    return in.color;
 }

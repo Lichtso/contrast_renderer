@@ -6,9 +6,11 @@ use crate::{
     path::{DynamicStrokeOptions, Path, MAX_DASH_INTERVALS},
     safe_float::SafeFloat,
     stroke::StrokeBuilder,
-    utils::{transmute_slice, transmute_vec},
+    utils::transmute_slice,
     vertex::{triangle_fan_to_strip, Vertex0, Vertex2f, Vertex3f, Vertex4f},
 };
+use geometric_algebra::ppga3d;
+use std::ops::Range;
 use wgpu::{include_wgsl, util::DeviceExt, vertex_attr_array};
 
 /// Color used in [Renderer::set_solid_color]
@@ -59,22 +61,19 @@ fn convert_dynamic_stroke_options(dynamic_stroke_options: &DynamicStrokeOptions)
 }
 
 macro_rules! concat_buffers {
-    ($device:expr, $usage:ident, $buffer_count:expr, [$($buffer:expr,)*]) => {{
-        let mut buffers = [
-            $(transmute_vec::<_, u8>($buffer)),*
+    ($device:expr, $usage:ident, $buffer_count:expr, [$($buffer:expr),* $(,)?]) => {{
+        let buffers = [
+            $(transmute_slice::<_, u8>($buffer)),*
         ];
-        let mut offsets = [0; $buffer_count];
+        let mut end_offsets = [0; $buffer_count];
         let mut buffer_length = 0;
         for (i, buffer) in buffers.iter().enumerate() {
             buffer_length += buffer.len();
-            offsets[i] = buffer_length;
+            end_offsets[i] = buffer_length;
         }
-        let mut buffer_data: Vec<u8> = Vec::with_capacity(buffer_length);
-        for mut buffer in &mut buffers {
-            buffer_data.append(&mut buffer);
-        }
+        let buffer_data = buffers.concat();
         (
-            offsets,
+            end_offsets,
             $device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: None,
                 contents: &buffer_data,
@@ -150,27 +149,27 @@ impl Shape {
             });
             (Some(stroke_uniform_buffer), Some(stroke_bind_group))
         };
-        let convex_hull = crate::convex_hull::andrew(&proto_hull);
+        let convex_hull = triangle_fan_to_strip(crate::convex_hull::andrew(&proto_hull));
         let (vertex_offsets, vertex_buffer) = concat_buffers!(
             device,
             VERTEX,
             8,
             [
-                stroke_builder.line_vertices,
-                stroke_builder.joint_vertices,
-                fill_builder.solid_vertices,
-                fill_builder.integral_quadratic_vertices,
-                fill_builder.integral_cubic_vertices,
-                fill_builder.rational_quadratic_vertices,
-                fill_builder.rational_cubic_vertices,
-                triangle_fan_to_strip(convex_hull),
+                &stroke_builder.line_vertices,
+                &stroke_builder.joint_vertices,
+                &fill_builder.solid_vertices,
+                &fill_builder.integral_quadratic_vertices,
+                &fill_builder.integral_cubic_vertices,
+                &fill_builder.rational_quadratic_vertices,
+                &fill_builder.rational_cubic_vertices,
+                &convex_hull,
             ]
         );
         let (index_offsets, index_buffer) = concat_buffers!(
             device,
             INDEX,
             3,
-            [stroke_builder.line_indices, stroke_builder.joint_indices, fill_builder.solid_indices,]
+            [&stroke_builder.line_indices, &stroke_builder.joint_indices, &fill_builder.solid_indices,]
         );
         Ok(Self {
             vertex_offsets,
@@ -184,19 +183,24 @@ impl Shape {
     }
 
     /// Renderes the [Shape] into the stencil buffer.
-    pub fn render_stencil<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
-        render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
+    pub fn render_stencil<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>, instance_indices: Range<u32>) {
         if let Some(stroke_bind_group) = &self.stroke_bind_group {
-            render_pass.set_pipeline(&renderer.stroke_line_pipeline);
-            render_pass.set_bind_group(1, stroke_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(0..self.vertex_offsets[0] as u64));
-            render_pass.set_index_buffer(self.index_buffer.slice(0..self.index_offsets[0] as u64), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..(self.index_offsets[0] / std::mem::size_of::<u16>()) as u32, 0, 0..1);
+            render_pass.set_bind_group(0, stroke_bind_group, &[]);
+            if self.vertex_offsets[0] > 0 {
+                render_pass.set_pipeline(&renderer.stroke_line_pipeline);
+                render_pass.set_vertex_buffer(1, self.vertex_buffer.slice(0..self.vertex_offsets[0] as u64));
+                render_pass.set_index_buffer(self.index_buffer.slice(0..self.index_offsets[0] as u64), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(
+                    0..(self.index_offsets[0] / std::mem::size_of::<u16>()) as u32,
+                    0,
+                    instance_indices.clone(),
+                );
+            }
             let begin_offset = self.vertex_offsets[0];
             let end_offset = self.vertex_offsets[1];
             if begin_offset < end_offset {
                 render_pass.set_pipeline(&renderer.stroke_joint_pipeline);
-                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
+                render_pass.set_vertex_buffer(1, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
                 render_pass.set_index_buffer(
                     self.index_buffer.slice(self.index_offsets[0] as u64..self.index_offsets[1] as u64),
                     wgpu::IndexFormat::Uint16,
@@ -204,7 +208,7 @@ impl Shape {
                 render_pass.draw_indexed(
                     0..((self.index_offsets[1] - self.index_offsets[0]) / std::mem::size_of::<u16>()) as u32,
                     0,
-                    0..1,
+                    instance_indices.clone(),
                 );
             }
         }
@@ -212,7 +216,7 @@ impl Shape {
         let end_offset = self.vertex_offsets[2];
         if begin_offset < end_offset {
             render_pass.set_pipeline(&renderer.fill_solid_pipeline);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
+            render_pass.set_vertex_buffer(1, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
             render_pass.set_index_buffer(
                 self.index_buffer.slice(self.index_offsets[1] as u64..self.index_offsets[2] as u64),
                 wgpu::IndexFormat::Uint16,
@@ -220,7 +224,7 @@ impl Shape {
             render_pass.draw_indexed(
                 0..((self.index_offsets[2] - self.index_offsets[1]) / std::mem::size_of::<u16>()) as u32,
                 0,
-                0..1,
+                instance_indices.clone(),
             );
         }
         for (i, (pipeline, vertex_size)) in [
@@ -236,31 +240,34 @@ impl Shape {
             let end_offset = self.vertex_offsets[i + 3];
             if begin_offset < end_offset {
                 render_pass.set_pipeline(pipeline);
-                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
-                render_pass.draw(0..((end_offset - begin_offset) / vertex_size) as u32, 0..1);
+                render_pass.set_vertex_buffer(1, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
+                render_pass.draw(0..((end_offset - begin_offset) / vertex_size) as u32, instance_indices.clone());
             }
         }
     }
 
-    /// Renderes the [Shape] using a user provided [wgpu::RenderPipeline].
+    /// Renderes the [Shape] using a user provided [wgpu::RenderPipeline] or the [Renderer::color_solid_pipeline].
     ///
-    /// Requires the [Shape] to be stenciled and [render_pass.set_pipeline()] to be called first.
-    fn render_cover<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>, clip_stack_height: usize) {
+    /// Requires the [Shape] to be stenciled and [render_pass.set_pipeline()] to be called first if `color_solid` is `false`.
+    pub fn render_cover<'a>(
+        &'a self,
+        renderer: &'a Renderer,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        clip_stack_height: usize,
+        instance_indices: Range<u32>,
+        color_solid: bool,
+    ) {
         let begin_offset = self.vertex_offsets[6];
         let end_offset = self.vertex_offsets[7];
+        if color_solid {
+            render_pass.set_pipeline(&renderer.color_solid_pipeline);
+        }
         render_pass.set_stencil_reference((clip_stack_height << renderer.winding_counter_bits) as u32);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
-        render_pass.draw(0..((end_offset - begin_offset) / std::mem::size_of::<Vertex0>()) as u32, 0..1);
-    }
-
-    /// Fills the [Shape] with a solid color.
-    ///
-    /// Requires the [Shape] to be stenciled first.
-    pub fn render_color_solid<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>, clip_stack_height: usize) {
-        render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
-        render_pass.set_bind_group(1, &renderer.color_solid_bind_group, &[]);
-        render_pass.set_pipeline(&renderer.color_solid_pipeline);
-        self.render_cover(renderer, render_pass, clip_stack_height);
+        render_pass.set_vertex_buffer(
+            if color_solid { 2 } else { 1 },
+            self.vertex_buffer.slice(begin_offset as u64..end_offset as u64),
+        );
+        render_pass.draw(0..((end_offset - begin_offset) / std::mem::size_of::<Vertex0>()) as u32, instance_indices);
     }
 
     /// Sets the dash pattern of stroked [Path]s for subsequent stencil rendering calls.
@@ -290,35 +297,41 @@ impl Shape {
 /// When using a [ClipStack], color is only rendered inside the logical AND (CSG intersection)
 /// of all the [Shape]s on the stack with the [Shape] to be rendered.
 #[derive(Default)]
-pub struct ClipStack<'a> {
-    stack: Vec<&'a Shape>,
+pub struct ClipStack {
+    stack: Vec<Range<u32>>,
 }
 
-impl<'b, 'a: 'b> ClipStack<'a> {
+impl ClipStack {
     /// The number of clip [Shape]s on the stack.
     pub fn height(&self) -> usize {
         self.stack.len()
     }
 
     /// Adds a clip [Shape] on top of the stack.
-    pub fn push(&mut self, renderer: &'b Renderer, render_pass: &mut wgpu::RenderPass<'b>, shape: &'a Shape) -> Result<(), Error> {
+    pub fn push<'b, 'a: 'b>(
+        &mut self,
+        renderer: &'b Renderer,
+        render_pass: &mut wgpu::RenderPass<'b>,
+        shape: &'a Shape,
+        instance_indices: Range<u32>,
+    ) -> Result<(), Error> {
         if self.height() >= (1 << renderer.clip_nesting_counter_bits) {
             return Err(Error::ClipStackOverflow);
         }
-        self.stack.push(shape);
-        render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
+        self.stack.push(instance_indices.clone());
         render_pass.set_pipeline(&renderer.increment_clip_nesting_counter_pipeline);
-        shape.render_cover(renderer, render_pass, self.height());
+        shape.render_cover(renderer, render_pass, self.height(), instance_indices, false);
         Ok(())
     }
 
     /// Removes the clip [Shape] at the top of the stack.
-    pub fn pop(&mut self, renderer: &'b Renderer, render_pass: &mut wgpu::RenderPass<'b>) -> Result<(), Error> {
+    ///
+    /// A reference to the same [Shape] as used in [push] must be provided again.
+    pub fn pop<'b, 'a: 'b>(&mut self, renderer: &'b Renderer, render_pass: &mut wgpu::RenderPass<'b>, shape: &'a Shape) -> Result<(), Error> {
         match self.stack.pop() {
-            Some(shape) => {
-                render_pass.set_bind_group(0, &renderer.transform_bind_group, &[]);
+            Some(instance_indices) => {
                 render_pass.set_pipeline(&renderer.decrement_clip_nesting_counter_pipeline);
-                shape.render_cover(renderer, render_pass, self.height());
+                shape.render_cover(renderer, render_pass, self.height(), instance_indices, false);
                 Ok(())
             }
             None => Err(Error::ClipStackUnderflow),
@@ -342,14 +355,18 @@ macro_rules! render_pipeline_descriptor {
      $shader_module:expr, $vertex_entry:literal, $fragment_entry:literal,
      $primitive_topology:ident, $primitive_index_format:expr,
      $color_states:expr, $stencil_state:expr,
-     $vertex_buffer:expr, $msaa_sample_count:expr $(,)?) => {
+     [$($vertex_buffer:expr),*], $msaa_sample_count:expr $(,)?) => {
         wgpu::RenderPipelineDescriptor {
             label: None,
             layout: Some($pipeline_layout),
             vertex: wgpu::VertexState {
                 module: $shader_module,
                 entry_point: $vertex_entry,
-                buffers: &[$vertex_buffer],
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: (16 * 4) as wgpu::BufferAddress,
+                    step_mode: wgpu::InputStepMode::Instance,
+                    attributes: &vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4],
+                }, $($vertex_buffer,)*],
             },
             fragment: Some(wgpu::FragmentState {
                 module: $shader_module,
@@ -385,8 +402,6 @@ macro_rules! render_pipeline_descriptor {
 pub struct Renderer {
     winding_counter_bits: usize,
     clip_nesting_counter_bits: usize,
-    transform_uniform_buffer: wgpu::Buffer,
-    transform_bind_group: wgpu::BindGroup,
     stroke_bind_group_layout: wgpu::BindGroupLayout,
     stroke_line_pipeline: wgpu::RenderPipeline,
     stroke_joint_pipeline: wgpu::RenderPipeline,
@@ -397,8 +412,6 @@ pub struct Renderer {
     fill_rational_cubic_curve_pipeline: wgpu::RenderPipeline,
     increment_clip_nesting_counter_pipeline: wgpu::RenderPipeline,
     decrement_clip_nesting_counter_pipeline: wgpu::RenderPipeline,
-    color_solid_uniform_buffer: wgpu::Buffer,
-    color_solid_bind_group: wgpu::BindGroup,
     color_solid_pipeline: wgpu::RenderPipeline,
 }
 
@@ -424,66 +437,33 @@ impl Renderer {
         let segment_0f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (2 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
-            attributes: &vertex_attr_array![0 => Float32x2],
+            attributes: &vertex_attr_array![4 => Float32x2],
         };
         let segment_2f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (4 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
-            attributes: &vertex_attr_array![0 => Float32x2, 1 => Float32x2],
+            attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x2],
         };
         let segment_2f1i_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (5 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
-            attributes: &vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Uint32],
+            attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x2, 6 => Uint32],
         };
         let segment_3f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (5 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
-            attributes: &vertex_attr_array![0 => Float32x2, 1 => Float32x3],
+            attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x3],
         };
         let segment_3f1i_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (6 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
-            attributes: &vertex_attr_array![0 => Float32x2, 1 => Float32x3, 2 => Uint32],
+            attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x3, 6 => Uint32],
         };
         let segment_4f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (6 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
-            attributes: &vertex_attr_array![0 => Float32x2, 1 => Float32x4],
+            attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x4],
         };
-
-        const TRANSFORM_UNIFORM_BUFFER_SIZE: usize = std::mem::size_of::<[f32; 4 * 4]>();
-        let transform_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            mapped_at_creation: false,
-            size: TRANSFORM_UNIFORM_BUFFER_SIZE as u64,
-            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
-        });
-        let transform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStage::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(TRANSFORM_UNIFORM_BUFFER_SIZE as u64),
-                },
-                count: None,
-            }],
-        });
-        let transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &transform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &transform_uniform_buffer,
-                    offset: 0,
-                    size: wgpu::BufferSize::new(TRANSFORM_UNIFORM_BUFFER_SIZE as u64),
-                }),
-            }],
-        });
 
         let winding_counter_mask = (1 << winding_counter_bits) - 1;
         let clip_nesting_counter_mask = ((1 << clip_nesting_counter_bits) - 1) << winding_counter_bits;
@@ -518,12 +498,12 @@ impl Renderer {
         });
         let stroke_line_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&transform_bind_group_layout, &stroke_bind_group_layout],
+            bind_group_layouts: &[&stroke_bind_group_layout],
             push_constant_ranges: &[],
         });
         let stencil_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&transform_bind_group_layout],
+            bind_group_layouts: &[],
             push_constant_ranges: &[],
         });
         let stroke_line_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -535,7 +515,7 @@ impl Renderer {
             Some(wgpu::IndexFormat::Uint16),
             &[],
             stroke_stencil_state.clone(),
-            segment_2f1i_vertex_buffer_descriptor.clone(),
+            [segment_2f1i_vertex_buffer_descriptor.clone()],
             msaa_sample_count,
         ));
         let stroke_joint_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -547,7 +527,7 @@ impl Renderer {
             None,
             &[],
             stroke_stencil_state,
-            segment_3f1i_vertex_buffer_descriptor.clone(),
+            [segment_3f1i_vertex_buffer_descriptor.clone()],
             msaa_sample_count,
         ));
         let fill_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -559,7 +539,7 @@ impl Renderer {
             Some(wgpu::IndexFormat::Uint16),
             &[],
             fill_stencil_state.clone(),
-            segment_0f_vertex_buffer_descriptor.clone(),
+            [segment_0f_vertex_buffer_descriptor.clone()],
             msaa_sample_count,
         ));
         let fill_integral_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -571,7 +551,7 @@ impl Renderer {
             None,
             &[],
             fill_stencil_state.clone(),
-            segment_2f_vertex_buffer_descriptor,
+            [segment_2f_vertex_buffer_descriptor],
             msaa_sample_count,
         ));
         let fill_integral_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -583,7 +563,7 @@ impl Renderer {
             None,
             &[],
             fill_stencil_state.clone(),
-            segment_3f_vertex_buffer_descriptor.clone(),
+            [segment_3f_vertex_buffer_descriptor.clone()],
             msaa_sample_count,
         ));
         let fill_rational_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -595,7 +575,7 @@ impl Renderer {
             None,
             &[],
             fill_stencil_state.clone(),
-            segment_3f_vertex_buffer_descriptor.clone(),
+            [segment_3f_vertex_buffer_descriptor.clone()],
             msaa_sample_count,
         ));
         let fill_rational_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -607,7 +587,7 @@ impl Renderer {
             None,
             &[],
             fill_stencil_state,
-            segment_4f_vertex_buffer_descriptor,
+            [segment_4f_vertex_buffer_descriptor],
             msaa_sample_count,
         ));
 
@@ -625,7 +605,7 @@ impl Renderer {
                 read_mask: winding_counter_mask,
                 write_mask: clip_nesting_counter_mask | winding_counter_mask,
             },
-            segment_0f_vertex_buffer_descriptor.clone(),
+            [segment_0f_vertex_buffer_descriptor.clone()],
             msaa_sample_count,
         ));
         let decrement_clip_nesting_counter_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -642,51 +622,19 @@ impl Renderer {
                 read_mask: clip_nesting_counter_mask,
                 write_mask: clip_nesting_counter_mask | winding_counter_mask,
             },
-            segment_0f_vertex_buffer_descriptor.clone(),
+            [segment_0f_vertex_buffer_descriptor.clone()],
             msaa_sample_count,
         ));
 
-        const COLOR_SOLID_UNIFORM_BUFFER_SIZE: usize = std::mem::size_of::<[f32; 4]>();
-        let color_solid_uniform_data = Color::from([1.0; 4]);
-        let color_solid_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: transmute_slice(&color_solid_uniform_data.unwrap()),
-            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
-        });
-        let color_solid_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStage::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(COLOR_SOLID_UNIFORM_BUFFER_SIZE as u64),
-                },
-                count: None,
-            }],
-        });
-        let color_solid_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &color_solid_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &color_solid_uniform_buffer,
-                    offset: 0,
-                    size: wgpu::BufferSize::new(COLOR_SOLID_UNIFORM_BUFFER_SIZE as u64),
-                }),
-            }],
-        });
         let color_solid_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&transform_bind_group_layout, &color_solid_bind_group_layout],
+            bind_group_layouts: &[],
             push_constant_ranges: &[],
         });
         let color_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &color_solid_pipeline_layout,
             &shader_module,
-            "vertex0",
+            "vertex_color",
             "fill_solid",
             TriangleStrip,
             None,
@@ -697,15 +645,20 @@ impl Renderer {
                 read_mask: clip_nesting_counter_mask | winding_counter_mask,
                 write_mask: winding_counter_mask,
             },
-            segment_0f_vertex_buffer_descriptor.clone(),
+            [
+                wgpu::VertexBufferLayout {
+                    array_stride: (4 * 4) as wgpu::BufferAddress,
+                    step_mode: wgpu::InputStepMode::Instance,
+                    attributes: &vertex_attr_array![5 => Float32x4],
+                },
+                segment_0f_vertex_buffer_descriptor
+            ],
             msaa_sample_count,
         ));
 
         Ok(Self {
             winding_counter_bits,
             clip_nesting_counter_bits,
-            transform_uniform_buffer,
-            transform_bind_group,
             stroke_bind_group_layout,
             stroke_line_pipeline,
             stroke_joint_pipeline,
@@ -716,26 +669,23 @@ impl Renderer {
             fill_rational_cubic_curve_pipeline,
             increment_clip_nesting_counter_pipeline,
             decrement_clip_nesting_counter_pipeline,
-            color_solid_uniform_buffer,
-            color_solid_bind_group,
             color_solid_pipeline,
         })
     }
 
     /// Set the model view projection matrix for subsequent stencil and color rendering calls.
     ///
-    /// Call before creating the next [wgpu::RenderPass].
-    pub fn set_transform(&self, queue: &wgpu::Queue, transform: &[f32; 16]) {
-        let data = transmute_slice(transform);
-        queue.write_buffer(&self.transform_uniform_buffer, 0, &data);
+    /// Don't forget to call `render_pass.set_vertex_buffer(0, instance_transform_buffer.slice(..));`
+    pub fn set_transform(&self, device: &wgpu::Device, transforms: &[[ppga3d::Point; 4]]) -> wgpu::Buffer {
+        let (_offsets, instance_transform_buffer) = concat_buffers!(device, VERTEX, 1, [transforms]);
+        instance_transform_buffer
     }
 
     /// Set the color of subsequent [Shape::render_color_solid] calls.
     ///
-    /// Call before creating the next [wgpu::RenderPass].
-    pub fn set_solid_color(&self, queue: &wgpu::Queue, color: Color) {
-        let color = color.unwrap();
-        let data = transmute_slice(&color);
-        queue.write_buffer(&self.color_solid_uniform_buffer, 0, &data);
+    /// Don't forget to call `render_pass.set_vertex_buffer(1, instance_color_buffer.slice(..));`
+    pub fn set_solid_color(&self, device: &wgpu::Device, colors: &[Color]) -> wgpu::Buffer {
+        let (_offsets, instance_transform_buffer) = concat_buffers!(device, VERTEX, 1, [colors]);
+        instance_transform_buffer
     }
 }

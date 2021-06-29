@@ -136,8 +136,3 @@ pub fn matrix_multiplication(a: &[ppga3d::Point; 4], b: &[ppga3d::Point; 4]) -> 
         Scalar { g0: b[3].g0[0] } * a[0] + Scalar { g0: b[3].g0[1] } * a[1] + Scalar { g0: b[3].g0[2] } * a[2] + Scalar { g0: b[3].g0[3] } * a[3],
     ]
 }
-
-/// Converts a 4x4 matrix to a 16 element array for GLSL.
-pub fn transmute_matrix(matrix: [ppga3d::Point; 4]) -> [f32; 16] {
-    unsafe { std::mem::transmute(matrix) }
-}

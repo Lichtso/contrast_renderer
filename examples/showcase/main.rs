@@ -148,8 +148,8 @@ impl application_framework::Application for Application {
                 } * self.view_rotation),
             ),
         );
-        self.renderer
-            .set_transform(&queue, &contrast_renderer::utils::transmute_matrix(projection_matrix));
+        let instance_transform_buffer = self.renderer.set_transform(device, &[projection_matrix]);
+        let instance_color_buffer = self.renderer.set_solid_color(device, &[[1.0, 1.0, 1.0, 1.0].into()]);
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -167,7 +167,8 @@ impl application_framework::Application for Application {
                     }),
                 }),
             });
-            self.shape.render_stencil(&self.renderer, &mut render_pass);
+            render_pass.set_vertex_buffer(0, instance_transform_buffer.slice(..));
+            self.shape.render_stencil(&self.renderer, &mut render_pass, 0..1);
         }
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -196,7 +197,9 @@ impl application_framework::Application for Application {
                     }),
                 }),
             });
-            self.shape.render_color_solid(&self.renderer, &mut render_pass, 0);
+            render_pass.set_vertex_buffer(0, instance_transform_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, instance_color_buffer.slice(..));
+            self.shape.render_cover(&self.renderer, &mut render_pass, 0, 0..1, true);
         }
         queue.submit(Some(encoder.finish()));
     }

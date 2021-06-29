@@ -24,7 +24,7 @@ To get started, checkout the [showcase example](examples/showcase/main.rs).
         - MSAA ✓
     - Custom (User Provided) Shaders ✓
     - Blending ✓
-    - Instanced ✗
+    - Instancing ✓
 - Filling
     - Paths
         - Polygons ✓
