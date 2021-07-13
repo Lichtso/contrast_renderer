@@ -189,11 +189,10 @@ impl ApplicationManager {
         let spawner = Spawner::new();
         event_loop.run(move |event, _, control_flow| {
             let _ = (&self.instance, &self.adapter);
-            *control_flow = winit::event_loop::ControlFlow::Poll;
+            *control_flow = winit::event_loop::ControlFlow::Wait;
             match event {
                 winit::event::Event::MainEventsCleared => {
                     spawner.run_until_stalled();
-                    self.window.request_redraw();
                 }
                 winit::event::Event::WindowEvent {
                     event: winit::event::WindowEvent::Resized(size),
@@ -218,7 +217,10 @@ impl ApplicationManager {
                     | winit::event::WindowEvent::CloseRequested => {
                         *control_flow = winit::event_loop::ControlFlow::Exit;
                     }
-                    _ => application.window_event(event),
+                    _ => {
+                        application.window_event(event);
+                        self.window.request_redraw();
+                    }
                 },
                 winit::event::Event::RedrawRequested(_) => {
                     let frame = match swap_chain.get_current_frame() {

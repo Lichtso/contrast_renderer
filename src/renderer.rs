@@ -60,8 +60,44 @@ fn convert_dynamic_stroke_options(dynamic_stroke_options: &DynamicStrokeOptions)
     }
 }
 
+/// A wrapper around [wgpu::Buffer] that can be updated in place.
+pub struct Buffer {
+    /// Current length of the backing storage in bytes
+    pub length: usize,
+    /// Parameter of [Buffer::new]
+    pub usage: wgpu::BufferUsage,
+    /// Allocated backing storage
+    pub buffer: wgpu::Buffer,
+}
+
+impl Buffer {
+    /// Creates a new [Buffer]
+    ///
+    /// Note: `usage` must include `wgpu::BufferUsage::COPY_DST` so that [update] can be used.
+    pub fn new(device: &wgpu::Device, usage: wgpu::BufferUsage, data: &[u8]) -> Self {
+        Self {
+            length: data.len(),
+            usage,
+            buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: data,
+                usage,
+            }),
+        }
+    }
+
+    /// Updates an existing buffer in place if possible or reallocates it
+    pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, data: &[u8]) {
+        if data.len() == self.length {
+            queue.write_buffer(&self.buffer, 0, data);
+        } else {
+            *self = Self::new(device, self.usage, data);
+        }
+    }
+}
+
 macro_rules! concat_buffers {
-    ($device:expr, $usage:ident, $buffer_count:expr, [$($buffer:expr),* $(,)?]) => {{
+    ($device:expr, $buffer_count:expr, [$($buffer:expr),* $(,)?]) => {{
         let buffers = [
             $(transmute_slice::<_, u8>($buffer)),*
         ];
@@ -72,14 +108,7 @@ macro_rules! concat_buffers {
             end_offsets[i] = buffer_length;
         }
         let buffer_data = buffers.concat();
-        (
-            end_offsets,
-            $device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: &buffer_data,
-                usage: wgpu::BufferUsage::$usage,
-            })
-        )
+        (end_offsets, buffer_data)
     }};
 }
 
@@ -152,7 +181,6 @@ impl Shape {
         let convex_hull = triangle_fan_to_strip(crate::convex_hull::andrew(&proto_hull));
         let (vertex_offsets, vertex_buffer) = concat_buffers!(
             device,
-            VERTEX,
             8,
             [
                 &stroke_builder.line_vertices,
@@ -167,7 +195,6 @@ impl Shape {
         );
         let (index_offsets, index_buffer) = concat_buffers!(
             device,
-            INDEX,
             3,
             [&stroke_builder.line_indices, &stroke_builder.joint_indices, &fill_builder.solid_indices,]
         );
@@ -177,13 +204,20 @@ impl Shape {
             stroke_uniform_buffer,
             stroke_bind_group,
             dynamic_stroke_options_count: dynamic_stroke_options.len(),
-            vertex_buffer,
-            index_buffer,
+            vertex_buffer: Buffer::new(device, wgpu::BufferUsage::VERTEX, &vertex_buffer).buffer,
+            index_buffer: Buffer::new(device, wgpu::BufferUsage::INDEX, &index_buffer).buffer,
         })
     }
 
     /// Renderes the [Shape] into the stencil buffer.
-    pub fn render_stencil<'a>(&'a self, renderer: &'a Renderer, render_pass: &mut wgpu::RenderPass<'a>, instance_indices: Range<u32>) {
+    pub fn render_stencil<'a>(
+        &'a self,
+        renderer: &'a Renderer,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        clip_stack_height: usize,
+        instance_indices: Range<u32>,
+    ) {
+        render_pass.set_stencil_reference((clip_stack_height << renderer.winding_counter_bits) as u32);
         if let Some(stroke_bind_group) = &self.stroke_bind_group {
             render_pass.set_bind_group(0, stroke_bind_group, &[]);
             if self.vertex_offsets[0] > 0 {
@@ -318,6 +352,7 @@ impl ClipStack {
         if self.height() >= (1 << renderer.clip_nesting_counter_bits) {
             return Err(Error::ClipStackOverflow);
         }
+        shape.render_stencil(renderer, render_pass, self.height(), instance_indices.clone());
         self.stack.push(instance_indices.clone());
         render_pass.set_pipeline(&renderer.increment_clip_nesting_counter_pipeline);
         shape.render_cover(renderer, render_pass, self.height(), instance_indices, false);
@@ -676,16 +711,14 @@ impl Renderer {
     /// Set the model view projection matrix for subsequent stencil and color rendering calls.
     ///
     /// Don't forget to call `render_pass.set_vertex_buffer(0, instance_transform_buffer.slice(..));`
-    pub fn set_transform(&self, device: &wgpu::Device, transforms: &[[ppga3d::Point; 4]]) -> wgpu::Buffer {
-        let (_offsets, instance_transform_buffer) = concat_buffers!(device, VERTEX, 1, [transforms]);
-        instance_transform_buffer
+    pub fn set_transform(&self, transforms: &[[ppga3d::Point; 4]]) -> Vec<u8> {
+        concat_buffers!(device, 1, [transforms]).1
     }
 
     /// Set the color of subsequent [Shape::render_color_solid] calls.
     ///
     /// Don't forget to call `render_pass.set_vertex_buffer(1, instance_color_buffer.slice(..));`
-    pub fn set_solid_color(&self, device: &wgpu::Device, colors: &[Color]) -> wgpu::Buffer {
-        let (_offsets, instance_transform_buffer) = concat_buffers!(device, VERTEX, 1, [colors]);
-        instance_transform_buffer
+    pub fn set_solid_color(&self, colors: &[Color]) -> Vec<u8> {
+        concat_buffers!(device, 1, [colors]).1
     }
 }

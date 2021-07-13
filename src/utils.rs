@@ -1,6 +1,6 @@
 //! Miscellaneous utility and helper functions
 
-use geometric_algebra::{ppga2d, ppga3d, OuterProduct, Transformation, Zero};
+use geometric_algebra::{ppga2d, ppga3d, OuterProduct, RegressiveProduct, Transformation, Zero};
 use std::convert::TryInto;
 
 /// Transmutes a vector.
@@ -32,6 +32,42 @@ pub fn line_line_intersection(a: ppga2d::Plane, b: ppga2d::Plane) -> ppga2d::Poi
     p / ppga2d::Scalar { g0: p.g0[0] }
 }
 
+/// Converts a axis aligned bounding box into 4 vertices.
+pub fn aabb_to_convex_polygon(bounding_box: &[f32; 4]) -> [ppga2d::Point; 4] {
+    [
+        ppga2d::Point {
+            g0: [1.0, bounding_box[0], bounding_box[1]].into(),
+        },
+        ppga2d::Point {
+            g0: [1.0, bounding_box[0], bounding_box[3]].into(),
+        },
+        ppga2d::Point {
+            g0: [1.0, bounding_box[2], bounding_box[3]].into(),
+        },
+        ppga2d::Point {
+            g0: [1.0, bounding_box[2], bounding_box[1]].into(),
+        },
+    ]
+}
+
+/// Implements the separating axis theorem.
+///
+/// Expects the vertices to be ordered clockwise.
+pub fn do_convex_polygons_overlap(a: &[ppga2d::Point], b: &[ppga2d::Point]) -> bool {
+    for (a, b) in [(a, b), (b, a)] {
+        'outer: for index in 0..a.len() {
+            let plane = a[(index + 1) % a.len()].regressive_product(a[index]);
+            for point in b {
+                if point.regressive_product(plane).g0 <= 0.0 {
+                    continue 'outer;
+                }
+            }
+            return false;
+        }
+    }
+    true
+}
+
 /// Rotates a [ppga2d::Plane] 90° clockwise.
 pub fn rotate_90_degree_clockwise(v: ppga2d::Plane) -> ppga2d::Plane {
     ppga2d::Plane {
@@ -55,6 +91,13 @@ pub fn vec_to_point(v: [f32; 2]) -> ppga2d::Point {
 pub fn weighted_vec_to_point(w: f32, v: [f32; 2]) -> ppga2d::Point {
     ppga2d::Point {
         g0: [w, v[0] * w, v[1] * w].into(),
+    }
+}
+
+/// Creates a [ppga2d::Motor] from a vector.
+pub fn translate2d(v: [f32; 2]) -> ppga2d::Motor {
+    ppga2d::Motor {
+        g0: [1.0, 0.0, -0.5 * v[1], 0.5 * v[0]].into(),
     }
 }
 

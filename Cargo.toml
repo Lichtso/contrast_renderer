@@ -22,7 +22,7 @@ ttf-parser = { version = "0.12.0", optional = true }
 ### Showcase Example ###
 
 [dev-dependencies]
-winit = { version = "0.24.0", features = ["web-sys"] }
+winit = { version = "0.25.0", features = ["web-sys"] }
 log = "0.4"
 
 [package.metadata.wasm-pack.profile.release]

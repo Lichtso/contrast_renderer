@@ -6,6 +6,7 @@ use geometric_algebra::{
     One,
 };
 
+const OPEN_SANS_TTF: &[u8] = include_bytes!("../fonts/OpenSans-Regular.ttf");
 const MSAA_SAMPLE_COUNT: u32 = 4;
 
 struct Application {
@@ -13,6 +14,7 @@ struct Application {
     msaa_color_texture_view: Option<wgpu::TextureView>,
     renderer: contrast_renderer::renderer::Renderer,
     dynamic_stroke_options: [contrast_renderer::path::DynamicStrokeOptions; 1],
+    instance_buffers: [contrast_renderer::renderer::Buffer; 2],
     shape: contrast_renderer::renderer::Shape,
     viewport_size: wgpu::Extent3d,
     view_rotation: Rotor,
@@ -50,8 +52,7 @@ impl application_framework::Application for Application {
             phase: 0.0.into(),
         }];
 
-        let data = include_bytes!("../fonts/OpenSans-Regular.ttf");
-        let font_face = ttf_parser::Face::from_slice(data, 0).unwrap();
+        let font_face = ttf_parser::Face::from_slice(OPEN_SANS_TTF, 0).unwrap();
         let mut paths = contrast_renderer::text::paths_of_text(
             &font_face,
             &contrast_renderer::text::Layout {
@@ -61,6 +62,7 @@ impl application_framework::Application for Application {
                 minor_alignment: contrast_renderer::text::Alignment::Center,
             },
             "Hello World",
+            None,
         );
         for path in &mut paths {
             path.reverse();
@@ -81,6 +83,10 @@ impl application_framework::Application for Application {
             msaa_color_texture_view: None,
             renderer,
             dynamic_stroke_options,
+            instance_buffers: [
+                contrast_renderer::renderer::Buffer::new(device, wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST, &[]),
+                contrast_renderer::renderer::Buffer::new(device, wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST, &[]),
+            ],
             shape,
             viewport_size: wgpu::Extent3d::default(),
             view_rotation: Rotor::one(),
@@ -129,7 +135,7 @@ impl application_framework::Application for Application {
     fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SwapChainTexture, animation_time: f64) {
         match &mut self.dynamic_stroke_options[0] {
             contrast_renderer::path::DynamicStrokeOptions::Dashed { phase, .. } => {
-                *phase = (animation_time as f32).into();
+                *phase = (animation_time as f32 * 2.0).into();
             }
             _ => unreachable!(),
         }
@@ -147,8 +153,8 @@ impl application_framework::Application for Application {
                 } * self.view_rotation),
             ),
         );
-        let instance_transform_buffer = self.renderer.set_transform(device, &[projection_matrix]);
-        let instance_color_buffer = self.renderer.set_solid_color(device, &[[1.0, 1.0, 1.0, 1.0].into()]);
+        self.instance_buffers[0].update(device, queue, &self.renderer.set_transform(&[projection_matrix]));
+        self.instance_buffers[1].update(device, queue, &self.renderer.set_solid_color(&[[1.0, 1.0, 1.0, 1.0].into()]));
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -166,8 +172,8 @@ impl application_framework::Application for Application {
                     }),
                 }),
             });
-            render_pass.set_vertex_buffer(0, instance_transform_buffer.slice(..));
-            self.shape.render_stencil(&self.renderer, &mut render_pass, 0..1);
+            render_pass.set_vertex_buffer(0, self.instance_buffers[0].buffer.slice(..));
+            self.shape.render_stencil(&self.renderer, &mut render_pass, 0, 0..1);
         }
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -196,8 +202,8 @@ impl application_framework::Application for Application {
                     }),
                 }),
             });
-            render_pass.set_vertex_buffer(0, instance_transform_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, instance_color_buffer.slice(..));
+            render_pass.set_vertex_buffer(0, self.instance_buffers[0].buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffers[1].buffer.slice(..));
             self.shape.render_cover(&self.renderer, &mut render_pass, 0, 0..1, true);
         }
         queue.submit(Some(encoder.finish()));
