@@ -65,7 +65,7 @@ pub struct Buffer {
     /// Current length of the backing storage in bytes
     pub length: usize,
     /// Parameter of [Buffer::new]
-    pub usage: wgpu::BufferUsage,
+    pub usage: wgpu::BufferUsages,
     /// Allocated backing storage
     pub buffer: wgpu::Buffer,
 }
@@ -73,8 +73,8 @@ pub struct Buffer {
 impl Buffer {
     /// Creates a new [Buffer]
     ///
-    /// Note: `usage` must include `wgpu::BufferUsage::COPY_DST` so that [update] can be used.
-    pub fn new(device: &wgpu::Device, usage: wgpu::BufferUsage, data: &[u8]) -> Self {
+    /// Note: `usage` must include `wgpu::BufferUsages::COPY_DST` so that [update] can be used.
+    pub fn new(device: &wgpu::Device, usage: wgpu::BufferUsages, data: &[u8]) -> Self {
         Self {
             length: data.len(),
             usage,
@@ -162,7 +162,7 @@ impl Shape {
             let stroke_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: None,
                 contents: dynamic_stroke_descriptors,
-                usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
             let stroke_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -204,8 +204,8 @@ impl Shape {
             stroke_uniform_buffer,
             stroke_bind_group,
             dynamic_stroke_options_count: dynamic_stroke_options.len(),
-            vertex_buffer: Buffer::new(device, wgpu::BufferUsage::VERTEX, &vertex_buffer).buffer,
-            index_buffer: Buffer::new(device, wgpu::BufferUsage::INDEX, &index_buffer).buffer,
+            vertex_buffer: Buffer::new(device, wgpu::BufferUsages::VERTEX, &vertex_buffer).buffer,
+            index_buffer: Buffer::new(device, wgpu::BufferUsages::INDEX, &index_buffer).buffer,
         })
     }
 
@@ -399,7 +399,7 @@ macro_rules! render_pipeline_descriptor {
                 entry_point: $vertex_entry,
                 buffers: &[wgpu::VertexBufferLayout {
                     array_stride: (16 * 4) as wgpu::BufferAddress,
-                    step_mode: wgpu::InputStepMode::Instance,
+                    step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4],
                 }, $($vertex_buffer,)*],
             },
@@ -471,32 +471,32 @@ impl Renderer {
         let shader_module = device.create_shader_module(&include_wgsl!("shaders.wgsl"));
         let segment_0f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (2 * 4) as wgpu::BufferAddress,
-            step_mode: wgpu::InputStepMode::Vertex,
+            step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &vertex_attr_array![4 => Float32x2],
         };
         let segment_2f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (4 * 4) as wgpu::BufferAddress,
-            step_mode: wgpu::InputStepMode::Vertex,
+            step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x2],
         };
         let segment_2f1i_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (5 * 4) as wgpu::BufferAddress,
-            step_mode: wgpu::InputStepMode::Vertex,
+            step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x2, 6 => Uint32],
         };
         let segment_3f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (5 * 4) as wgpu::BufferAddress,
-            step_mode: wgpu::InputStepMode::Vertex,
+            step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x3],
         };
         let segment_3f1i_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (6 * 4) as wgpu::BufferAddress,
-            step_mode: wgpu::InputStepMode::Vertex,
+            step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x3, 6 => Uint32],
         };
         let segment_4f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (6 * 4) as wgpu::BufferAddress,
-            step_mode: wgpu::InputStepMode::Vertex,
+            step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x4],
         };
 
@@ -520,7 +520,7 @@ impl Renderer {
             label: None,
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStage::FRAGMENT,
+                visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -559,7 +559,7 @@ impl Renderer {
             "vertex3f1u",
             "stencil_stroke_joint",
             TriangleStrip,
-            None,
+            Some(wgpu::IndexFormat::Uint16),
             &[],
             stroke_stencil_state,
             [segment_3f1i_vertex_buffer_descriptor.clone()],
@@ -632,7 +632,7 @@ impl Renderer {
             "vertex0",
             "stencil_solid",
             TriangleStrip,
-            None,
+            Some(wgpu::IndexFormat::Uint16),
             &[],
             wgpu::StencilState {
                 front: stencil_descriptor!(NotEqual, Keep, Replace),
@@ -649,7 +649,7 @@ impl Renderer {
             "vertex0",
             "stencil_solid",
             TriangleStrip,
-            None,
+            Some(wgpu::IndexFormat::Uint16),
             &[],
             wgpu::StencilState {
                 front: stencil_descriptor!(Less, Keep, Replace),
@@ -672,7 +672,7 @@ impl Renderer {
             "vertex_color",
             "fill_solid",
             TriangleStrip,
-            None,
+            Some(wgpu::IndexFormat::Uint16),
             &[blending],
             wgpu::StencilState {
                 front: stencil_descriptor!(Less, Zero, Zero),
@@ -683,7 +683,7 @@ impl Renderer {
             [
                 wgpu::VertexBufferLayout {
                     array_stride: (4 * 4) as wgpu::BufferAddress,
-                    step_mode: wgpu::InputStepMode::Instance,
+                    step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &vertex_attr_array![5 => Float32x4],
                 },
                 segment_0f_vertex_buffer_descriptor

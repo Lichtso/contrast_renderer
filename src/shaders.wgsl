@@ -1,5 +1,5 @@
-let MAX_DASH_INTERVALS: u32 = 4u32;
-let MAX_OPTION_GROUPS: u32 = 241u32;
+let MAX_DASH_INTERVALS: u32 = 4u;
+let MAX_OPTION_GROUPS: u32 = 241u;
 
 struct DynamicStrokeDescriptor {
     gap_start: array<f32, MAX_DASH_INTERVALS>;
@@ -13,7 +13,7 @@ struct DynamicStrokeDescriptors {
     groups: array<DynamicStrokeDescriptor, MAX_OPTION_GROUPS>;
 };
 [[group(0), binding(0)]]
-var u_stroke: DynamicStrokeDescriptors;
+var<uniform> u_stroke: DynamicStrokeDescriptors;
 
 
 
@@ -165,12 +165,12 @@ struct Coverage {
 
 fn coverage(gl_SampleID: u32, keep: bool) -> Coverage {
     var out: Coverage;
-    out.mask_out = select(1u32 << (gl_SampleID & 31u32), 0u32, keep);
+    out.mask_out = select(0u, 1u << (gl_SampleID & 31u), keep);
     return out;
 }
 
 fn cap(texcoord: vec2<f32>, cap_type: u32) -> bool {
-    switch(i32(cap_type & 15u32)) {
+    switch(i32(cap_type & 15u)) {
         case 0: { // Square
             return texcoord.y > 0.5;
         }
@@ -196,12 +196,12 @@ fn cap(texcoord: vec2<f32>, cap_type: u32) -> bool {
 }
 
 fn joint(radius: f32, meta: u32, joint_type: u32) -> bool {
-    switch(i32(joint_type & 3u32)) {
+    switch(i32(joint_type & 3u)) {
         default: { // Miter
             return true;
         }
         case 1: { // Bevel
-            return (meta & 65536u32) != 0u32;
+            return (meta & 65536u) != 0u;
         }
         case 2: { // Round
             return radius <= 0.5;
@@ -210,24 +210,26 @@ fn joint(radius: f32, meta: u32, joint_type: u32) -> bool {
 }
 
 fn stroke_dashed(path_index: u32, texcoord: vec2<f32>) -> bool {
-    let last_interval_index: u32 = u_stroke.groups[path_index].meta >> 3u32;
+    let last_interval_index: u32 = u_stroke.groups[path_index].meta >> 3u;
     let pattern_length: f32 = u_stroke.groups[path_index].gap_end[last_interval_index];
-    var interval_index: u32 = 0u32;
+    var interval_index: u32 = 0u;
     var gap_start: f32;
     var gap_end: f32;
-    let position_in_pattern = (texcoord.y - u_stroke.groups[path_index].phase) % pattern_length;
+    var position_in_pattern = (texcoord.y - u_stroke.groups[path_index].phase) % pattern_length;
+    if(position_in_pattern < 0.0) {
+        position_in_pattern = position_in_pattern + pattern_length;
+    }
     loop {
         gap_end = u_stroke.groups[path_index].gap_end[interval_index] - position_in_pattern;
-        if(gap_end < 0.0 && interval_index < last_interval_index) {
-            interval_index = interval_index + 1u32;
-        } else {
+        if(gap_end >= 0.0 || interval_index >= last_interval_index) {
             break;
         }
+        interval_index = interval_index + 1u;
     }
     gap_start = position_in_pattern - u_stroke.groups[path_index].gap_start[interval_index];
     if(gap_start > 0.0) {
-        let caps = u_stroke.groups[path_index].caps >> (interval_index * 8u32);
-        let start_cap = cap(vec2<f32>(texcoord.x, gap_start), caps >> 4u32);
+        let caps = u_stroke.groups[path_index].caps >> (interval_index * 8u);
+        let start_cap = cap(vec2<f32>(texcoord.x, gap_start), caps >> 4u);
         let end_cap = cap(vec2<f32>(texcoord.x, gap_end), caps);
         return start_cap || end_cap;
     } else {
@@ -275,12 +277,12 @@ fn stencil_stroke_line(
     in: Fragment2f1u,
     [[builtin(sample_index)]] gl_SampleID: u32,
 ) -> Coverage {
-    let path_index = in.meta & 65535u32;
+    let path_index = in.meta & 65535u;
     var fill: bool;
-    if((u_stroke.groups[path_index].meta & 4u32) != 0u32) {
+    if((u_stroke.groups[path_index].meta & 4u) != 0u) {
         fill = stroke_dashed(path_index, in.texcoord);
-    } elseif((in.meta & 65536u32) != 0u32) {
-        fill = cap(vec2<f32>(in.texcoord.x, in.texcoord.y - in.end_texcoord_y), u_stroke.groups[path_index].caps >> 4u32);
+    } elseif((in.meta & 65536u) != 0u) {
+        fill = cap(vec2<f32>(in.texcoord.x, in.texcoord.y - in.end_texcoord_y), u_stroke.groups[path_index].caps >> 4u);
     } elseif(in.texcoord.y < 0.0) {
         fill = cap(vec2<f32>(in.texcoord.x, -in.texcoord.y), u_stroke.groups[path_index].caps);
     } else {
@@ -295,10 +297,10 @@ fn stencil_stroke_joint(
     [[builtin(sample_index)]] gl_SampleID: u32,
 ) -> Coverage {
     let radius = length(in.texcoord.xy);
-    let path_index = in.meta & 65535u32;
+    let path_index = in.meta & 65535u;
     var fill: bool = joint(radius, in.meta, u_stroke.groups[path_index].meta);
     let TAU: f32 = acos(-1.0) * 2.0;
-    if(fill && (u_stroke.groups[path_index].meta & 4u32) != 0u32) {
+    if(fill && (u_stroke.groups[path_index].meta & 4u) != 0u) {
         fill = stroke_dashed(path_index, vec2<f32>(radius, in.texcoord.z + atan2(in.texcoord.y, in.texcoord.x) / TAU));
     }
     return coverage(gl_SampleID, fill);

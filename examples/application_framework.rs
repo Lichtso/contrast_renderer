@@ -63,9 +63,9 @@ impl Spawner {
 }
 
 pub trait Application {
-    fn new(device: &wgpu::Device, queue: &mut wgpu::Queue, swap_chain_descriptor: &wgpu::SwapChainDescriptor) -> Self;
-    fn resize(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, swap_chain_descriptor: &wgpu::SwapChainDescriptor);
-    fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SwapChainTexture, animation_time: f64);
+    fn new(device: &wgpu::Device, queue: &mut wgpu::Queue, surface_configuration: &wgpu::SurfaceConfiguration) -> Self;
+    fn resize(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, surface_configuration: &wgpu::SurfaceConfiguration);
+    fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SurfaceTexture, animation_time: f64);
     fn window_event(&mut self, event: winit::event::WindowEvent);
 }
 
@@ -119,7 +119,7 @@ impl ApplicationManager {
                 .expect("Couldn't append canvas to document body");
         }
 
-        let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+        let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
         let (size, surface) = unsafe {
             let size = window.inner_size();
             let surface = instance.create_surface(&window);
@@ -128,6 +128,7 @@ impl ApplicationManager {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
+                force_fallback_adapter: false,
                 compatible_surface: Some(&surface),
             })
             .await
@@ -167,24 +168,31 @@ impl ApplicationManager {
         }
     }
 
-    fn resize(&mut self) -> (wgpu::SwapChainDescriptor, wgpu::SwapChain) {
+    fn resize(&mut self) -> wgpu::SurfaceConfiguration {
         self.window.request_redraw();
-        let swap_chain_descriptor = wgpu::SwapChainDescriptor {
-            usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
-            format: self.adapter.get_swap_chain_preferred_format(&self.surface).unwrap(),
+        let surface_configuration = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: self.surface.get_preferred_format(&self.adapter).unwrap(),
             width: self.size.width,
             height: self.size.height,
             present_mode: wgpu::PresentMode::Mailbox,
         };
-        let swap_chain = self.device.create_swap_chain(&self.surface, &swap_chain_descriptor);
-        (swap_chain_descriptor, swap_chain)
+        self.surface.configure(&self.device, &surface_configuration);
+        surface_configuration
     }
 
     fn start_loop<A: 'static + Application>(mut self, event_loop: winit::event_loop::EventLoop<()>) {
-        let (swap_chain_descriptor, mut swap_chain) = self.resize();
-        let mut application = A::new(&self.device, &mut self.queue, &swap_chain_descriptor);
-        application.resize(&self.device, &mut self.queue, &swap_chain_descriptor);
+        let surface_configuration = self.resize();
+        let mut application = A::new(&self.device, &mut self.queue, &surface_configuration);
+        application.resize(&self.device, &mut self.queue, &surface_configuration);
+        #[cfg(not(target_arch = "wasm32"))]
         let start_time = std::time::Instant::now();
+        #[cfg(target_arch = "wasm32")]
+        let (clock, start_time) = {
+            let clock = web_sys::window().and_then(|window| window.performance()).unwrap();
+            let start_time = clock.now();
+            (clock, start_time)
+        };
 
         let spawner = Spawner::new();
         event_loop.run(move |event, _, control_flow| {
@@ -200,9 +208,8 @@ impl ApplicationManager {
                 } => {
                     self.size.width = size.width.max(1);
                     self.size.height = size.height.max(1);
-                    let (swap_chain_descriptor, new_swap_chain) = self.resize();
-                    swap_chain = new_swap_chain;
-                    application.resize(&self.device, &mut self.queue, &swap_chain_descriptor);
+                    let surface_configuration = self.resize();
+                    application.resize(&self.device, &mut self.queue, &surface_configuration);
                 }
                 winit::event::Event::WindowEvent { event, .. } => match event {
                     winit::event::WindowEvent::KeyboardInput {
@@ -223,11 +230,13 @@ impl ApplicationManager {
                     }
                 },
                 winit::event::Event::RedrawRequested(_) => {
-                    let frame = match swap_chain.get_current_frame() {
-                        Ok(frame) => frame,
-                        Err(_) => panic!("Failed to acquire next swap chain texture!"),
-                    };
-                    application.render(&self.device, &mut self.queue, &frame.output, start_time.elapsed().as_secs_f64());
+                    let frame = self.surface.get_current_texture().unwrap();
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let animation_time = start_time.elapsed().as_secs_f64();
+                    #[cfg(target_arch = "wasm32")]
+                    let animation_time = (clock.now() - start_time) * 0.001;
+                    application.render(&self.device, &mut self.queue, &frame, animation_time);
+                    frame.present();
                 }
                 _ => {}
             }

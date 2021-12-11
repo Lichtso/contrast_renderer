@@ -22,9 +22,9 @@ struct Application {
 }
 
 impl application_framework::Application for Application {
-    fn new(device: &wgpu::Device, _queue: &mut wgpu::Queue, swap_chain_descriptor: &wgpu::SwapChainDescriptor) -> Self {
+    fn new(device: &wgpu::Device, _queue: &mut wgpu::Queue, surface_configuration: &wgpu::SurfaceConfiguration) -> Self {
         let blending = wgpu::ColorTargetState {
-            format: swap_chain_descriptor.format,
+            format: surface_configuration.format,
             blend: Some(wgpu::BlendState {
                 color: wgpu::BlendComponent {
                     src_factor: wgpu::BlendFactor::SrcAlpha,
@@ -37,7 +37,7 @@ impl application_framework::Application for Application {
                     operation: wgpu::BlendOperation::Add,
                 },
             }),
-            write_mask: wgpu::ColorWrite::ALL,
+            write_mask: wgpu::ColorWrites::ALL,
         };
         let renderer = contrast_renderer::renderer::Renderer::new(&device, blending, MSAA_SAMPLE_COUNT, 4, 4).unwrap();
 
@@ -84,8 +84,8 @@ impl application_framework::Application for Application {
             renderer,
             dynamic_stroke_options,
             instance_buffers: [
-                contrast_renderer::renderer::Buffer::new(device, wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST, &[]),
-                contrast_renderer::renderer::Buffer::new(device, wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST, &[]),
+                contrast_renderer::renderer::Buffer::new(device, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, &[]),
+                contrast_renderer::renderer::Buffer::new(device, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, &[]),
             ],
             shape,
             viewport_size: wgpu::Extent3d::default(),
@@ -94,10 +94,10 @@ impl application_framework::Application for Application {
         }
     }
 
-    fn resize(&mut self, device: &wgpu::Device, _queue: &mut wgpu::Queue, swap_chain_descriptor: &wgpu::SwapChainDescriptor) {
+    fn resize(&mut self, device: &wgpu::Device, _queue: &mut wgpu::Queue, surface_configuration: &wgpu::SurfaceConfiguration) {
         self.viewport_size = wgpu::Extent3d {
-            width: swap_chain_descriptor.width,
-            height: swap_chain_descriptor.height,
+            width: surface_configuration.width,
+            height: surface_configuration.height,
             depth_or_array_layers: 1,
         };
         let depth_stencil_texture_descriptor = wgpu::TextureDescriptor {
@@ -106,7 +106,7 @@ impl application_framework::Application for Application {
             sample_count: MSAA_SAMPLE_COUNT,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth24PlusStencil8,
-            usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             label: None,
         };
         let depth_stencil_texture = device.create_texture(&depth_stencil_texture_descriptor);
@@ -120,8 +120,8 @@ impl application_framework::Application for Application {
                 mip_level_count: 1,
                 sample_count: MSAA_SAMPLE_COUNT,
                 dimension: wgpu::TextureDimension::D2,
-                format: swap_chain_descriptor.format,
-                usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
+                format: surface_configuration.format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 label: None,
             };
             let msaa_color_texture = device.create_texture(&msaa_color_texture_descriptor);
@@ -132,7 +132,7 @@ impl application_framework::Application for Application {
         }
     }
 
-    fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SwapChainTexture, animation_time: f64) {
+    fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SurfaceTexture, animation_time: f64) {
         match &mut self.dynamic_stroke_options[0] {
             contrast_renderer::path::DynamicStrokeOptions::Dashed { phase, .. } => {
                 *phase = (animation_time as f32 * 2.0).into();
@@ -176,15 +176,16 @@ impl application_framework::Application for Application {
             self.shape.render_stencil(&self.renderer, &mut render_pass, 0, 0..1);
         }
         {
+            let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[wgpu::RenderPassColorAttachment {
                     view: if MSAA_SAMPLE_COUNT == 1 {
-                        &frame.view
+                        &frame_view
                     } else {
                         &self.msaa_color_texture_view.as_ref().unwrap()
                     },
-                    resolve_target: if MSAA_SAMPLE_COUNT == 1 { None } else { Some(&frame.view) },
+                    resolve_target: if MSAA_SAMPLE_COUNT == 1 { None } else { Some(&frame_view) },
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: true,

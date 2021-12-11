@@ -15,7 +15,7 @@ jobs:
         uses: actions-rs/install@v0.1
         with:
           crate: wasm-bindgen-cli
-          version: 0.2.74
+          version: 0.2.78
           # use-tool-cache: true
       - name: Compile Native
         uses: actions-rs/cargo@v1
@@ -30,7 +30,7 @@ jobs:
           command: build
           args: --release --examples --target wasm32-unknown-unknown
       - name: Generate WASM Binding
-        run: wasm-bindgen --out-dir target/wasm --web target/wasm32-unknown-unknown/release/examples/showcase.wasm
+        run: wasm-bindgen --no-typescript --out-dir target/wasm --web target/wasm32-unknown-unknown/release/examples/showcase.wasm
       - uses: actions/upload-artifact@v2
         with:
           path: |
