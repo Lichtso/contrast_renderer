@@ -117,7 +117,7 @@ pub struct Layout {
 
 macro_rules! calculate_kerning {
     ($face:expr, $layout:expr, $text:expr, |$glyph_position:ident, $glyph_id:ident| $glyph_position_callback:tt) => {{
-        let kerning_table = $face.kerning_subtables().next();
+        let kerning_table = $face.tables().kern.and_then(|table| table.subtables.into_iter().next());
         let mut major_offset = 0.0;
         let mut prev_glyph_id = None;
         for char in $text.chars() {
