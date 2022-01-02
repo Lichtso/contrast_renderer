@@ -9,23 +9,24 @@ use geometric_algebra::ppga2d;
 
 /// Heap allocated font with a closed lifetime.
 pub struct Font {
-    _backing_store: Vec<u8>,
-    parsed_face: [u8; std::mem::size_of::<ttf_parser::Face>()],
+    _backing_store: std::pin::Pin<Box<[u8]>>,
+    parsed_face: ttf_parser::Face<'static>,
 }
 
 impl Font {
     /// Load a TTF font face.
     pub fn new(font_data: &[u8]) -> Self {
-        let backing_store = font_data.to_vec();
-        let parsed_face = unsafe { std::mem::transmute(ttf_parser::Face::from_slice(&backing_store, 0).unwrap()) };
+        let backing_store = std::pin::Pin::new(font_data.to_vec().into_boxed_slice());
+        let backing_slice = unsafe { std::mem::transmute::<&[u8], &[u8]>(&backing_store) };
         Self {
             _backing_store: backing_store,
-            parsed_face,
+            parsed_face: ttf_parser::Face::from_slice(backing_slice, 0).unwrap(),
         }
     }
+
     /// Get the parsed font face.
-    pub fn face(&self) -> ttf_parser::Face {
-        unsafe { std::mem::transmute(self.parsed_face) }
+    pub fn face(&self) -> &ttf_parser::Face {
+        &self.parsed_face
     }
 }
 
