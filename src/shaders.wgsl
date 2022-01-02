@@ -8,7 +8,6 @@ struct DynamicStrokeDescriptor {
     meta: u32;
     phase: f32;
 };
-[[block]]
 struct DynamicStrokeDescriptors {
     groups: array<DynamicStrokeDescriptor, MAX_OPTION_GROUPS>;
 };
@@ -281,9 +280,9 @@ fn stencil_stroke_line(
     var fill: bool;
     if((u_stroke.groups[path_index].meta & 4u) != 0u) {
         fill = stroke_dashed(path_index, in.texcoord);
-    } elseif((in.meta & 65536u) != 0u) {
+    } else if((in.meta & 65536u) != 0u) {
         fill = cap(vec2<f32>(in.texcoord.x, in.texcoord.y - in.end_texcoord_y), u_stroke.groups[path_index].caps >> 4u);
-    } elseif(in.texcoord.y < 0.0) {
+    } else if(in.texcoord.y < 0.0) {
         fill = cap(vec2<f32>(in.texcoord.x, -in.texcoord.y), u_stroke.groups[path_index].caps);
     } else {
         fill = true;

@@ -411,7 +411,7 @@ macro_rules! render_pipeline_descriptor {
                 topology: wgpu::PrimitiveTopology::$primitive_topology,
                 strip_index_format: $primitive_index_format,
                 front_face: wgpu::FrontFace::Ccw,
-                clamp_depth: false,
+                unclipped_depth: false,
                 cull_mode: None,
                 conservative: false,
                 polygon_mode: wgpu::PolygonMode::Fill,
@@ -428,6 +428,7 @@ macro_rules! render_pipeline_descriptor {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
+            multiview: None,
         }
     };
 }
