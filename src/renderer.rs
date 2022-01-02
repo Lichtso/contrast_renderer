@@ -9,7 +9,6 @@ use crate::{
     utils::transmute_slice,
     vertex::{triangle_fan_to_strip, Vertex0, Vertex2f, Vertex3f, Vertex4f},
 };
-use geometric_algebra::ppga3d;
 use std::ops::Range;
 use wgpu::{include_wgsl, util::DeviceExt, vertex_attr_array};
 
@@ -96,12 +95,19 @@ impl Buffer {
     }
 }
 
+#[macro_export]
 macro_rules! concat_buffers {
-    ($device:expr, $buffer_count:expr, [$($buffer:expr),* $(,)?]) => {{
+    (count: $buffer:expr $(,)?) => {
+        1
+    };
+    (count: $buffer:expr, $($rest:expr),+) => {
+        concat_buffers!(count: $($rest),*) + 1
+    };
+    ([$($buffer:expr),* $(,)?]) => {{
         let buffers = [
-            $(transmute_slice::<_, u8>($buffer)),*
+            $($crate::utils::transmute_slice::<_, u8>($buffer)),*
         ];
-        let mut end_offsets = [0; $buffer_count];
+        let mut end_offsets = [0; $crate::concat_buffers!(count: $($buffer),*)];
         let mut buffer_length = 0;
         for (i, buffer) in buffers.iter().enumerate() {
             buffer_length += buffer.len();
@@ -179,25 +185,18 @@ impl Shape {
             (Some(stroke_uniform_buffer), Some(stroke_bind_group))
         };
         let convex_hull = triangle_fan_to_strip(crate::convex_hull::andrew(&proto_hull));
-        let (vertex_offsets, vertex_buffer) = concat_buffers!(
-            device,
-            8,
-            [
-                &stroke_builder.line_vertices,
-                &stroke_builder.joint_vertices,
-                &fill_builder.solid_vertices,
-                &fill_builder.integral_quadratic_vertices,
-                &fill_builder.integral_cubic_vertices,
-                &fill_builder.rational_quadratic_vertices,
-                &fill_builder.rational_cubic_vertices,
-                &convex_hull,
-            ]
-        );
-        let (index_offsets, index_buffer) = concat_buffers!(
-            device,
-            3,
-            [&stroke_builder.line_indices, &stroke_builder.joint_indices, &fill_builder.solid_indices,]
-        );
+        let (vertex_offsets, vertex_buffer) = concat_buffers!([
+            &stroke_builder.line_vertices,
+            &stroke_builder.joint_vertices,
+            &fill_builder.solid_vertices,
+            &fill_builder.integral_quadratic_vertices,
+            &fill_builder.integral_cubic_vertices,
+            &fill_builder.rational_quadratic_vertices,
+            &fill_builder.rational_cubic_vertices,
+            &convex_hull,
+        ]);
+        let (index_offsets, index_buffer) =
+            concat_buffers!([&stroke_builder.line_indices, &stroke_builder.joint_indices, &fill_builder.solid_indices,]);
         Ok(Self {
             vertex_offsets,
             index_offsets,
@@ -706,19 +705,5 @@ impl Renderer {
             decrement_clip_nesting_counter_pipeline,
             color_solid_pipeline,
         })
-    }
-
-    /// Set the model view projection matrix for subsequent stencil and color rendering calls.
-    ///
-    /// Don't forget to call `render_pass.set_vertex_buffer(0, instance_transform_buffer.slice(..));`
-    pub fn set_transform(&self, transforms: &[[ppga3d::Point; 4]]) -> Vec<u8> {
-        concat_buffers!(device, 1, [transforms]).1
-    }
-
-    /// Set the color of subsequent [Shape::render_color_solid] calls.
-    ///
-    /// Don't forget to call `render_pass.set_vertex_buffer(1, instance_color_buffer.slice(..));`
-    pub fn set_solid_color(&self, colors: &[Color]) -> Vec<u8> {
-        concat_buffers!(device, 1, [colors]).1
     }
 }

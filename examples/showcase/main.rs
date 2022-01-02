@@ -153,8 +153,10 @@ impl application_framework::Application for Application {
                 } * self.view_rotation),
             ),
         );
-        self.instance_buffers[0].update(device, queue, &self.renderer.set_transform(&[projection_matrix]));
-        self.instance_buffers[1].update(device, queue, &self.renderer.set_solid_color(&[[1.0, 1.0, 1.0, 1.0].into()]));
+        let instances_transform: &[[geometric_algebra::ppga3d::Point; 4]] = &[projection_matrix];
+        let instances_color: &[contrast_renderer::renderer::Color] = &[[1.0, 1.0, 1.0, 1.0].into()];
+        self.instance_buffers[0].update(device, queue, &contrast_renderer::concat_buffers!([instances_transform]).1);
+        self.instance_buffers[1].update(device, queue, &contrast_renderer::concat_buffers!([instances_color]).1);
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
