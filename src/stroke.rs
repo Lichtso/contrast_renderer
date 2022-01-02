@@ -248,7 +248,7 @@ impl StrokeBuilder {
                     let normal = rotate_90_degree_clockwise(segment_start_tangent);
                     emit_stroke_vertices(
                         self,
-                        &stroke_options,
+                        stroke_options,
                         stroke_options.dynamic_stroke_options_group,
                         length_accumulator - 0.5 * stroke_options.width.unwrap(),
                         offset_control_point(previous_control_point, normal, 0.5 * stroke_options.width.unwrap().abs()),
@@ -258,7 +258,7 @@ impl StrokeBuilder {
                 if stroke_options.closed || *segment_type != SegmentType::Line {
                     emit_stroke_vertices(
                         self,
-                        &stroke_options,
+                        stroke_options,
                         stroke_options.dynamic_stroke_options_group,
                         length_accumulator,
                         previous_control_point,
@@ -269,7 +269,7 @@ impl StrokeBuilder {
                 emit_stroke_join(
                     self,
                     proto_hull,
-                    &stroke_options,
+                    stroke_options,
                     &mut length_accumulator,
                     previous_control_point,
                     previous_tangent,
@@ -281,7 +281,7 @@ impl StrokeBuilder {
                     length_accumulator += previous_control_point.regressive_product(next_control_point).magnitude().g0;
                     emit_stroke_vertices(
                         self,
-                        &stroke_options,
+                        stroke_options,
                         stroke_options.dynamic_stroke_options_group,
                         length_accumulator,
                         next_control_point,
@@ -379,7 +379,7 @@ impl StrokeBuilder {
                 emit_stroke_join(
                     self,
                     proto_hull,
-                    &stroke_options,
+                    stroke_options,
                     &mut length_accumulator,
                     previous_control_point,
                     previous_tangent,
@@ -388,7 +388,7 @@ impl StrokeBuilder {
                 length_accumulator += length.g0;
                 emit_stroke_vertices(
                     self,
-                    &stroke_options,
+                    stroke_options,
                     stroke_options.dynamic_stroke_options_group,
                     length_accumulator,
                     vec_to_point(path.start.unwrap()),
@@ -397,7 +397,7 @@ impl StrokeBuilder {
                 emit_stroke_join(
                     self,
                     proto_hull,
-                    &stroke_options,
+                    stroke_options,
                     &mut length_accumulator,
                     vec_to_point(path.start.unwrap()),
                     segment_tangent,
@@ -407,7 +407,7 @@ impl StrokeBuilder {
                 emit_stroke_join(
                     self,
                     proto_hull,
-                    &stroke_options,
+                    stroke_options,
                     &mut length_accumulator,
                     vec_to_point(path.start.unwrap()),
                     previous_tangent,
@@ -418,7 +418,7 @@ impl StrokeBuilder {
             cut_stroke_polygon(self, proto_hull);
             emit_stroke_vertices(
                 self,
-                &stroke_options,
+                stroke_options,
                 stroke_options.dynamic_stroke_options_group | 0x10000,
                 length_accumulator,
                 previous_control_point,
@@ -427,7 +427,7 @@ impl StrokeBuilder {
             let normal = rotate_90_degree_clockwise(previous_tangent);
             emit_stroke_vertices(
                 self,
-                &stroke_options,
+                stroke_options,
                 stroke_options.dynamic_stroke_options_group | 0x10000,
                 length_accumulator + 0.5 * stroke_options.width.unwrap(),
                 offset_control_point(previous_control_point, normal, -0.5 * stroke_options.width.unwrap().abs()),

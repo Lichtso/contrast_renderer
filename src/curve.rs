@@ -320,7 +320,7 @@ pub fn integral_quadratic_uniform_tangent_angle(
 
 /// Returns parameters of an integral cubic bezier curve, distributed so that they have uniform tangent angles of the given angle step size
 pub fn integral_cubic_uniform_tangent_angle(power_basis: &[ppga2d::Point; 4], angle_step: f32) -> Vec<f32> {
-    let ippc = inflection_point_polynomial_coefficients(&power_basis, true);
+    let ippc = inflection_point_polynomial_coefficients(power_basis, true);
     let discriminant_and_roots = integral_inflection_points(&ippc, false);
     let mut planes;
     cubic_uniform_tangent_angle!(
@@ -372,7 +372,7 @@ pub fn rational_quadratic_uniform_tangent_angle(
 
 /// Returns parameters of an rational cubic bezier curve, distributed so that they have uniform tangent angles of the given angle step size
 pub fn rational_cubic_uniform_tangent_angle(power_basis: &[ppga2d::Point; 4], angle_step: f32) -> Vec<f32> {
-    let ippc = inflection_point_polynomial_coefficients(&power_basis, false);
+    let ippc = inflection_point_polynomial_coefficients(power_basis, false);
     let discriminant_and_roots = rational_inflection_points(&ippc, false);
     let mut planes;
     cubic_uniform_tangent_angle!(

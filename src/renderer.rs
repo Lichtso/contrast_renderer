@@ -152,9 +152,9 @@ impl Shape {
                 if stroke_options.dynamic_stroke_options_group >= dynamic_stroke_options.len() {
                     return Err(Error::DynamicStrokeOptionsIndexOutOfBounds);
                 }
-                stroke_builder.add_path(&mut proto_hull, &path)?;
+                stroke_builder.add_path(&mut proto_hull, path)?;
             } else {
-                fill_builder.add_path(&mut proto_hull, &path)?;
+                fill_builder.add_path(&mut proto_hull, path)?;
             }
         }
         let (stroke_uniform_buffer, stroke_bind_group) = if dynamic_stroke_options.is_empty() {
