@@ -1,5 +1,7 @@
 //! Floats which are guaranteed to be finite (no NaNs or Infinity)
 
+use geometric_algebra::{ppga2d, ppga3d};
+
 #[derive(Clone, Copy)]
 pub struct SafeFloat<DataType, const N: usize> {
     pub values: [DataType; N],
@@ -178,3 +180,45 @@ implement!(f64, 1);
 implement!(f64, 2);
 implement!(f64, 3);
 implement!(f64, 4);
+
+impl std::convert::From<SafeFloat<f32, 3>> for ppga2d::Point {
+    fn from(safe_float: SafeFloat<f32, 3>) -> Self {
+        Self {
+            g0: safe_float.unwrap().into(),
+        }
+    }
+}
+
+impl std::convert::From<ppga2d::Point> for SafeFloat<f32, 3> {
+    fn from(point: ppga2d::Point) -> Self {
+        [point.g0[0], point.g0[1], point.g0[2]].into()
+    }
+}
+
+impl std::convert::From<SafeFloat<f32, 4>> for ppga3d::Point {
+    fn from(safe_float: SafeFloat<f32, 4>) -> Self {
+        Self {
+            g0: safe_float.unwrap().into(),
+        }
+    }
+}
+
+impl std::convert::From<ppga3d::Point> for SafeFloat<f32, 4> {
+    fn from(point: ppga3d::Point) -> Self {
+        [point.g0[0], point.g0[1], point.g0[2], point.g0[3]].into()
+    }
+}
+
+impl std::convert::From<SafeFloat<f32, 4>> for ppga2d::Motor {
+    fn from(safe_float: SafeFloat<f32, 4>) -> Self {
+        Self {
+            g0: safe_float.unwrap().into(),
+        }
+    }
+}
+
+impl std::convert::From<ppga2d::Motor> for SafeFloat<f32, 4> {
+    fn from(motor: ppga2d::Motor) -> Self {
+        [motor.g0[0], motor.g0[1], motor.g0[2], motor.g0[3]].into()
+    }
+}
