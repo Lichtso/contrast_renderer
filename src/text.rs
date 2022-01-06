@@ -9,24 +9,51 @@ use geometric_algebra::ppga2d;
 
 /// Heap allocated font with a closed lifetime.
 pub struct Font {
+    name: String,
     _backing_store: std::pin::Pin<Box<[u8]>>,
     parsed_face: ttf_parser::Face<'static>,
 }
 
 impl Font {
     /// Load a TTF font face.
-    pub fn new(font_data: &[u8]) -> Self {
+    pub fn new(name: String, font_data: &[u8]) -> Self {
         let backing_store = std::pin::Pin::new(font_data.to_vec().into_boxed_slice());
         let backing_slice = unsafe { std::mem::transmute::<&[u8], &[u8]>(&backing_store) };
         Self {
+            name,
             _backing_store: backing_store,
             parsed_face: ttf_parser::Face::from_slice(backing_slice, 0).unwrap(),
         }
     }
 
+    /// Get the name of the font.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// Get the parsed font face.
     pub fn face(&self) -> &ttf_parser::Face {
         &self.parsed_face
+    }
+}
+
+impl std::fmt::Debug for Font {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Font({:?})", self.name)
+    }
+}
+
+impl PartialEq for Font {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Eq for Font {}
+
+impl std::hash::Hash for Font {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
     }
 }
 
@@ -120,8 +147,9 @@ macro_rules! calculate_kerning {
         let kerning_table = $face.tables().kern.and_then(|table| table.subtables.into_iter().next());
         let mut major_offset = 0.0;
         let mut prev_glyph_id = None;
+        let replacement_glyph_id = $face.glyph_index('�');
         for char in $text.chars() {
-            let $glyph_id = $face.glyph_index(char).unwrap();
+            let $glyph_id = $face.glyph_index(char).or(replacement_glyph_id).unwrap();
             if let Some(prev_glyph_id) = prev_glyph_id {
                 if let Some(kerning_table) = kerning_table {
                     if let Some(kerning) = kerning_table.glyphs_kerning(prev_glyph_id, $glyph_id) {
