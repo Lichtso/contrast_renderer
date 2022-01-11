@@ -3,6 +3,43 @@
 use geometric_algebra::{ppga2d, ppga3d, OuterProduct, RegressiveProduct, Transformation, Zero};
 use std::convert::TryInto;
 
+/// Like `vec!` but for `HashSet`
+#[macro_export]
+macro_rules! hash_set(
+    [ $($key:expr),*$(,)? ] => {
+        {
+            #[allow(unused_mut)]
+            let mut set = ::std::collections::HashSet::new();
+            $(set.insert($key);)*
+            set
+        }
+    };
+);
+
+/// Like `vec!` but for `HashMap`
+#[macro_export]
+macro_rules! hash_map(
+    { $($key:expr => $value:expr),*$(,)? } => {
+        {
+            #[allow(unused_mut)]
+            let mut map = ::std::collections::HashMap::new();
+            $(map.insert($key, $value);)*
+            map
+        }
+    };
+);
+
+/// Like `matches!` but returns an option of the matched value
+#[macro_export]
+macro_rules! match_option {
+    ($value:expr, $value_kind:path) => {
+        match $value {
+            $value_kind(value) => Some(value),
+            _ => None,
+        }
+    };
+}
+
 /// Transmutes a vector.
 pub fn transmute_vec<S, T>(mut vec: Vec<S>) -> Vec<T> {
     let ptr = vec.as_mut_ptr() as *mut T;
