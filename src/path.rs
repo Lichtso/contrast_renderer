@@ -633,7 +633,8 @@ impl Path {
         });
     }
 
-    fn push_quarter_ellipse(&mut self, tangent_crossing: [f32; 2], to: [f32; 2]) {
+    /// Similar to [push_arc] but constrainted to rectangular angles
+    pub fn push_quarter_ellipse(&mut self, tangent_crossing: [f32; 2], to: [f32; 2]) {
         self.push_rational_quadratic_curve(RationalQuadraticCurveSegment {
             weight: std::f32::consts::FRAC_1_SQRT_2.into(),
             control_points: [tangent_crossing.into(), to.into()],
