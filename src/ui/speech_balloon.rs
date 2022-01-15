@@ -12,7 +12,6 @@ use crate::{
 pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
         "PrepareRendering" => {
-            println!("speech_balloon PrepareRendering");
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
@@ -130,7 +129,6 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
         }
         "Render" => rendering_default_behavior(messenger),
         "ConfigurationRequest" => {
-            println!("speech_balloon ConfigurationRequest");
             let content_half_extent = context
                 .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.half_extent)
                 .unwrap();
@@ -143,15 +141,12 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             )]
         }
         "ChildResized" => {
-            println!("speech_balloon ChildResized");
             vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
         }
         "Pointer" => {
-            println!("speech_balloon Pointer");
             vec![messenger.clone()]
         }
         "Key" => {
-            println!("speech_balloon Key");
             vec![messenger.clone()]
         }
         _ => Vec::new(),

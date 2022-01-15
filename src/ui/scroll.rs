@@ -14,7 +14,6 @@ use geometric_algebra::{ppga2d, One};
 fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
         "PrepareRendering" => {
-            println!("scroll_bar PrepareRendering");
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
@@ -56,7 +55,6 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         }
         "Render" => rendering_default_behavior(messenger),
         "ConfigurationRequest" => {
-            println!("scroll_bar ConfigurationRequest");
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(
                 &message::CONFIGURATION_RESPONSE,
@@ -66,7 +64,6 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             )]
         }
         "Pointer" => {
-            println!("scroll_bar Pointer");
             if messenger.propagation_direction != PropagationDirection::Parent {
                 return vec![messenger.clone()];
             }
@@ -128,7 +125,6 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
 pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
         "PrepareRendering" => {
-            println!("scroll PrepareRendering");
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
@@ -146,7 +142,6 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         }
         "Render" => rendering_default_behavior(messenger),
         "ConfigurationRequest" => {
-            println!("scroll ConfigurationRequest");
             let content_half_extent = context
                 .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.half_extent.unwrap())
                 .unwrap();
@@ -231,11 +226,9 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             result
         }
         "ChildResized" => {
-            println!("scroll ChildResized");
             vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
         }
         "Pointer" => {
-            println!("scroll Pointer");
             match match_option!(messenger.get_attribute("changed_button"), Value::ButtonOrKey).unwrap() {
                 0 if match_option!(context.get_attribute("enable_dragging_scroll"), Value::Boolean).unwrap_or(false) => {
                     if context.does_observe(match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()) {
@@ -297,11 +290,9 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             vec![messenger.clone()]
         }
         "Key" => {
-            println!("scroll Key");
             vec![messenger.clone()]
         }
         "InputValueChanged" => {
-            println!("scroll InputValueChanged");
             context.set_attribute("content_motor", messenger.get_attribute("new_value").clone());
             return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
         }

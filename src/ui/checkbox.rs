@@ -12,7 +12,6 @@ use crate::{
 pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
         "PrepareRendering" => {
-            println!("checkbox PrepareRendering");
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
@@ -62,7 +61,6 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
         }
         "Render" => rendering_default_behavior(messenger),
         "ConfigurationRequest" => {
-            println!("checkbox ConfigurationRequest");
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(
                 &message::CONFIGURATION_RESPONSE,
@@ -72,7 +70,6 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             )]
         }
         "Pointer" => {
-            println!("checkbox Pointer");
             if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false)
                 || messenger.propagation_direction != PropagationDirection::Parent
             {

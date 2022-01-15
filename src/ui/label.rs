@@ -14,7 +14,6 @@ use crate::{
 fn text_selection(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
         "PrepareRendering" => {
-            println!("text_label PrepareRendering");
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
@@ -29,7 +28,6 @@ fn text_selection(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         }
         "Render" => rendering_default_behavior(messenger),
         "ConfigurationRequest" => {
-            println!("text_label ConfigurationRequest");
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(
                 &message::CONFIGURATION_RESPONSE,
@@ -56,7 +54,6 @@ macro_rules! layout {
 pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
         "PrepareRendering" => {
-            println!("text_label PrepareRendering");
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
@@ -76,7 +73,6 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         }
         "Render" => rendering_default_behavior(messenger),
         "ConfigurationRequest" => {
-            println!("text_label ConfigurationRequest");
             let text_font = match_option!(context.derive_attribute("font_face"), Value::TextFont).unwrap();
             let layout = layout!(context);
             let text_content = match_option!(context.get_attribute("text_content"), Value::TextString).unwrap_or_else(String::default);
@@ -122,7 +118,6 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             result
         }
         "Pointer" => {
-            println!("text_label Pointer");
             let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
             if text_interaction == TextInteraction::None || messenger.propagation_direction != PropagationDirection::Parent {
                 return vec![messenger.clone()];
@@ -175,7 +170,6 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             }
         }
         "Key" => {
-            println!("text_label Key");
             let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
             if text_interaction == TextInteraction::None || messenger.get_attribute("changed_keycode") == &Value::Void {
                 return Vec::new();

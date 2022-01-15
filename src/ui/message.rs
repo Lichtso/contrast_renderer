@@ -76,15 +76,15 @@ pub struct Messenger {
     pub propagation_direction: PropagationDirection,
 }
 
-/*impl std::fmt::Debug for Messenger {
+impl std::fmt::Debug for Messenger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let debug_struct = f.debug_struct(self.behavior.label);
+        let mut debug_struct = f.debug_struct(self.behavior.label);
         for (attribute, value) in self.properties.iter() {
             debug_struct.field(attribute, value);
         }
         debug_struct.finish()
     }
-}*/
+}
 
 impl Messenger {
     pub fn new(behavior: &'static MessengerBehavior, properties: HashMap<&'static str, Value>) -> Self {
