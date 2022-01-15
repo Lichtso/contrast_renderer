@@ -15,7 +15,6 @@ use geometric_algebra::ppga2d;
 fn range_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
         "PrepareRendering" => {
-            println!("range_bar PrepareRendering");
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
@@ -35,7 +34,6 @@ fn range_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
         }
         "Render" => rendering_default_behavior(messenger),
         "ConfigurationRequest" => {
-            println!("range_bar ConfigurationRequest");
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(
                 &message::CONFIGURATION_RESPONSE,
@@ -51,7 +49,6 @@ fn range_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
 pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
         "PrepareRendering" => {
-            println!("range PrepareRendering");
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
@@ -69,7 +66,6 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
         }
         "Render" => rendering_default_behavior(messenger),
         "ConfigurationRequest" => {
-            println!("range ConfigurationRequest");
             let half_extent = context.get_half_extent().unwrap();
             let axis = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap_or(Orientation::Horizontal) as usize;
             let numeric_value = match_option!(context.get_attribute("numeric_value"), Value::Float1)
@@ -140,7 +136,6 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
             result
         }
         "Pointer" => {
-            println!("range Pointer");
             if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false)
                 || messenger.propagation_direction != PropagationDirection::Parent
             {
@@ -215,11 +210,9 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
             }
         }
         "Key" => {
-            println!("range Key");
             vec![messenger.clone()]
         }
         "InputValueChanged" => {
-            println!("range InputValueChanged");
             if let Value::TextualProjection(textual_projection) = context.get_attribute("textual_projection") {
                 let text_content = match_option!(messenger.get_attribute("new_value"), Value::TextString).unwrap();
                 if let Some(mut new_numeric_value) = (textual_projection.backward)(text_content.clone()) {

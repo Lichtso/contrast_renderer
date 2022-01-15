@@ -12,12 +12,10 @@ use crate::{
 pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
         "PrepareRendering" => {
-            println!("list PrepareRendering");
             vec![messenger.clone()]
         }
         "Render" => rendering_default_behavior(messenger),
         "ConfigurationRequest" => {
-            println!("list ConfigurationRequest");
             let margin = match_option!(context.derive_attribute("list_margin"), Value::Float1).unwrap().unwrap();
             let padding = match_option!(context.derive_attribute("list_padding"), Value::Float2).unwrap().unwrap();
             let minor_axis_alignment = context.derive_attribute("list_minor_axis_alignment");
@@ -112,15 +110,12 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
             result
         }
         "ChildResized" => {
-            println!("list ChildResized");
             vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
         }
         "Pointer" => {
-            println!("list Pointer");
             vec![messenger.clone()]
         }
         "Key" => {
-            println!("list Key");
             vec![messenger.clone()]
         }
         _ => Vec::new(),
