@@ -272,46 +272,11 @@ impl NodeHierarchy {
         observable: NodeOrObservableIdentifier,
         mut messenger: Messenger,
     ) {
-        let mut messenger_stack = Vec::new();
-        let captured_observable = (messenger.behavior.get_captured_observable)(&messenger);
-        println!("notify_observers {:?} {:?} {}", captured_observable, observable, messenger.behavior.label);
-        let global_node_ids = if let Some((is_captured_observable, observers)) = captured_observable
-            .and_then(|captured_observable| self.observer_channels.get(&captured_observable).map(|observers| (true, observers)))
-            .or_else(|| self.observer_channels.get(&observable).map(|observers| (false, observers)))
-        {
-            if is_captured_observable {
-                (messenger.behavior.do_reflect)(&mut messenger);
-            }
-            observers.iter().cloned().collect::<Vec<_>>()
-        } else {
-            return;
-        };
-        for global_node_id in global_node_ids.iter() {
-            {
-                let mut global_node_id = *global_node_id;
-                let mut parents_path = vec![global_node_id];
-                while let Some(global_parent_id) = self.nodes.get(&global_node_id).unwrap().borrow().parent {
-                    global_node_id = global_parent_id;
-                    parents_path.push(global_parent_id);
-                }
-                for global_node_id in parents_path.iter().rev() {
-                    let node = self.nodes.get(global_node_id).unwrap().borrow();
-                    (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
-                }
-            }
-            NodeMessengerContext::invoke_handler(
-                *global_node_id,
-                &mut self.nodes,
-                &self.theme_properties,
-                &renderer,
-                &mut messenger_stack,
-                &mut messenger,
-            );
-        }
-        self.process_messengers(messenger_stack, renderer, encoder);
+        messenger.propagation_direction = PropagationDirection::Observers(observable);
+        self.process_messengers(vec![(0, messenger)], renderer, encoder);
     }
 
-    pub fn process_messengers<'a>(
+    fn process_messengers<'a>(
         &mut self,
         mut messenger_stack: Vec<(GlobalNodeIdentifier, Messenger)>,
         mut renderer: Option<&mut Renderer<'a>>,
@@ -364,11 +329,6 @@ impl NodeHierarchy {
                             .into_iter()
                             .map(|(_layer_index, global_child_id)| global_child_id)
                             .collect();
-                        println!(
-                            "ordered_children.len={} children.len={}",
-                            node.ordered_children.len(),
-                            node.children.len()
-                        );
                     }
                     "ConfigureChild" => {
                         let node = self.nodes.get(&global_node_id).unwrap().borrow();
@@ -540,7 +500,41 @@ impl NodeHierarchy {
                     }
                 }
                 PropagationDirection::Observers(observable) => {
-                    // TODO
+                    let captured_observable = (messenger.behavior.get_captured_observable)(&messenger);
+                    let global_node_ids = if let Some((is_captured_observable, observers)) = captured_observable
+                        .and_then(|captured_observable| self.observer_channels.get(&captured_observable).map(|observers| (true, observers)))
+                        .or_else(|| self.observer_channels.get(&observable).map(|observers| (false, observers)))
+                    {
+                        if is_captured_observable {
+                            (messenger.behavior.do_reflect)(&mut messenger);
+                        }
+                        observers.iter().cloned().collect::<Vec<_>>()
+                    } else {
+                        continue;
+                    };
+                    messenger.propagation_direction = messenger.behavior.default_propagation_direction;
+                    for global_node_id in global_node_ids.iter() {
+                        {
+                            let mut global_node_id = *global_node_id;
+                            let mut parents_path = vec![global_node_id];
+                            while let Some(global_parent_id) = self.nodes.get(&global_node_id).unwrap().borrow().parent {
+                                global_node_id = global_parent_id;
+                                parents_path.push(global_parent_id);
+                            }
+                            for global_node_id in parents_path.iter().rev() {
+                                let node = self.nodes.get(global_node_id).unwrap().borrow();
+                                (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
+                            }
+                        }
+                        NodeMessengerContext::invoke_handler(
+                            *global_node_id,
+                            &mut self.nodes,
+                            &self.theme_properties,
+                            &renderer,
+                            &mut messenger_stack,
+                            &mut messenger,
+                        );
+                    }
                 }
             }
         }
