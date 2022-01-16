@@ -6,7 +6,7 @@ use crate::{
     path::{DynamicStrokeOptions, Path, MAX_DASH_INTERVALS},
     safe_float::SafeFloat,
     stroke::StrokeBuilder,
-    utils::transmute_slice,
+    utils::{transmute_slice, transmute_vec},
     vertex::{triangle_fan_to_strip, Vertex0, Vertex2f, Vertex3f, Vertex4f},
 };
 use std::ops::Range;
@@ -93,6 +93,27 @@ impl Buffer {
             *self = Self::new(device, self.usage, data);
         }
     }
+
+    // Returns a [wgpu::BufferBinding] for a slice of this buffer
+    pub fn get_binding<R: std::ops::RangeBounds<u64>>(&self, range: R) -> wgpu::BufferBinding {
+        let offset = match range.start_bound() {
+            std::ops::Bound::<&u64>::Included(index) => *index,
+            std::ops::Bound::<&u64>::Excluded(index) => *index + 1,
+            std::ops::Bound::<&u64>::Unbounded => 0,
+        }
+        .min(self.length as u64);
+        let end_offset = match range.end_bound() {
+            std::ops::Bound::<&u64>::Included(index) => *index + 1,
+            std::ops::Bound::<&u64>::Excluded(index) => *index,
+            std::ops::Bound::<&u64>::Unbounded => self.length as u64,
+        }
+        .min(self.length as u64);
+        wgpu::BufferBinding {
+            buffer: &self.buffer,
+            offset,
+            size: wgpu::BufferSize::new(end_offset - offset),
+        }
+    }
 }
 
 #[macro_export]
@@ -122,11 +143,11 @@ macro_rules! concat_buffers {
 pub struct Shape {
     vertex_offsets: [usize; 8],
     index_offsets: [usize; 3],
-    stroke_uniform_buffer: Option<wgpu::Buffer>,
-    stroke_bind_group: Option<wgpu::BindGroup>,
     dynamic_stroke_options_count: usize,
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    stroke_buffer: Buffer,
+    stroke_bind_group: Option<wgpu::BindGroup>,
 }
 
 impl Shape {
@@ -138,12 +159,8 @@ impl Shape {
         renderer: &Renderer,
         dynamic_stroke_options: &[DynamicStrokeOptions],
         paths: &[Path],
+        existing_shape: Option<(Shape, &wgpu::Queue)>,
     ) -> Result<Self, Error> {
-        let max_dynamic_stroke_options_group =
-            device.limits().max_uniform_buffer_binding_size as usize / std::mem::size_of::<DynamicStrokeDescriptor>();
-        if dynamic_stroke_options.len() > max_dynamic_stroke_options_group {
-            return Err(Error::TooManyDynamicStrokeOptionsGroup);
-        }
         let mut proto_hull = Vec::new();
         let mut stroke_builder = StrokeBuilder::default();
         let mut fill_builder = FillBuilder::default();
@@ -157,33 +174,6 @@ impl Shape {
                 fill_builder.add_path(&mut proto_hull, path)?;
             }
         }
-        let (stroke_uniform_buffer, stroke_bind_group) = if dynamic_stroke_options.is_empty() {
-            (None, None)
-        } else {
-            let mut dynamic_stroke_descriptors = vec![DynamicStrokeDescriptor::default(); max_dynamic_stroke_options_group];
-            for (i, dynamic_stroke_descriptor) in dynamic_stroke_options.iter().enumerate() {
-                dynamic_stroke_descriptors[i] = convert_dynamic_stroke_options(dynamic_stroke_descriptor)?;
-            }
-            let dynamic_stroke_descriptors = transmute_slice(dynamic_stroke_descriptors.as_slice());
-            let stroke_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: dynamic_stroke_descriptors,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-            let stroke_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &renderer.stroke_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &stroke_uniform_buffer,
-                        offset: 0,
-                        size: wgpu::BufferSize::new(dynamic_stroke_descriptors.len() as u64),
-                    }),
-                }],
-            });
-            (Some(stroke_uniform_buffer), Some(stroke_bind_group))
-        };
         let convex_hull = triangle_fan_to_strip(crate::convex_hull::andrew(&proto_hull));
         let (vertex_offsets, vertex_buffer) = concat_buffers!([
             &stroke_builder.line_vertices,
@@ -196,15 +186,45 @@ impl Shape {
             &convex_hull,
         ]);
         let (index_offsets, index_buffer) =
-            concat_buffers!([&stroke_builder.line_indices, &stroke_builder.joint_indices, &fill_builder.solid_indices,]);
+            concat_buffers!([&stroke_builder.line_indices, &stroke_builder.joint_indices, &fill_builder.solid_indices]);
+        let stroke_buffer = transmute_vec(
+            dynamic_stroke_options
+                .iter()
+                .map(|dynamic_stroke_descriptor| convert_dynamic_stroke_options(dynamic_stroke_descriptor))
+                .collect::<Result<Vec<DynamicStrokeDescriptor>, Error>>()?,
+        );
+        let (vertex_buffer, index_buffer, stroke_buffer) = if let Some((mut existing_shape, queue)) = existing_shape {
+            existing_shape.vertex_buffer.update(device, queue, &vertex_buffer);
+            existing_shape.index_buffer.update(device, queue, &index_buffer);
+            existing_shape.stroke_buffer.update(device, queue, &stroke_buffer);
+            (existing_shape.vertex_buffer, existing_shape.index_buffer, existing_shape.stroke_buffer)
+        } else {
+            (
+                Buffer::new(device, wgpu::BufferUsages::VERTEX, &vertex_buffer),
+                Buffer::new(device, wgpu::BufferUsages::INDEX, &index_buffer),
+                Buffer::new(device, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST, &stroke_buffer),
+            )
+        };
+        let stroke_bind_group = if dynamic_stroke_options.is_empty() {
+            None
+        } else {
+            Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &renderer.stroke_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(stroke_buffer.get_binding(..)),
+                }],
+            }))
+        };
         Ok(Self {
             vertex_offsets,
             index_offsets,
-            stroke_uniform_buffer,
-            stroke_bind_group,
             dynamic_stroke_options_count: dynamic_stroke_options.len(),
-            vertex_buffer: Buffer::new(device, wgpu::BufferUsages::VERTEX, &vertex_buffer).buffer,
-            index_buffer: Buffer::new(device, wgpu::BufferUsages::INDEX, &index_buffer).buffer,
+            vertex_buffer,
+            index_buffer,
+            stroke_buffer,
+            stroke_bind_group,
         })
     }
 
@@ -221,8 +241,8 @@ impl Shape {
             render_pass.set_bind_group(0, stroke_bind_group, &[]);
             if self.vertex_offsets[0] > 0 {
                 render_pass.set_pipeline(&renderer.stroke_line_pipeline);
-                render_pass.set_vertex_buffer(1, self.vertex_buffer.slice(0..self.vertex_offsets[0] as u64));
-                render_pass.set_index_buffer(self.index_buffer.slice(0..self.index_offsets[0] as u64), wgpu::IndexFormat::Uint16);
+                render_pass.set_vertex_buffer(1, self.vertex_buffer.buffer.slice(0..self.vertex_offsets[0] as u64));
+                render_pass.set_index_buffer(self.index_buffer.buffer.slice(0..self.index_offsets[0] as u64), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(
                     0..(self.index_offsets[0] / std::mem::size_of::<u16>()) as u32,
                     0,
@@ -233,9 +253,9 @@ impl Shape {
             let end_offset = self.vertex_offsets[1];
             if begin_offset < end_offset {
                 render_pass.set_pipeline(&renderer.stroke_joint_pipeline);
-                render_pass.set_vertex_buffer(1, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
+                render_pass.set_vertex_buffer(1, self.vertex_buffer.buffer.slice(begin_offset as u64..end_offset as u64));
                 render_pass.set_index_buffer(
-                    self.index_buffer.slice(self.index_offsets[0] as u64..self.index_offsets[1] as u64),
+                    self.index_buffer.buffer.slice(self.index_offsets[0] as u64..self.index_offsets[1] as u64),
                     wgpu::IndexFormat::Uint16,
                 );
                 render_pass.draw_indexed(
@@ -249,9 +269,9 @@ impl Shape {
         let end_offset = self.vertex_offsets[2];
         if begin_offset < end_offset {
             render_pass.set_pipeline(&renderer.fill_solid_pipeline);
-            render_pass.set_vertex_buffer(1, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
+            render_pass.set_vertex_buffer(1, self.vertex_buffer.buffer.slice(begin_offset as u64..end_offset as u64));
             render_pass.set_index_buffer(
-                self.index_buffer.slice(self.index_offsets[1] as u64..self.index_offsets[2] as u64),
+                self.index_buffer.buffer.slice(self.index_offsets[1] as u64..self.index_offsets[2] as u64),
                 wgpu::IndexFormat::Uint16,
             );
             render_pass.draw_indexed(
@@ -273,7 +293,7 @@ impl Shape {
             let end_offset = self.vertex_offsets[i + 3];
             if begin_offset < end_offset {
                 render_pass.set_pipeline(pipeline);
-                render_pass.set_vertex_buffer(1, self.vertex_buffer.slice(begin_offset as u64..end_offset as u64));
+                render_pass.set_vertex_buffer(1, self.vertex_buffer.buffer.slice(begin_offset as u64..end_offset as u64));
                 render_pass.draw(0..((end_offset - begin_offset) / vertex_size) as u32, instance_indices.clone());
             }
         }
@@ -298,7 +318,7 @@ impl Shape {
         render_pass.set_stencil_reference((clip_stack_height << renderer.winding_counter_bits) as u32);
         render_pass.set_vertex_buffer(
             if color_solid { 2 } else { 1 },
-            self.vertex_buffer.slice(begin_offset as u64..end_offset as u64),
+            self.vertex_buffer.buffer.slice(begin_offset as u64..end_offset as u64),
         );
         render_pass.draw(0..((end_offset - begin_offset) / std::mem::size_of::<Vertex0>()) as u32, instance_indices);
     }
@@ -317,7 +337,7 @@ impl Shape {
         }
         let data = [convert_dynamic_stroke_options(dynamic_stroke_options_group).unwrap()];
         queue.write_buffer(
-            self.stroke_uniform_buffer.as_ref().unwrap(),
+            &self.stroke_buffer.buffer,
             (std::mem::size_of::<DynamicStrokeDescriptor>() * dynamic_stroke_options_group_index) as u64,
             transmute_slice(&data),
         );
@@ -514,19 +534,15 @@ impl Renderer {
             read_mask: clip_nesting_counter_mask | winding_counter_mask,
             write_mask: winding_counter_mask,
         };
-        let max_dynamic_stroke_options_group =
-            device.limits().max_uniform_buffer_binding_size as usize / std::mem::size_of::<DynamicStrokeDescriptor>();
         let stroke_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(
-                        (max_dynamic_stroke_options_group * std::mem::size_of::<DynamicStrokeDescriptor>()) as u64,
-                    ),
+                    min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<DynamicStrokeDescriptor>() as u64),
                 },
                 count: None,
             }],

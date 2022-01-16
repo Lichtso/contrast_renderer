@@ -11,8 +11,6 @@ pub enum Error {
     ClipStackUnderflow,
     /// Exceeded the maximum number of [DashInterval](crate::path::DashInterval)s in [DynamicStrokeOptions](crate::path::DynamicStrokeOptions).
     TooManyDashIntervals,
-    /// Exceeded the maximum number of [DynamicStrokeOptions](crate::path::DynamicStrokeOptions) in [Shape](crate::renderer::Shape).
-    TooManyDynamicStrokeOptionsGroup,
     /// The passed [DynamicStrokeOptions](crate::path::DynamicStrokeOptions) index is invalid.
     DynamicStrokeOptionsIndexOutOfBounds,
 }

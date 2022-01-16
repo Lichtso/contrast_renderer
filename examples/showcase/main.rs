@@ -76,7 +76,7 @@ impl application_framework::Application for Application {
             dynamic_stroke_options_group: 0,
             curve_approximation: contrast_renderer::path::CurveApproximation::UniformTangentAngle(0.1.into()),
         });
-        let shape = contrast_renderer::renderer::Shape::from_paths(&device, &renderer, &dynamic_stroke_options, paths.as_slice()).unwrap();
+        let shape = contrast_renderer::renderer::Shape::from_paths(&device, &renderer, &dynamic_stroke_options, paths.as_slice(), None).unwrap();
 
         Self {
             depth_stencil_texture_view: None,

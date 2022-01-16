@@ -1,5 +1,4 @@
 let MAX_DASH_INTERVALS: u32 = 4u;
-let MAX_OPTION_GROUPS: u32 = 241u;
 
 struct DynamicStrokeDescriptor {
     gap_start: array<f32, MAX_DASH_INTERVALS>;
@@ -9,10 +8,10 @@ struct DynamicStrokeDescriptor {
     phase: f32;
 };
 struct DynamicStrokeDescriptors {
-    groups: array<DynamicStrokeDescriptor, MAX_OPTION_GROUPS>;
+    groups: array<DynamicStrokeDescriptor>;
 };
 [[group(0), binding(0)]]
-var<uniform> u_stroke: DynamicStrokeDescriptors;
+var<storage> u_stroke: DynamicStrokeDescriptors;
 
 
 
