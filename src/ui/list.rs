@@ -112,10 +112,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
         "ChildResized" => {
             vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
         }
-        "Pointer" => {
-            vec![messenger.clone()]
-        }
-        "Key" => {
+        "PointerInput" => {
             vec![messenger.clone()]
         }
         _ => Vec::new(),
