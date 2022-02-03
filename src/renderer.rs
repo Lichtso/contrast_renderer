@@ -190,7 +190,7 @@ impl Shape {
         let stroke_buffer = transmute_vec(
             dynamic_stroke_options
                 .iter()
-                .map(|dynamic_stroke_descriptor| convert_dynamic_stroke_options(dynamic_stroke_descriptor))
+                .map(convert_dynamic_stroke_options)
                 .collect::<Result<Vec<DynamicStrokeDescriptor>, Error>>()?,
         );
         let (vertex_buffer, index_buffer, stroke_buffer) = if let Some((mut existing_shape, queue)) = existing_shape {
