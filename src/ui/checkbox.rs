@@ -1,8 +1,8 @@
 use crate::{
-    hash_map, hash_set, match_option,
+    hash_map, match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{self, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{self, pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Rendering,
@@ -55,7 +55,7 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                         end: Cap::Butt,
                     }];
                 }
-                update_rendering.set_attribute("rendering", Value::Rendering(rendering));
+                update_rendering.set_attribute("rendering", Value::Rendering(Box::new(rendering)));
             }
             vec![update_rendering]
         }
@@ -69,32 +69,19 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                 },
             )]
         }
-        "Pointer" => {
+        "PointerInput" => {
             if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false)
                 || messenger.propagation_direction != PropagationDirection::Parent
             {
                 return vec![messenger.clone()];
             }
-            let pressed_buttons = match_option!(messenger.get_attribute("pressed_buttons"), Value::ButtonsOrKeys).unwrap();
-            if messenger.get_attribute("changed_button") == &Value::ButtonOrKey(2) {
-                if pressed_buttons.contains(&2) {
-                    vec![Messenger::new(
-                        &message::OBSERVE,
-                        hash_map! {
-                            "observes" => Value::NodeOrObservableIdentifiers(hash_set!{
-                                *match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()
-                            }),
-                        },
-                    )]
-                } else {
-                    let mut result = vec![Messenger::new(
-                        &message::OBSERVE,
-                        hash_map! {
-                            "observes" => Value::NodeOrObservableIdentifiers(hash_set!{}),
-                        },
-                    )];
-                    if messenger.get_attribute("is_inside_bounds") == &Value::Boolean(true)
-                        && context.does_observe(match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap())
+            let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
+            if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) {
+                if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
+                    let mut result = pointer_and_button_input_focus(messenger);
+                    if !*pressed
+                        && *input_state.is_inside_bounds.get(&0).unwrap()
+                        && context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap())
                     {
                         let is_checked = !match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
                         context.set_attribute("is_checked", Value::Boolean(is_checked));
@@ -107,11 +94,10 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                         ));
                         result.push(Messenger::new(&message::RECONFIGURE, hash_map! {}));
                     }
-                    result
+                    return result;
                 }
-            } else {
-                Vec::new()
             }
+            Vec::new()
         }
         _ => Vec::new(),
     }

@@ -123,7 +123,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                     start: Cap::Butt,
                     end: Cap::Butt,
                 }];
-                update_rendering.set_attribute("rendering", Value::Rendering(rendering));
+                update_rendering.set_attribute("rendering", Value::Rendering(Box::new(rendering)));
             }
             vec![messenger.clone(), update_rendering]
         }
@@ -143,10 +143,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
         "ChildResized" => {
             vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
         }
-        "Pointer" => {
-            vec![messenger.clone()]
-        }
-        "Key" => {
+        "PointerInput" => {
             vec![messenger.clone()]
         }
         _ => Vec::new(),

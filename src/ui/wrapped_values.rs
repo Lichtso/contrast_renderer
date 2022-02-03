@@ -1,7 +1,10 @@
 use crate::{
     safe_float::SafeFloat,
     text,
-    ui::{Node, NodeOrObservableIdentifier, Orientation, Rendering, ScrollBarType, Side, SnapClampFunction, TextInteraction, TextualProjection},
+    ui::{
+        InputState, Node, NodeOrObservableIdentifier, Orientation, Rendering, ScrollBarType, Side, SnapClampFunction, TextInteraction,
+        TextualProjection,
+    },
 };
 use std::{
     cell::RefCell,
@@ -21,10 +24,7 @@ pub enum Value {
     Float4(SafeFloat<f32, 4>),
     Float4x4([SafeFloat<f32, 4>; 4]),
     Data(Vec<u8>),
-    ButtonOrKey(u32),
-    ButtonsOrKeys(HashSet<u32>),
     Character(char),
-    Characters(HashSet<char>),
     TextString(String),
     TextFont(Rc<text::Font>),
     TextAlignment(text::Alignment),
@@ -35,7 +35,9 @@ pub enum Value {
     Orientation(Orientation),
     Side(Side),
     ScrollBarType(ScrollBarType),
-    Rendering(Rendering),
+    InputChannel(usize),
+    InputState(Box<InputState>),
+    Rendering(Box<Rendering>),
     NodeOrObservableIdentifier(NodeOrObservableIdentifier),
     NodeOrObservableIdentifiers(HashSet<NodeOrObservableIdentifier>),
     Node(Rc<RefCell<Node>>),

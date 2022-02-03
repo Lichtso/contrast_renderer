@@ -31,8 +31,12 @@ pub enum NodeOrObservableIdentifier {
     Named(&'static str),
     /// Useful for dynamic lists
     Indexed(usize),
-    /// Captured input device id
-    InputDevice(usize),
+    /// Captured button input source
+    ButtonInput(usize),
+    /// Captured axis input source
+    AxisInput(usize),
+    /// Captured pointer input source
+    PointerInput(usize),
 }
 
 /// Geometric orientation.
@@ -122,6 +126,27 @@ impl std::hash::Hash for SnapClampFunction {
 }
 
 impl Eq for SnapClampFunction {}
+
+/// Groups multiple input devices of a user into one
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct InputState {
+    /// Global identifier
+    pub id: usize,
+    /// Key, button
+    pub pressed_scancodes: HashSet<usize>,
+    /// Key, button as unicode character
+    pub pressed_keycodes: HashSet<char>,
+    /// Scroll wheel, joystick
+    pub axes: HashMap<usize, SafeFloat<f32, 1>>,
+    /// Mouse, touch, pen absolute positions
+    pub absolute_positions: HashMap<usize, SafeFloat<f32, 3>>,
+    /// Mouse, touch, pen relative to the current node
+    pub relative_positions: HashMap<usize, SafeFloat<f32, 3>>,
+    /// Mouse, touch, pen relative to the parent node
+    pub relative_positions_in_parent: HashMap<usize, SafeFloat<f32, 3>>,
+    /// Mouse, touch, pen relative which are inside the current node
+    pub is_inside_bounds: HashMap<usize, bool>,
+}
 
 /// Defines the shape, colors and clipping of a [Node].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]

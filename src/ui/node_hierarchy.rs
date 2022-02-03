@@ -360,15 +360,15 @@ impl NodeHierarchy {
                     }
                     "Observe" => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
-                        let mut observes = match_option!(messenger.get_attribute("observes"), Value::NodeOrObservableIdentifiers)
+                        let mut observables = match_option!(messenger.get_attribute("observables"), Value::NodeOrObservableIdentifiers)
                             .unwrap()
                             .clone();
                         if node.parent.is_none() {
-                            observes.insert(NodeOrObservableIdentifier::Named("root"));
+                            observables.insert(NodeOrObservableIdentifier::Named("root"));
                         }
-                        for observable_topic in node.observes.iter() {
-                            if !observes.contains(observable_topic) {
-                                match self.observer_channels.entry(*observable_topic) {
+                        for observable in node.observes.iter() {
+                            if !observables.contains(observable) {
+                                match self.observer_channels.entry(*observable) {
                                     hash_map::Entry::Occupied(mut entry) => {
                                         entry.get_mut().remove(&global_node_id);
                                         if entry.get().is_empty() {
@@ -379,13 +379,30 @@ impl NodeHierarchy {
                                 }
                             }
                         }
-                        for observable_topic in observes.iter() {
+                        for observable in observables.iter() {
                             self.observer_channels
-                                .entry(*observable_topic)
+                                .entry(*observable)
                                 .or_insert_with(HashSet::new)
                                 .insert(global_node_id);
                         }
-                        node.observes = observes;
+                        node.observes = observables;
+                    }
+                    "UnsubscribeObservers" => {
+                        let observables = match_option!(messenger.get_attribute("observables"), Value::NodeOrObservableIdentifiers)
+                            .unwrap()
+                            .clone();
+                        for observable in observables {
+                            match self.observer_channels.entry(observable) {
+                                hash_map::Entry::Occupied(entry) => {
+                                    for global_node_id in entry.get() {
+                                        let mut node = self.nodes.get(global_node_id).unwrap().borrow_mut();
+                                        node.observes.remove(&observable);
+                                    }
+                                    entry.remove_entry();
+                                }
+                                hash_map::Entry::Vacant(_entry) => {}
+                            }
+                        }
                     }
                     "UpdateRendering" => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();

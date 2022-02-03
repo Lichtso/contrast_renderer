@@ -2,14 +2,11 @@
 
 use crate::{
     error::Error,
-    hash_map, match_option,
-    ui::{wrapped_values::Value, Node, NodeOrObservableIdentifier, Orientation},
+    hash_map, hash_set, match_option,
+    ui::{wrapped_values::Value, InputState, Node, NodeOrObservableIdentifier, Orientation},
 };
 use geometric_algebra::{ppga2d, Dual, Inverse, SquaredMagnitude, Transformation, Zero};
-use std::{
-    collections::{hash_map::DefaultHasher, HashMap, HashSet},
-    hash::{Hash, Hasher},
-};
+use std::{collections::HashMap, hash::Hash};
 
 /// How to route a [Messenger].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -99,17 +96,59 @@ impl Messenger {
         self.properties.get(attribute).unwrap_or(&Value::Void)
     }
 
+    pub fn get_attribute_mut(&mut self, attribute: &'static str) -> &mut Value {
+        self.properties.get_mut(attribute).unwrap()
+    }
+
     pub fn set_attribute(&mut self, attribute: &'static str, value: Value) {
         self.properties.insert(attribute, value);
     }
 }
 
-pub fn rendering_default_behavior(_messager: &Messenger) -> Vec<Messenger> {
+pub fn rendering_default_behavior(_messenger: &Messenger) -> Vec<Messenger> {
     vec![
         Messenger::new(&RENDER_UNCLIP, HashMap::new()),
         Messenger::new(&RENDER, HashMap::new()),
         Messenger::new(&RENDER_AND_CLIP, HashMap::new()),
     ]
+}
+
+pub fn pointer_and_button_input_focus(messenger: &Messenger) -> Vec<Messenger> {
+    if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
+        let pointer_input = *match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap();
+        let button_input = NodeOrObservableIdentifier::ButtonInput(match_option!(pointer_input, NodeOrObservableIdentifier::PointerInput).unwrap());
+        if *pressed {
+            vec![
+                Messenger::new(
+                    &OBSERVE,
+                    hash_map! {
+                        "observables" => Value::NodeOrObservableIdentifiers(hash_set!{
+                            pointer_input, button_input
+                        }),
+                    },
+                ),
+                Messenger::new(
+                    &UNSUBSCRIBE_OBSERVERS,
+                    hash_map! {
+                        "observables" => Value::NodeOrObservableIdentifiers(hash_set!{
+                            button_input
+                        }),
+                    },
+                ),
+            ]
+        } else {
+            vec![Messenger::new(
+                &OBSERVE,
+                hash_map! {
+                    "observables" => Value::NodeOrObservableIdentifiers(hash_set!{
+                        button_input
+                    }),
+                },
+            )]
+        }
+    } else {
+        Vec::new()
+    }
 }
 
 const GET_CAPTURED_OBSERVABLE: fn(&Messenger) -> Option<NodeOrObservableIdentifier> = |_messenger| None;
@@ -171,6 +210,16 @@ pub const CHILD_RESIZED: MessengerBehavior = MessengerBehavior {
 /// Lets the framework know the new set of observables to be observed by the node
 pub const OBSERVE: MessengerBehavior = MessengerBehavior {
     label: "Observe",
+    default_propagation_direction: PropagationDirection::Return,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// Makes all observers of an observable stop observing it
+pub const UNSUBSCRIBE_OBSERVERS: MessengerBehavior = MessengerBehavior {
+    label: "UnsubscribeObservers",
     default_propagation_direction: PropagationDirection::Return,
     get_captured_observable: GET_CAPTURED_OBSERVABLE,
     do_reflect: DO_REFLECT,
@@ -248,21 +297,31 @@ pub const RENDER_UNCLIP: MessengerBehavior = MessengerBehavior {
     reset_at_node_edge: RESET_AT_NODE_EDGE,
 };
 
-/// Send for every key press or release on a keyboard
-pub const KEY: MessengerBehavior = MessengerBehavior {
-    label: "Key",
+/// Send for button and key press or release
+pub const BUTTON_INPUT: MessengerBehavior = MessengerBehavior {
+    label: "ButtonInput",
     default_propagation_direction: PropagationDirection::Children,
-    get_captured_observable: |messenger| Some(*match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()),
+    get_captured_observable: |messenger| Some(*match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()),
     do_reflect: DO_REFLECT,
     update_at_node_edge: UPDATE_AT_NODE_EDGE,
     reset_at_node_edge: RESET_AT_NODE_EDGE,
 };
 
-/// Send for pointer move, press, release or scrolling of a mouse, pen, trackpad or touch surface
-pub const POINTER: MessengerBehavior = MessengerBehavior {
-    label: "Pointer",
+/// Send for scroll wheel or joystick movements
+pub const AXIS_INPUT: MessengerBehavior = MessengerBehavior {
+    label: "AxisInput",
     default_propagation_direction: PropagationDirection::Children,
-    get_captured_observable: |messenger| Some(*match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()),
+    get_captured_observable: |messenger| Some(*match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()),
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// Send for mouse, trackpad, touch or pen movements
+pub const POINTER_INPUT: MessengerBehavior = MessengerBehavior {
+    label: "PointerInput",
+    default_propagation_direction: PropagationDirection::Children,
+    get_captured_observable: |messenger| Some(*match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()),
     do_reflect: |messenger| {
         if messenger.propagation_direction == PropagationDirection::Parent {
             return false;
@@ -276,27 +335,27 @@ pub const POINTER: MessengerBehavior = MessengerBehavior {
         } else {
             (node.motor, node.scale.unwrap())
         };
-        let mut relative_position: ppga2d::Point = match_option!(*messenger.get_attribute("relative_position"), Value::Float3)
-            .unwrap()
-            .into();
-        messenger
-            .properties
-            .insert("relative_position_in_parent", Value::Float3(relative_position.into()));
+        let changed_pointer = match_option!(*messenger.get_attribute("changed_pointer"), Value::InputChannel).unwrap();
+        let input_state = match_option!(messenger.get_attribute_mut("input_state"), Value::InputState).unwrap();
+        let relative_position = *input_state.relative_positions.get(&changed_pointer).unwrap();
+        input_state.relative_positions_in_parent.insert(changed_pointer, relative_position);
+        let mut relative_position: ppga2d::Point = relative_position.into();
         relative_position.g0[1] *= scale;
         relative_position.g0[2] *= scale;
         relative_position = motor.transformation(relative_position);
         let half_extent = &node.half_extent.unwrap();
         let is_inside_bounds = relative_position.g0[1].abs() <= half_extent[0] && relative_position.g0[2].abs() <= half_extent[1];
-        messenger.properties.insert("is_inside_bounds", Value::Boolean(is_inside_bounds));
+        input_state.is_inside_bounds.insert(changed_pointer, is_inside_bounds);
         if is_inside_bounds {
-            messenger.properties.insert("relative_position", Value::Float3(relative_position.into()));
+            input_state.relative_positions.insert(changed_pointer, relative_position.into());
         }
         (is_inside_bounds, is_inside_bounds)
     },
     reset_at_node_edge: |messenger| {
-        messenger
-            .properties
-            .insert("relative_position", messenger.get_attribute("relative_position_in_parent").clone());
+        let changed_pointer = match_option!(*messenger.get_attribute("changed_pointer"), Value::InputChannel).unwrap();
+        let input_state = match_option!(messenger.get_attribute_mut("input_state"), Value::InputState).unwrap();
+        let relative_position = *input_state.relative_positions_in_parent.get(&changed_pointer).unwrap();
+        input_state.relative_positions.insert(changed_pointer, relative_position);
     },
 };
 
@@ -325,23 +384,14 @@ pub const SCROLL_TO: MessengerBehavior = MessengerBehavior {
     reset_at_node_edge: RESET_AT_NODE_EDGE,
 };
 
-pub struct KeyboardState {
-    pub pressed_scancodes: HashSet<u32>,
-}
-
-pub struct PointerState {
-    pub pressed: HashSet<u32>,
-    pub previous_position: ppga2d::Point,
-    pub current_position: ppga2d::Point,
-}
-
 #[cfg(feature = "winit")]
 pub struct WinitEventTranslator {
     pub viewport_size: ppga2d::Point,
     pub modifiers: Vec<char>,
     pub keymap: HashMap<u32, char>,
-    pub keyboards: HashMap<usize, KeyboardState>,
-    pub pointers: HashMap<usize, PointerState>,
+    pub input_sources: HashMap<usize, InputState>,
+    pub mouse_positions: HashMap<winit::event::DeviceId, ppga2d::Point>,
+    pub source_by_device: HashMap<winit::event::DeviceId, usize>,
     pub record_keymap: bool,
     last_scancode: u32,
 }
@@ -353,8 +403,11 @@ impl Default for WinitEventTranslator {
             viewport_size: ppga2d::Point::zero(),
             modifiers: Vec::new(),
             keymap: HashMap::new(),
-            keyboards: HashMap::default(),
-            pointers: HashMap::default(),
+            input_sources: hash_map! {
+                0 => InputState::default(),
+            },
+            mouse_positions: HashMap::default(),
+            source_by_device: HashMap::default(),
             record_keymap: false,
             last_scancode: 0,
         }
@@ -453,24 +506,22 @@ impl WinitEventTranslator {
         Ok(())
     }
 
-    fn translate_keycode(&self, pressed_modifiers: u32, scancode: u32) -> Option<char> {
-        self.keymap.get(&(scancode << 8 | pressed_modifiers)).cloned()
-    }
-
     /// Translates winit events to [Messenger]s which can be sent to the root nodes of a [NodeHierarchy]
     pub fn translate(&mut self, event: winit::event::WindowEvent) -> Vec<Messenger> {
-        fn hash_device_id(device_id: winit::event::DeviceId) -> usize {
-            let mut hasher = DefaultHasher::new();
-            device_id.hash(&mut hasher);
-            hasher.finish() as usize
+        fn translate_keycode(keymap: &HashMap<u32, char>, pressed_modifiers: u32, scancode: u32) -> Option<char> {
+            keymap.get(&(scancode << 8 | pressed_modifiers)).cloned()
         }
-        fn pointer_button(button: winit::event::MouseButton) -> u32 {
-            match button {
-                winit::event::MouseButton::Left => 2,
-                winit::event::MouseButton::Middle => 3,
-                winit::event::MouseButton::Right => 4,
-                winit::event::MouseButton::Other(i) => 5 + i as u32,
-            }
+        fn pointer_moved(input_state: &mut InputState, input_source: usize, changed_pointer: usize, current_position: ppga2d::Point) -> Messenger {
+            input_state.absolute_positions.insert(changed_pointer, current_position.into());
+            input_state.relative_positions.insert(changed_pointer, current_position.into());
+            Messenger::new(
+                &POINTER_INPUT,
+                hash_map! {
+                    "input_source" => Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::PointerInput(input_source)),
+                    "input_state" => Value::InputState(Box::new(input_state.clone())),
+                    "changed_pointer" => Value::InputChannel(changed_pointer),
+                },
+            )
         }
         match event {
             winit::event::WindowEvent::ReceivedCharacter(character) => {
@@ -484,40 +535,40 @@ impl WinitEventTranslator {
                 input: winit::event::KeyboardInput { scancode, state, .. },
                 ..
             } => {
-                let device_id = hash_device_id(device_id);
-                let cached_keyboard = self.keyboards.entry(device_id).or_insert_with(|| KeyboardState {
-                    pressed_scancodes: HashSet::new(),
-                });
+                let input_source = *self.source_by_device.entry(device_id).or_insert(0);
+                let input_state = self.input_sources.entry(input_source).or_insert_with(InputState::default);
+                let keymap = &self.keymap;
                 if state == winit::event::ElementState::Pressed {
-                    cached_keyboard.pressed_scancodes.insert(scancode);
+                    input_state.pressed_scancodes.insert(scancode as usize);
                 } else {
-                    cached_keyboard.pressed_scancodes.remove(&scancode);
+                    input_state.pressed_scancodes.remove(&(scancode as usize));
                 }
-                let pressed_scancodes = cached_keyboard.pressed_scancodes.clone();
-                let pressed_keycodes_without_modifiers = pressed_scancodes
+                let pressed_keycodes_without_modifiers = input_state
+                    .pressed_scancodes
                     .iter()
-                    .filter_map(|scancode| self.translate_keycode(0, *scancode))
+                    .filter_map(|scancode| translate_keycode(keymap, 0, *scancode as u32))
                     .collect::<Vec<_>>();
+                let modifiers = self.modifiers.iter();
                 let pressed_modifiers = pressed_keycodes_without_modifiers.iter().fold(0, |accumulator, keycode| {
-                    (if let Some(index) = self.modifiers.iter().position(|value| value == keycode) {
+                    (if let Some(index) = modifiers.clone().position(|value| value == keycode) {
                         1 << index
                     } else {
                         0
                     } | accumulator)
                 });
-                let pressed_keycodes = pressed_scancodes
+                input_state.pressed_keycodes = input_state
+                    .pressed_scancodes
                     .iter()
-                    .filter_map(|scancode| self.translate_keycode(pressed_modifiers, *scancode))
+                    .filter_map(|scancode| translate_keycode(keymap, pressed_modifiers, *scancode as u32))
                     .collect();
                 self.last_scancode = scancode << 8 | pressed_modifiers;
                 vec![Messenger::new(
-                    &KEY,
+                    &BUTTON_INPUT,
                     hash_map! {
-                        "device" => Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::InputDevice(device_id)),
-                        "pressed_scancodes" => Value::ButtonsOrKeys(pressed_scancodes),
-                        "changed_scancode" => Value::ButtonOrKey(scancode),
-                        "pressed_keycodes" => Value::Characters(pressed_keycodes),
-                        "changed_keycode" => if let Some(changed_keycode) = self.translate_keycode(pressed_modifiers, scancode) {
+                        "input_source" => Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::ButtonInput(input_source)),
+                        "input_state" => Value::InputState(Box::new(input_state.clone())),
+                        "changed_scancode" => Value::InputChannel(scancode as usize),
+                        "changed_keycode" => if let Some(changed_keycode) = translate_keycode(keymap, pressed_modifiers, scancode) {
                             Value::Character(changed_keycode)
                         } else {
                             Value::Void
@@ -527,41 +578,33 @@ impl WinitEventTranslator {
             }
             winit::event::WindowEvent::MouseInput {
                 device_id, state, button, ..
-            } if button == winit::event::MouseButton::Left => {
-                let device_id = hash_device_id(device_id);
-                self.pointers
-                    .get_mut(&device_id)
-                    .map(|cached_pointer| {
-                        if state == winit::event::ElementState::Pressed {
-                            cached_pointer.pressed.insert(pointer_button(button));
-                        } else {
-                            cached_pointer.pressed.remove(&pointer_button(button));
-                        }
-                        vec![Messenger::new(
-                            &POINTER,
-                            hash_map! {
-                                "device" => Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::InputDevice(device_id)),
-                                "pressed_buttons" => Value::ButtonsOrKeys(cached_pointer.pressed.clone()),
-                                "changed_button" => Value::ButtonOrKey(pointer_button(button)),
-                                "absolute_position" => Value::Float3(cached_pointer.current_position.into()),
-                                "relative_position" => Value::Float3(cached_pointer.current_position.into()),
-                                "relative_position_in_parent" => Value::Float3(cached_pointer.current_position.into()),
-                                "delta" => Value::Float3((cached_pointer.current_position - cached_pointer.previous_position).into()),
-                                "is_inside_bounds" => Value::Boolean(true),
-                            },
-                        )]
-                    })
-                    .unwrap_or_else(Vec::new)
+            } => {
+                let input_source = *self.source_by_device.entry(device_id).or_insert(0);
+                let input_state = self.input_sources.entry(input_source).or_insert_with(InputState::default);
+                input_state.relative_positions.clear();
+                input_state.relative_positions_in_parent.clear();
+                input_state.is_inside_bounds.clear();
+                let changed_pointer = match button {
+                    winit::event::MouseButton::Left => 0,                  // '⇖'
+                    winit::event::MouseButton::Middle => 1,                // '⇑'
+                    winit::event::MouseButton::Right => 2,                 // '⇗'
+                    winit::event::MouseButton::Other(i) => 3 + i as usize, // '⇔'
+                };
+                let current_position = self.mouse_positions.get(&device_id).unwrap();
+                let mut result = vec![pointer_moved(input_state, input_source, changed_pointer, *current_position)];
+                result[0].set_attribute("pressed_or_released", Value::Boolean(state == winit::event::ElementState::Pressed));
+                if state == winit::event::ElementState::Released {
+                    input_state.absolute_positions.remove(&changed_pointer);
+                }
+                result
             }
             winit::event::WindowEvent::CursorMoved { device_id, position, .. } => {
-                let device_id = hash_device_id(device_id);
-                let cached_pointer = self.pointers.entry(device_id).or_insert_with(|| PointerState {
-                    pressed: HashSet::new(),
-                    previous_position: ppga2d::Point::zero(),
-                    current_position: ppga2d::Point::zero(),
-                });
-                cached_pointer.previous_position = cached_pointer.current_position;
-                cached_pointer.current_position = ppga2d::Point {
+                let input_source = *self.source_by_device.entry(device_id).or_insert(0);
+                let input_state = self.input_sources.entry(input_source).or_insert_with(InputState::default);
+                input_state.relative_positions.clear();
+                input_state.relative_positions_in_parent.clear();
+                input_state.is_inside_bounds.clear();
+                let current_position = ppga2d::Point {
                     g0: [
                         1.0,
                         position.x as f32 - self.viewport_size.g0[1] * 0.5,
@@ -569,51 +612,36 @@ impl WinitEventTranslator {
                     ]
                     .into(),
                 };
-                let delta = cached_pointer.current_position - cached_pointer.previous_position;
-                if delta.dual().squared_magnitude().g0 > 0.0 {
-                    vec![Messenger::new(
-                        &POINTER,
-                        hash_map! {
-                            "device" => Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::InputDevice(device_id)),
-                            "pressed_buttons" => Value::ButtonsOrKeys(cached_pointer.pressed.clone()),
-                            "changed_button" => Value::ButtonOrKey(0),
-                            "absolute_position" => Value::Float3(cached_pointer.current_position.into()),
-                            "relative_position" => Value::Float3(cached_pointer.current_position.into()),
-                            "relative_position_in_parent" => Value::Float3(cached_pointer.current_position.into()),
-                            "delta" => Value::Float3(delta.into()),
-                            "is_inside_bounds" => Value::Boolean(true),
-                        },
-                    )]
-                } else {
-                    Vec::new()
+                let previous_position: ppga2d::Point = self.mouse_positions.get(&device_id).cloned().unwrap_or(current_position);
+                self.mouse_positions.insert(device_id, current_position);
+                let delta = current_position - previous_position;
+                if delta.dual().squared_magnitude().g0 == 0.0 {
+                    return Vec::new();
                 }
+                let mut result = Vec::new();
+                let pointers: Vec<usize> = input_state.absolute_positions.keys().cloned().collect();
+                for changed_pointer in pointers {
+                    result.push(pointer_moved(input_state, input_source, changed_pointer, current_position));
+                }
+                result
             }
             winit::event::WindowEvent::MouseWheel { device_id, delta, .. } => {
-                let device_id = hash_device_id(device_id);
-                let delta = match delta {
-                    winit::event::MouseScrollDelta::LineDelta(x, y) => ppga2d::Point { g0: [0.0, x, y].into() },
-                    winit::event::MouseScrollDelta::PixelDelta(delta) => ppga2d::Point {
-                        g0: [0.0, delta.x as f32, delta.y as f32].into(),
-                    },
+                let input_source = *self.source_by_device.entry(device_id).or_insert(0);
+                let input_state = self.input_sources.entry(input_source).or_insert_with(InputState::default);
+                let (_delta_x, delta_y) = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(x, y) => (x, y),
+                    winit::event::MouseScrollDelta::PixelDelta(delta) => (delta.x as f32, delta.y as f32),
                 };
-                self.pointers
-                    .get(&device_id)
-                    .map(|cached_pointer| {
-                        vec![Messenger::new(
-                            &POINTER,
-                            hash_map! {
-                                "device" => Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::InputDevice(device_id)),
-                                "pressed_buttons" => Value::ButtonsOrKeys(cached_pointer.pressed.clone()),
-                                "changed_button" => Value::ButtonOrKey(1),
-                                "absolute_position" => Value::Float3(cached_pointer.current_position.into()),
-                                "relative_position" => Value::Float3(cached_pointer.current_position.into()),
-                                "relative_position_in_parent" => Value::Float3(cached_pointer.current_position.into()),
-                                "delta" => Value::Float3(delta.into()),
-                                "is_inside_bounds" => Value::Boolean(true),
-                            },
-                        )]
-                    })
-                    .unwrap_or_else(Vec::new)
+                // input_state.axes.insert(0, delta_x.into());
+                input_state.axes.insert(1, delta_y.into());
+                vec![Messenger::new(
+                    &AXIS_INPUT,
+                    hash_map! {
+                        "input_source" => Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::AxisInput(input_source)),
+                        "input_state" => Value::InputState(Box::new(input_state.clone())),
+                        "changed_axis" => Value::InputChannel(1),
+                    },
+                )]
             }
             _ => Vec::new(),
         }

@@ -1,8 +1,8 @@
 use crate::{
-    hash_map, hash_set, match_option,
+    hash_map, match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{self, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{self, pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation, Rendering, ScrollBarType,
@@ -49,7 +49,7 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     start: Cap::Butt,
                     end: Cap::Butt,
                 }];
-                update_rendering.set_attribute("rendering", Value::Rendering(rendering));
+                update_rendering.set_attribute("rendering", Value::Rendering(Box::new(rendering)));
             }
             vec![update_rendering]
         }
@@ -63,58 +63,40 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 },
             )]
         }
-        "Pointer" => {
+        "PointerInput" => {
             if messenger.propagation_direction != PropagationDirection::Parent {
                 return vec![messenger.clone()];
             }
-            match match_option!(messenger.get_attribute("changed_button"), Value::ButtonOrKey).unwrap() {
-                0 => {
-                    if context.does_observe(match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()) {
-                        let absolute_position: ppga2d::Point =
-                            (*match_option!(messenger.get_attribute("absolute_position"), Value::Float3).unwrap()).into();
-                        let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
-                        let orientation = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap();
-                        let movement_scale = match_option!(context.get_attribute("movement_scale"), Value::Float1).unwrap().unwrap();
-                        let mut content_motor: ppga2d::Motor = match_option!(context.get_attribute("previous_content_motor"), Value::Float4)
-                            .unwrap()
-                            .into();
-                        content_motor.g0[3 - orientation as usize] += if orientation == Orientation::Horizontal { -0.5 } else { 0.5 }
-                            * (absolute_position - pointer_start).g0[1 + orientation as usize]
-                            * movement_scale;
-                        context.set_attribute("content_motor", Value::Float4(content_motor.into()));
-                        return vec![Messenger::new(
-                            &message::INPUT_VALUE_CHANGED,
-                            hash_map! {
-                                "child_id" => Value::Void,
-                                "new_value" => Value::Float4(content_motor.into()),
-                            },
-                        )];
-                    }
-                }
-                2 => {
-                    let pressed_buttons = match_option!(messenger.get_attribute("pressed_buttons"), Value::ButtonsOrKeys).unwrap();
-                    if pressed_buttons.contains(&2) {
+            let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
+            if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) {
+                if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
+                    if *pressed {
                         context.set_attribute("previous_content_motor", context.get_attribute("content_motor"));
-                        context.set_attribute("pointer_start", messenger.get_attribute("absolute_position").clone());
-                        return vec![Messenger::new(
-                            &message::OBSERVE,
-                            hash_map! {
-                                "observes" => Value::NodeOrObservableIdentifiers(hash_set!{
-                                    *match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()
-                                }),
-                            },
-                        )];
+                        context.set_attribute("pointer_start", Value::Float3(*input_state.absolute_positions.get(&0).unwrap()));
                     } else {
                         context.set_attribute("pointer_start", Value::Void);
-                        return vec![Messenger::new(
-                            &message::OBSERVE,
-                            hash_map! {
-                                "observes" => Value::NodeOrObservableIdentifiers(hash_set!{}),
-                            },
-                        )];
                     }
+                    return pointer_and_button_input_focus(messenger);
+                } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
+                    let absolute_position: ppga2d::Point = (*input_state.absolute_positions.get(&0).unwrap()).into();
+                    let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
+                    let orientation = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap();
+                    let movement_scale = match_option!(context.get_attribute("movement_scale"), Value::Float1).unwrap().unwrap();
+                    let mut content_motor: ppga2d::Motor = match_option!(context.get_attribute("previous_content_motor"), Value::Float4)
+                        .unwrap()
+                        .into();
+                    content_motor.g0[3 - orientation as usize] += if orientation == Orientation::Horizontal { -0.5 } else { 0.5 }
+                        * (absolute_position - pointer_start).g0[1 + orientation as usize]
+                        * movement_scale;
+                    context.set_attribute("content_motor", Value::Float4(content_motor.into()));
+                    return vec![Messenger::new(
+                        &message::INPUT_VALUE_CHANGED,
+                        hash_map! {
+                            "child_id" => Value::Void,
+                            "new_value" => Value::Float4(content_motor.into()),
+                        },
+                    )];
                 }
-                _ => {}
             }
             Vec::new()
         }
@@ -136,7 +118,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                         .unwrap()
                         .unwrap(),
                 )];
-                update_rendering.set_attribute("rendering", Value::Rendering(rendering));
+                update_rendering.set_attribute("rendering", Value::Rendering(Box::new(rendering)));
             }
             vec![messenger.clone(), update_rendering]
         }
@@ -228,69 +210,53 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         "ChildResized" => {
             vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
         }
-        "Pointer" => {
-            match match_option!(messenger.get_attribute("changed_button"), Value::ButtonOrKey).unwrap() {
-                0 if match_option!(context.get_attribute("enable_dragging_scroll"), Value::Boolean).unwrap_or(false) => {
-                    if context.does_observe(match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()) {
-                        let absolute_position: ppga2d::Point =
-                            (*match_option!(messenger.get_attribute("absolute_position"), Value::Float3).unwrap()).into();
-                        let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
-                        let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Float4)
-                            .map(|value| value.into())
-                            .unwrap_or_else(ppga2d::Motor::one);
-                        let scale = match_option!(context.get_attribute("content_scale"), Value::Float1)
-                            .map(|value| 1.0 / value.unwrap())
-                            .unwrap_or(1.0);
-                        let delta = absolute_position - pointer_start;
-                        content_motor = translate2d([delta.g0[1] * scale, delta.g0[2] * scale]) * content_motor;
-                        context.set_attribute("content_motor", Value::Float4(content_motor.into()));
-                        return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
-                    }
-                }
-                1 if match_option!(context.get_attribute("enable_stationary_scroll"), Value::Boolean).unwrap_or(false) => {
-                    if !context.does_observe(match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()) {
-                        let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Float4)
-                            .map(|value| value.into())
-                            .unwrap_or_else(ppga2d::Motor::one);
-                        let scale = match_option!(context.get_attribute("content_scale"), Value::Float1)
-                            .map(|value| -1.0 / value.unwrap())
-                            .unwrap_or(-1.0);
-                        let delta: ppga2d::Point = match_option!(context.get_attribute("delta"), Value::Float3).unwrap().into();
-                        content_motor = translate2d([delta.g0[1] * scale, delta.g0[2] * scale]) * content_motor;
-                        context.set_attribute("content_motor", Value::Float4(content_motor.into()));
-                        return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
-                    }
-                }
-                2 if messenger.propagation_direction == PropagationDirection::Parent => {
-                    let pressed_buttons = match_option!(messenger.get_attribute("pressed_buttons"), Value::ButtonsOrKeys).unwrap();
-                    if pressed_buttons.contains(&2) {
+        "PointerInput" => {
+            let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
+            if match_option!(context.get_attribute("enable_dragging_scroll"), Value::Boolean).unwrap_or(false)
+                && messenger.get_attribute("changed_pointer") == &Value::InputChannel(0)
+            {
+                if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
+                    if *pressed {
                         context.set_attribute("previous_content_motor", context.get_attribute("content_motor"));
-                        context.set_attribute("pointer_start", messenger.get_attribute("absolute_position").clone());
-                        return vec![Messenger::new(
-                            &message::OBSERVE,
-                            hash_map! {
-                                "observes" => Value::NodeOrObservableIdentifiers(hash_set!{
-                                    *match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()
-                                }),
-                            },
-                        )];
+                        context.set_attribute("pointer_start", Value::Float3(*input_state.absolute_positions.get(&0).unwrap()));
                     } else {
-                        // else if context.does_observe(match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap())
                         context.set_attribute("pointer_start", Value::Void);
-                        return vec![Messenger::new(
-                            &message::OBSERVE,
-                            hash_map! {
-                                "observes" => Value::NodeOrObservableIdentifiers(hash_set!{}),
-                            },
-                        )];
                     }
+                    return pointer_and_button_input_focus(messenger);
+                } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
+                    let absolute_position: ppga2d::Point = (*input_state.absolute_positions.get(&0).unwrap()).into();
+                    let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
+                    let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Float4)
+                        .map(|value| value.into())
+                        .unwrap_or_else(ppga2d::Motor::one);
+                    let scale = match_option!(context.get_attribute("content_scale"), Value::Float1)
+                        .map(|value| 1.0 / value.unwrap())
+                        .unwrap_or(1.0);
+                    let delta = absolute_position - pointer_start;
+                    content_motor = translate2d([delta.g0[1] * scale, delta.g0[2] * scale]) * content_motor;
+                    context.set_attribute("content_motor", Value::Float4(content_motor.into()));
+                    return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
                 }
-                _ => (),
             }
             vec![messenger.clone()]
         }
-        "Key" => {
-            vec![messenger.clone()]
+        "AxisInput" => {
+            if match_option!(context.get_attribute("enable_stationary_scroll"), Value::Boolean).unwrap_or(false)
+                && !context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap())
+            {
+                let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Float4)
+                    .map(|value| value.into())
+                    .unwrap_or_else(ppga2d::Motor::one);
+                let scale = match_option!(context.get_attribute("content_scale"), Value::Float1)
+                    .map(|value| -1.0 / value.unwrap())
+                    .unwrap_or(-1.0);
+                let delta: ppga2d::Point = match_option!(context.get_attribute("delta"), Value::Float3).unwrap().into();
+                content_motor = translate2d([delta.g0[1] * scale, delta.g0[2] * scale]) * content_motor;
+                context.set_attribute("content_motor", Value::Float4(content_motor.into()));
+                vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
+            } else {
+                vec![messenger.clone()]
+            }
         }
         "InputValueChanged" => {
             context.set_attribute("content_motor", messenger.get_attribute("new_value").clone());

@@ -1,9 +1,9 @@
 use crate::{
-    hash_map, hash_set, match_option,
+    hash_map, match_option,
     path::Path,
     ui::{
         label::text_label,
-        message::{self, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{self, pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation, Rendering, TextInteraction,
@@ -28,7 +28,7 @@ fn range_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 rendering
                     .colored_paths
                     .push((bar_color, vec![Path::from_rect([0.0, 0.0], half_extent.unwrap())]));
-                update_rendering.set_attribute("rendering", Value::Rendering(rendering));
+                update_rendering.set_attribute("rendering", Value::Rendering(Box::new(rendering)));
             }
             vec![update_rendering]
         }
@@ -60,7 +60,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                         .unwrap()
                         .unwrap(),
                 )];
-                update_rendering.set_attribute("rendering", Value::Rendering(rendering));
+                update_rendering.set_attribute("rendering", Value::Rendering(Box::new(rendering)));
             }
             vec![messenger.clone(), update_rendering]
         }
@@ -135,82 +135,60 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             result
         }
-        "Pointer" => {
+        "PointerInput" => {
             if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false)
                 || messenger.propagation_direction != PropagationDirection::Parent
             {
                 return vec![messenger.clone()];
             }
-            match match_option!(messenger.get_attribute("changed_button"), Value::ButtonOrKey).unwrap() {
-                0 => {
-                    if context.does_observe(match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()) {
-                        let absolute_position: ppga2d::Point =
-                            (*match_option!(messenger.get_attribute("absolute_position"), Value::Float3).unwrap()).into();
-                        let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
-                        let half_extent = context.get_half_extent().unwrap();
-                        let axis =
-                            match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap_or(Orientation::Horizontal) as usize;
-                        let numeric_value = match_option!(context.get_attribute("numeric_value"), Value::Float1)
-                            .map(|value| value.unwrap())
-                            .unwrap_or(0.0);
-                        let numeric_value_range = match_option!(context.get_attribute("numeric_value_range"), Value::Float2)
-                            .map(|value| value.unwrap())
-                            .unwrap_or([0.0, 1.0]);
-                        let mut new_numeric_value = (absolute_position - pointer_start).g0[1 + axis] / half_extent[axis]
-                            * 0.5
-                            * (numeric_value_range[1] - numeric_value_range[0])
-                            + match_option!(context.get_attribute("previous_numeric_value"), Value::Float1)
-                                .unwrap()
-                                .unwrap();
-                        if let Value::SnapClampFunction(snap_clamp_function) = context.get_attribute("snap_clamp_function") {
-                            new_numeric_value = (snap_clamp_function.handler)(new_numeric_value, &numeric_value_range);
-                        }
-                        if numeric_value != new_numeric_value {
-                            context.set_attribute("numeric_value", Value::Float1(new_numeric_value.into()));
-                            context.set_attribute("rendering_is_dirty", Value::Boolean(true));
-                            return vec![
-                                Messenger::new(
-                                    &message::INPUT_VALUE_CHANGED,
-                                    hash_map! {
-                                        "child_id" => Value::Void,
-                                        "new_value" => Value::Float1(new_numeric_value.into()),
-                                    },
-                                ),
-                                Messenger::new(&message::RECONFIGURE, hash_map! {}),
-                            ];
-                        }
-                    }
-                    Vec::new()
-                }
-                2 => {
-                    let pressed_buttons = match_option!(messenger.get_attribute("pressed_buttons"), Value::ButtonsOrKeys).unwrap();
-                    if pressed_buttons.contains(&2) {
+            let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
+            if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) {
+                if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
+                    if *pressed {
                         let numeric_value = context.get_attribute("numeric_value");
                         context.set_attribute("previous_numeric_value", numeric_value);
-                        context.set_attribute("pointer_start", messenger.get_attribute("absolute_position").clone());
-                        vec![Messenger::new(
-                            &message::OBSERVE,
-                            hash_map! {
-                                "observes" => Value::NodeOrObservableIdentifiers(hash_set!{
-                                    *match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()
-                                }),
-                            },
-                        )]
+                        context.set_attribute("pointer_start", Value::Float3(*input_state.absolute_positions.get(&0).unwrap()));
                     } else {
                         context.set_attribute("pointer_start", Value::Void);
-                        vec![Messenger::new(
-                            &message::OBSERVE,
-                            hash_map! {
-                                "observes" => Value::NodeOrObservableIdentifiers(hash_set!{}),
-                            },
-                        )]
+                    }
+                    return pointer_and_button_input_focus(messenger);
+                } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
+                    let absolute_position: ppga2d::Point = (*input_state.absolute_positions.get(&0).unwrap()).into();
+                    let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
+                    let half_extent = context.get_half_extent().unwrap();
+                    let axis = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap_or(Orientation::Horizontal) as usize;
+                    let numeric_value = match_option!(context.get_attribute("numeric_value"), Value::Float1)
+                        .map(|value| value.unwrap())
+                        .unwrap_or(0.0);
+                    let numeric_value_range = match_option!(context.get_attribute("numeric_value_range"), Value::Float2)
+                        .map(|value| value.unwrap())
+                        .unwrap_or([0.0, 1.0]);
+                    let mut new_numeric_value = (absolute_position - pointer_start).g0[1 + axis] / half_extent[axis]
+                        * 0.5
+                        * (numeric_value_range[1] - numeric_value_range[0])
+                        + match_option!(context.get_attribute("previous_numeric_value"), Value::Float1)
+                            .unwrap()
+                            .unwrap();
+                    if let Value::SnapClampFunction(snap_clamp_function) = context.get_attribute("snap_clamp_function") {
+                        new_numeric_value = (snap_clamp_function.handler)(new_numeric_value, &numeric_value_range);
+                    }
+                    if numeric_value != new_numeric_value {
+                        context.set_attribute("numeric_value", Value::Float1(new_numeric_value.into()));
+                        context.set_attribute("rendering_is_dirty", Value::Boolean(true));
+                        return vec![
+                            Messenger::new(
+                                &message::INPUT_VALUE_CHANGED,
+                                hash_map! {
+                                    "child_id" => Value::Void,
+                                    "new_value" => Value::Float1(new_numeric_value.into()),
+                                },
+                            ),
+                            Messenger::new(&message::RECONFIGURE, hash_map! {}),
+                        ];
                     }
                 }
-                _ => Vec::new(),
             }
-        }
-        "Key" => {
-            vec![messenger.clone()]
+            Vec::new()
         }
         "InputValueChanged" => {
             if let Value::TextualProjection(textual_projection) = context.get_attribute("textual_projection") {
