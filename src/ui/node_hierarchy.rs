@@ -599,4 +599,16 @@ impl NodeHierarchy {
             messenger,
         );
     }
+
+    /// Advances all animations to the provided timestamp (measured in seconds).
+    pub fn advance_property_animations(&mut self, current_time: f64) {
+        let mut messenger_stack = Vec::new();
+        for (global_node_id, node) in self.nodes.iter() {
+            let mut node = node.borrow_mut();
+            if node.advance_property_animations(current_time) {
+                messenger_stack.push((*global_node_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
+            }
+        }
+        self.process_messengers(messenger_stack, None, None, None, None);
+    }
 }

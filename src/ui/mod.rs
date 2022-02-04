@@ -1,4 +1,5 @@
 use crate::{
+    match_option,
     path::{DynamicStrokeOptions, Path},
     renderer::Shape,
     safe_float::SafeFloat,
@@ -159,6 +160,79 @@ pub struct Rendering {
     pub dynamic_stroke_options: Vec<DynamicStrokeOptions>,
 }
 
+/// Property animation key frame
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimationFrame {
+    /// Timestamp in seconds when this frame will reach its end
+    pub timestamp: SafeFloat<f64, 1>,
+    /// 1D cubic integral bezier curve to remap the time parameter
+    ///
+    /// y = c[0] (1-x)^3 + c[1] x (1-x)^2 + c[2] x^2 (1-x) + c[3] x^3
+    pub interpolation_control_points: SafeFloat<f32, 4>,
+    /// The value that will be reached at the end of this frame
+    pub value: Value,
+}
+
+impl AnimationFrame {
+    pub fn interpolate(&self, previous_frame: &Self, current_time: f64) -> Value {
+        let t = ((self.timestamp.unwrap() - current_time) / (self.timestamp.unwrap() - previous_frame.timestamp.unwrap())) as f32;
+        let s = 1.0 - t;
+        let c = self.interpolation_control_points.unwrap();
+        let factor = t * t * t * c[0] + s * t * t * c[1] + s * s * t * c[2] + s * s * s * c[3];
+        match self.value {
+            Value::Natural1(destination_value) => {
+                let source_value = match_option!(previous_frame.value, Value::Natural1).unwrap();
+                Value::Natural1((factor * (destination_value - source_value) as f32) as usize + source_value)
+            }
+            Value::Integer1(destination_value) => {
+                let source_value = match_option!(previous_frame.value, Value::Integer1).unwrap();
+                Value::Integer1((factor * (destination_value - source_value) as f32) as isize + source_value)
+            }
+            Value::Float1(destination_value) => {
+                let source_value = match_option!(previous_frame.value, Value::Float1).unwrap().unwrap();
+                Value::Float1((factor * (destination_value.unwrap() - source_value) + source_value).into())
+            }
+            Value::Float2(destination_value) => {
+                let source_value = match_option!(previous_frame.value, Value::Float2).unwrap().unwrap();
+                let destination_value = destination_value.unwrap();
+                Value::Float2(
+                    [
+                        factor * (destination_value[0] - source_value[0]) + source_value[0],
+                        factor * (destination_value[1] - source_value[1]) + source_value[1],
+                    ]
+                    .into(),
+                )
+            }
+            Value::Float3(destination_value) => {
+                let source_value = match_option!(previous_frame.value, Value::Float3).unwrap().unwrap();
+                let destination_value = destination_value.unwrap();
+                Value::Float3(
+                    [
+                        factor * (destination_value[0] - source_value[0]) + source_value[0],
+                        factor * (destination_value[1] - source_value[1]) + source_value[1],
+                        factor * (destination_value[2] - source_value[2]) + source_value[2],
+                    ]
+                    .into(),
+                )
+            }
+            Value::Float4(destination_value) => {
+                let source_value = match_option!(previous_frame.value, Value::Float4).unwrap().unwrap();
+                let destination_value = destination_value.unwrap();
+                Value::Float4(
+                    [
+                        factor * (destination_value[0] - source_value[0]) + source_value[0],
+                        factor * (destination_value[1] - source_value[1]) + source_value[1],
+                        factor * (destination_value[2] - source_value[2]) + source_value[2],
+                        factor * (destination_value[3] - source_value[3]) + source_value[3],
+                    ]
+                    .into(),
+                )
+            }
+            _ => panic!("Interpolation of this type is not supported"),
+        }
+    }
+}
+
 /// Trait of a node, which defines its behavior
 pub type MessengerHandler = for<'a> fn(context: &mut NodeMessengerContext, message: &Messenger) -> Vec<Messenger>;
 
@@ -180,6 +254,8 @@ pub struct Node {
     pub opacity: SafeFloat<f32, 1>,
     /// Defines the order among overlapping siblings.
     pub layer_index: usize,
+    /// Ongoing animation frames per property
+    pub property_animations: HashMap<&'static str, Vec<AnimationFrame>>,
 
     global_id: GlobalNodeIdentifier,
     local_id: NodeOrObservableIdentifier,
@@ -229,6 +305,7 @@ impl Default for Node {
             half_extent: [0.0; 2].into(),
             opacity: 1.0.into(),
             layer_index: 0,
+            property_animations: HashMap::new(),
 
             global_id: 0,
             local_id: NodeOrObservableIdentifier::Named("uninitialized"),
@@ -248,6 +325,32 @@ impl Default for Node {
 }
 
 impl Node {
+    pub(crate) fn advance_property_animations(&mut self, current_time: f64) -> bool {
+        let properties = &mut self.properties;
+        let mut result = false;
+        self.property_animations.retain(|attribute, key_frames| {
+            let retain_from_index = key_frames
+                .iter()
+                .position(|key_frame| current_time < key_frame.timestamp.unwrap())
+                .unwrap_or(key_frames.len());
+            if retain_from_index >= 2 {
+                key_frames.drain(0..retain_from_index - 1);
+            }
+            if key_frames.is_empty() {
+                false
+            } else if key_frames.len() == 1 {
+                result |= true;
+                properties.insert(attribute, key_frames[0].value.clone());
+                false
+            } else {
+                result |= true;
+                properties.insert(attribute, key_frames[1].interpolate(&key_frames[0], current_time));
+                true
+            }
+        });
+        result
+    }
+
     pub fn set_attribute(&mut self, attribute: &'static str, value: Value) -> bool {
         if self.properties.get(attribute) == Some(&value) {
             return false;

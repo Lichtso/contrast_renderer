@@ -1,7 +1,10 @@
 #[path = "../application_framework.rs"]
 mod application_framework;
 
-use contrast_renderer::ui::{wrapped_values::Value, Node, NodeOrObservableIdentifier};
+use contrast_renderer::{
+    hash_map,
+    ui::{wrapped_values::Value, Node, NodeOrObservableIdentifier},
+};
 use geometric_algebra::{ppga2d, ppga3d};
 use std::rc::Rc;
 
@@ -138,6 +141,25 @@ impl application_framework::Application for Application {
                 },
             }),
         };
+        node.property_animations = hash_map! {
+            "numeric_value" => vec![
+                contrast_renderer::ui::AnimationFrame {
+                    timestamp: 0.0.into(),
+                    interpolation_control_points: [0.0, 0.0, 0.0, 0.0].into(),
+                    value: Value::Float1(0.0.into()),
+                },
+                contrast_renderer::ui::AnimationFrame {
+                    timestamp: 3.0.into(),
+                    interpolation_control_points: [0.0, 0.0, 3.0, 1.0].into(),
+                    value: Value::Float1(1.0.into()),
+                },
+                contrast_renderer::ui::AnimationFrame {
+                    timestamp: 5.0.into(),
+                    interpolation_control_points: [0.0, 3.0, 0.0, 1.0].into(),
+                    value: Value::Float1(0.0.into()),
+                },
+            ],
+        };
         node.half_extent = [100.0, 40.0].into();
         node.messenger_handler = contrast_renderer::ui::range::range;
         ui_node_hierarchy.insert_and_configure_node(Some((parent_id, NodeOrObservableIdentifier::Indexed(1))), node);
@@ -202,7 +224,8 @@ impl application_framework::Application for Application {
         }
     }
 
-    fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SurfaceTexture, _animation_time: f64) {
+    fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SurfaceTexture, animation_time: f64) {
+        self.ui_node_hierarchy.advance_property_animations(animation_time);
         let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let color_view = if MSAA_SAMPLE_COUNT == 1 {
             &frame_view
