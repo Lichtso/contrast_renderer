@@ -41,6 +41,7 @@ pub enum Value {
     NodeOrObservableIdentifier(NodeOrObservableIdentifier),
     NodeOrObservableIdentifiers(HashSet<NodeOrObservableIdentifier>),
     Node(Rc<RefCell<Node>>),
+    Attributes(HashSet<&'static str>),
     Map(HashMap<&'static str, Value>),
     Vec(Vec<Value>),
 }

@@ -54,14 +54,9 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             vec![update_rendering]
         }
         "Render" => rendering_default_behavior(messenger),
-        "ConfigurationRequest" => {
+        "Reconfigure" => {
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
-            vec![Messenger::new(
-                &message::CONFIGURATION_RESPONSE,
-                hash_map! {
-                    "half_extent" => Value::Float2(context.get_half_extent()),
-                },
-            )]
+            vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
         }
         "PointerInput" => {
             if messenger.propagation_direction != PropagationDirection::Parent {
@@ -89,13 +84,7 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                         * (absolute_position - pointer_start).g0[1 + orientation as usize]
                         * movement_scale;
                     context.set_attribute("content_motor", Value::Float4(content_motor.into()));
-                    return vec![Messenger::new(
-                        &message::INPUT_VALUE_CHANGED,
-                        hash_map! {
-                            "child_id" => Value::Void,
-                            "new_value" => Value::Float4(content_motor.into()),
-                        },
-                    )];
+                    return vec![];
                 }
             }
             Vec::new()
@@ -123,7 +112,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             vec![messenger.clone(), update_rendering]
         }
         "Render" => rendering_default_behavior(messenger),
-        "ConfigurationRequest" => {
+        "Reconfigure" => {
             let content_half_extent = context
                 .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
                     content.get_half_extent().unwrap()
@@ -142,12 +131,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             let scroll_bar_half_min_length = match_option!(context.derive_attribute("scroll_bar_half_min_length"), Value::Float1)
                 .unwrap()
                 .unwrap();
-            let mut result = vec![Messenger::new(
-                &message::CONFIGURATION_RESPONSE,
-                hash_map! {
-                    "half_extent" => Value::Float2(half_extent.into()),
-                },
-            )];
+            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
             context.configure_child(
                 &mut result,
                 NodeOrObservableIdentifier::Named("content"),
@@ -209,9 +193,6 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             result
         }
-        "ChildResized" => {
-            vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
-        }
         "PointerInput" => {
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
             if match_option!(context.get_attribute("enable_dragging_scroll"), Value::Boolean).unwrap_or(false)
@@ -260,9 +241,27 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 vec![messenger.clone()]
             }
         }
-        "InputValueChanged" => {
-            context.set_attribute("content_motor", messenger.get_attribute("new_value").clone());
-            return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
+        "PropertiesChanged" => {
+            if match_option!(messenger.get_attribute("attributes"), Value::Attributes)
+                .unwrap()
+                .contains("half_extent")
+            {
+                return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
+            }
+            if match_option!(messenger.get_attribute("attributes"), Value::Attributes)
+                .unwrap()
+                .contains("content_motor")
+            {
+                let content_motor = context
+                    .inspect_child(
+                        match_option!(messenger.get_attribute("child_id"), Value::NodeOrObservableIdentifier).unwrap(),
+                        |child_node: &Node| child_node.get_attribute("content_motor").unwrap().clone(),
+                    )
+                    .unwrap();
+                context.set_attribute("content_motor", content_motor);
+                return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
+            }
+            Vec::new()
         }
         _ => Vec::new(),
     }

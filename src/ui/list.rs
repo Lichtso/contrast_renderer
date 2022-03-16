@@ -15,7 +15,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
             vec![messenger.clone()]
         }
         "Render" => rendering_default_behavior(messenger),
-        "ConfigurationRequest" => {
+        "Reconfigure" => {
             let margin = match_option!(context.derive_attribute("list_margin"), Value::Float1).unwrap().unwrap();
             let padding = match_option!(context.derive_attribute("list_padding"), Value::Float2).unwrap().unwrap();
             let minor_axis_alignment = context.derive_attribute("list_minor_axis_alignment");
@@ -56,12 +56,8 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
             let mut major_axis_offset = -half_extent[major_axis];
             half_extent[0] += padding[0];
             half_extent[1] += padding[1];
-            let mut result = vec![Messenger::new(
-                &message::CONFIGURATION_RESPONSE,
-                hash_map! {
-                    "half_extent" => Value::Float2(half_extent.into()),
-                },
-            )];
+            context.set_attribute("half_extent", Value::Float2(half_extent.into()));
+            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
             for child_index in 0..context.get_number_of_children() {
                 let local_child_id = NodeOrObservableIdentifier::Indexed(child_index);
                 context.configure_child(
@@ -109,8 +105,14 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
             }
             result
         }
-        "ChildResized" => {
-            vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
+        "PropertiesChanged" => {
+            if match_option!(messenger.get_attribute("attributes"), Value::Attributes)
+                .unwrap()
+                .contains("half_extent")
+            {
+                return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
+            }
+            Vec::new()
         }
         "PointerInput" => {
             vec![messenger.clone()]

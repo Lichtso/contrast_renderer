@@ -128,20 +128,22 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             vec![messenger.clone(), update_rendering]
         }
         "Render" => rendering_default_behavior(messenger),
-        "ConfigurationRequest" => {
+        "Reconfigure" => {
             let content_half_extent = context
                 .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.get_half_extent())
                 .unwrap();
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
-            vec![Messenger::new(
-                &message::CONFIGURATION_RESPONSE,
-                hash_map! {
-                    "half_extent" => Value::Float2(content_half_extent),
-                },
-            )]
+            context.set_attribute("half_extent", Value::Float2(content_half_extent));
+            vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
         }
-        "ChildResized" => {
-            vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
+        "PropertiesChanged" => {
+            if match_option!(messenger.get_attribute("attributes"), Value::Attributes)
+                .unwrap()
+                .contains("half_extent")
+            {
+                return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
+            }
+            Vec::new()
         }
         "PointerInput" => {
             vec![messenger.clone()]
