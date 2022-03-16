@@ -39,6 +39,7 @@ let mut children = node
 
 pub struct NodeMessengerContext<'a> {
     global_node_id: GlobalNodeIdentifier,
+    touched_properties: HashSet<&'static str>,
     nodes: &'a mut HashMap<GlobalNodeIdentifier, Rc<RefCell<Node>>>,
     theme_properties: &'a HashMap<&'static str, Value>,
 }
@@ -60,15 +61,26 @@ impl<'a> NodeMessengerContext<'a> {
         if dormant {
             return true;
         }
+        let local_id = node.local_id;
         let messenger_handler = node.messenger_handler;
         drop(node);
         let mut context = Self {
             global_node_id,
+            touched_properties: HashSet::new(),
             nodes,
             theme_properties,
         };
-        let messengers = messenger_handler(&mut context, messenger);
+        let mut messengers = messenger_handler(&mut context, messenger);
         let reflect = messengers.is_empty();
+        if !context.touched_properties.is_empty() {
+            messengers.push(Messenger::new(
+                &message::PROPERTIES_CHANGED,
+                hash_map! {
+                    "child_id" => Value::NodeOrObservableIdentifier(local_id),
+                    "attributes" => Value::Attributes(context.touched_properties),
+                },
+            ));
+        }
         messenger_stack.append(&mut messengers.into_iter().map(|messenger| (global_node_id, messenger)).collect::<Vec<_>>());
         reflect
     }
@@ -93,9 +105,14 @@ impl<'a> NodeMessengerContext<'a> {
         node.properties.get(attribute).cloned().unwrap_or(Value::Void)
     }
 
-    pub fn set_attribute(&mut self, attribute: &'static str, value: Value) {
+    pub fn set_attribute_privately(&mut self, attribute: &'static str, value: Value) {
         let mut node = self.nodes.get(&self.global_node_id).unwrap().borrow_mut();
         node.properties.insert(attribute, value);
+    }
+
+    pub fn set_attribute(&mut self, attribute: &'static str, value: Value) {
+        self.set_attribute_privately(attribute, value);
+        self.touched_properties.insert(attribute);
     }
 
     pub fn get_half_extent(&self) -> SafeFloat<f32, 2> {
@@ -308,7 +325,7 @@ impl NodeHierarchy {
                             continue;
                         }
                         node.configuration_in_process = true;
-                        let mut messenger = Messenger::new(&message::CONFIGURATION_REQUEST, hash_map! {});
+                        let mut messenger = Messenger::new(&message::RECONFIGURE, hash_map! {});
                         drop(node);
                         NodeMessengerContext::invoke_handler(
                             global_node_id,
@@ -318,15 +335,10 @@ impl NodeHierarchy {
                             &mut messenger,
                         );
                     }
-                    "ConfigurationResponse" => {
+                    "Configured" => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
                         node.needs_reconfiguration = false;
                         node.configuration_in_process = false;
-                        let half_extent = *match_option!(messenger.get_attribute("half_extent"), Value::Float2).unwrap();
-                        if node.get_half_extent() != half_extent {
-                            node.set_attribute("half_extent", Value::Float2(half_extent));
-                            messenger_stack.push((global_node_id, Messenger::new(&message::CHILD_RESIZED, hash_map! {})));
-                        }
                         let mut ordered_children = node
                             .children
                             .iter()

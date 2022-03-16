@@ -157,7 +157,7 @@ const UPDATE_AT_NODE_EDGE: fn(&mut Messenger, &Node, Option<NodeOrObservableIden
     |_messenger, _node, _from_child_to_parent| (true, false);
 const RESET_AT_NODE_EDGE: fn(&mut Messenger) = |_messenger| {};
 
-/// Triggers the framework to send a new ConfigurationRequest
+/// The node should reevaluate itself and answer with Configured and ConfigureChild
 pub const RECONFIGURE: MessengerBehavior = MessengerBehavior {
     label: "Reconfigure",
     default_propagation_direction: PropagationDirection::Return,
@@ -167,19 +167,9 @@ pub const RECONFIGURE: MessengerBehavior = MessengerBehavior {
     reset_at_node_edge: RESET_AT_NODE_EDGE,
 };
 
-/// The node should reevaluate itself and answer with ConfigurationResponse and ConfigureChild
-pub const CONFIGURATION_REQUEST: MessengerBehavior = MessengerBehavior {
-    label: "ConfigurationRequest",
-    default_propagation_direction: PropagationDirection::None,
-    get_captured_observable: GET_CAPTURED_OBSERVABLE,
-    do_reflect: DO_REFLECT,
-    update_at_node_edge: UPDATE_AT_NODE_EDGE,
-    reset_at_node_edge: RESET_AT_NODE_EDGE,
-};
-
-/// Lets the framework know the new half extent of the node
-pub const CONFIGURATION_RESPONSE: MessengerBehavior = MessengerBehavior {
-    label: "ConfigurationResponse",
+/// Lets the framework know that the node has finished its configuration
+pub const CONFIGURED: MessengerBehavior = MessengerBehavior {
+    label: "Configured",
     default_propagation_direction: PropagationDirection::Return,
     get_captured_observable: GET_CAPTURED_OBSERVABLE,
     do_reflect: DO_REFLECT,
@@ -187,20 +177,10 @@ pub const CONFIGURATION_RESPONSE: MessengerBehavior = MessengerBehavior {
     reset_at_node_edge: RESET_AT_NODE_EDGE,
 };
 
-/// Triggers the framework to send a new ConfigurationRequest to a child
+/// Triggers the framework to send a new Reconfigure to a child
 pub const CONFIGURE_CHILD: MessengerBehavior = MessengerBehavior {
     label: "ConfigureChild",
     default_propagation_direction: PropagationDirection::Return,
-    get_captured_observable: GET_CAPTURED_OBSERVABLE,
-    do_reflect: DO_REFLECT,
-    update_at_node_edge: UPDATE_AT_NODE_EDGE,
-    reset_at_node_edge: RESET_AT_NODE_EDGE,
-};
-
-/// Lets the parent know that a child changed its half extent
-pub const CHILD_RESIZED: MessengerBehavior = MessengerBehavior {
-    label: "ChildResized",
-    default_propagation_direction: PropagationDirection::Parent,
     get_captured_observable: GET_CAPTURED_OBSERVABLE,
     do_reflect: DO_REFLECT,
     update_at_node_edge: UPDATE_AT_NODE_EDGE,
@@ -244,7 +224,7 @@ pub const PREPARE_RENDERING: MessengerBehavior = MessengerBehavior {
             .properties
             .get("motor")
             .map(|value| (*match_option!(value, Value::Float4).unwrap()).into())
-            .unwrap_or(ppga2d::Motor::one());
+            .unwrap_or_else(ppga2d::Motor::one);
         scale *= node
             .properties
             .get("scale")
@@ -346,7 +326,7 @@ pub const POINTER_INPUT: MessengerBehavior = MessengerBehavior {
             node.properties
                 .get("motor")
                 .map(|value| (*match_option!(value, Value::Float4).unwrap()).into())
-                .unwrap_or(ppga2d::Motor::one()),
+                .unwrap_or_else(ppga2d::Motor::one),
             node.properties
                 .get("scale")
                 .map(|value| match_option!(value, Value::Float1).unwrap().into())
@@ -380,18 +360,13 @@ pub const POINTER_INPUT: MessengerBehavior = MessengerBehavior {
     },
 };
 
-/// Lets the parent know that the user entered a new input or otherwise interacted with a child node
-pub const INPUT_VALUE_CHANGED: MessengerBehavior = MessengerBehavior {
-    label: "InputValueChanged",
+/// Lets the parent know that a set of properties changed in a child node
+pub const PROPERTIES_CHANGED: MessengerBehavior = MessengerBehavior {
+    label: "PropertiesChanged",
     default_propagation_direction: PropagationDirection::Parent,
     get_captured_observable: GET_CAPTURED_OBSERVABLE,
     do_reflect: DO_REFLECT,
-    update_at_node_edge: |messenger, _node, from_child_to_parent| {
-        if let Some(local_id) = from_child_to_parent {
-            messenger.properties.insert("child_id", Value::NodeOrObservableIdentifier(local_id));
-        }
-        (true, false)
-    },
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
     reset_at_node_edge: RESET_AT_NODE_EDGE,
 };
 
