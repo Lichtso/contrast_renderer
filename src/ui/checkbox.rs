@@ -60,14 +60,9 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             vec![update_rendering]
         }
         "Render" => rendering_default_behavior(messenger),
-        "ConfigurationRequest" => {
+        "Reconfigure" => {
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
-            vec![Messenger::new(
-                &message::CONFIGURATION_RESPONSE,
-                hash_map! {
-                    "half_extent" => Value::Float2(context.get_half_extent()),
-                },
-            )]
+            vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
         }
         "PointerInput" => {
             if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false)
@@ -85,13 +80,6 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                     {
                         let is_checked = !match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
                         context.set_attribute("is_checked", Value::Boolean(is_checked));
-                        result.push(Messenger::new(
-                            &message::INPUT_VALUE_CHANGED,
-                            hash_map! {
-                                "child_id" => Value::Void,
-                                "new_value" => Value::Boolean(is_checked),
-                            },
-                        ));
                         result.push(Messenger::new(&message::RECONFIGURE, hash_map! {}));
                     }
                     return result;

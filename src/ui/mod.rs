@@ -342,7 +342,7 @@ impl Node {
         true
     }
 
-    pub fn get_attribute(&mut self, attribute: &'static str) -> Option<&Value> {
+    pub fn get_attribute(&self, attribute: &'static str) -> Option<&Value> {
         self.properties.get(attribute)
     }
 
@@ -350,6 +350,6 @@ impl Node {
         self.properties
             .get("half_extent")
             .map(|value| *match_option!(value, Value::Float2).unwrap())
-            .unwrap_or([0.0; 2].into())
+            .unwrap_or_else(|| [0.0; 2].into())
     }
 }
