@@ -27,14 +27,9 @@ fn text_selection(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             vec![update_rendering]
         }
         "Render" => rendering_default_behavior(messenger),
-        "ConfigurationRequest" => {
+        "Reconfigure" => {
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
-            vec![Messenger::new(
-                &message::CONFIGURATION_RESPONSE,
-                hash_map! {
-                    "half_extent" => Value::Float2(context.get_half_extent()),
-                },
-            )]
+            vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
         }
         _ => Vec::new(),
     }
@@ -72,7 +67,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             vec![messenger.clone(), update_rendering]
         }
         "Render" => rendering_default_behavior(messenger),
-        "ConfigurationRequest" => {
+        "Reconfigure" => {
             let text_font = match_option!(context.derive_attribute("font_face"), Value::TextFont).unwrap();
             let layout = layout!(context);
             let text_content = match_option!(context.get_attribute("text_content"), Value::TextString).unwrap_or_else(String::default);
@@ -81,12 +76,8 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             let range = cursor_a.min(cursor_b)..cursor_a.max(cursor_b);
             let half_extent = half_extent_of_text(text_font.face(), &layout, &text_content);
             let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
-            let mut result = vec![Messenger::new(
-                &message::CONFIGURATION_RESPONSE,
-                hash_map! {
-                    "half_extent" => Value::Float2(half_extent),
-                },
-            )];
+            context.set_attribute("half_extent", Value::Float2(half_extent));
+            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
             let selection_start_position =
                 half_extent_of_text(text_font.face(), &layout, &text_content.chars().take(range.start).collect::<String>()).unwrap()[0] * 2.0
                     - half_extent.unwrap()[0];
@@ -195,13 +186,8 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     if text_interaction != TextInteraction::Editing {
                         return Vec::new();
                     }
-                    vec![Messenger::new(
-                        &message::INPUT_VALUE_CHANGED,
-                        hash_map! {
-                            "child_id" => Value::Void,
-                            "new_value" => Value::TextString(text_content),
-                        },
-                    )]
+                    context.set_attribute("text_content", Value::TextString(text_content));
+                    vec![]
                 }
                 _ => {
                     if text_interaction != TextInteraction::Editing {
@@ -248,7 +234,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                             }
                         }
                     }
-                    context.set_attribute("text_content", Value::TextString(text_content));
+                    context.set_attribute_privately("text_content", Value::TextString(text_content));
                     context.set_attribute("cursor_a", Value::Natural1(cursor_a));
                     context.set_attribute("cursor_b", Value::Natural1(cursor_b));
                     vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
