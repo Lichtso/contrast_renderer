@@ -243,6 +243,7 @@ pub struct Node {
     pub properties: HashMap<&'static str, Value>,
     /// Ongoing animation frames per property
     pub property_animations: HashMap<&'static str, Vec<AnimationFrame>>,
+    touched_properties: HashSet<&'static str>,
 
     global_id: GlobalNodeIdentifier,
     local_id: NodeOrObservableIdentifier,
@@ -251,7 +252,6 @@ pub struct Node {
     parent: Option<GlobalNodeIdentifier>,
 
     ordered_children: Vec<GlobalNodeIdentifier>,
-    needs_reconfiguration: bool,
     configuration_in_process: bool,
     colored_shapes: Vec<(SafeFloat<f32, 4>, Shape)>,
     clip_shape: Option<Box<Shape>>,
@@ -279,6 +279,7 @@ impl Default for Node {
             messenger_handler: |_context: &mut NodeMessengerContext, _message: &Messenger| panic!(),
             properties: HashMap::new(),
             property_animations: HashMap::new(),
+            touched_properties: HashSet::new(),
 
             global_id: 0,
             local_id: NodeOrObservableIdentifier::Named("uninitialized"),
@@ -287,7 +288,6 @@ impl Default for Node {
             parent: None,
 
             ordered_children: Vec::new(),
-            needs_reconfiguration: true,
             configuration_in_process: false,
             colored_shapes: Vec::new(),
             clip_shape: None,
@@ -329,7 +329,7 @@ impl Node {
             return false;
         }
         self.messenger_handler = messenger_handler;
-        self.needs_reconfiguration = true;
+        self.touched_properties.insert("messenger_handler");
         true
     }
 
@@ -338,7 +338,7 @@ impl Node {
             return false;
         }
         self.properties.insert(attribute, value);
-        self.needs_reconfiguration = true;
+        self.touched_properties.insert(attribute);
         true
     }
 
