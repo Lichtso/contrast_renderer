@@ -39,20 +39,13 @@ let mut children = node
 
 pub struct NodeMessengerContext<'a> {
     global_node_id: GlobalNodeIdentifier,
-    touched_properties: HashSet<&'static str>,
     nodes: &'a mut HashMap<GlobalNodeIdentifier, Rc<RefCell<Node>>>,
     theme_properties: &'a HashMap<&'static str, Value>,
 }
 
 impl<'a> NodeMessengerContext<'a> {
-    fn invoke_handler(
-        global_node_id: GlobalNodeIdentifier,
-        nodes: &'a mut HashMap<GlobalNodeIdentifier, Rc<RefCell<Node>>>,
-        theme_properties: &'a HashMap<&'static str, Value>,
-        messenger_stack: &mut Vec<(GlobalNodeIdentifier, Messenger)>,
-        messenger: &mut Messenger,
-    ) -> bool {
-        let node = nodes.get(&global_node_id).unwrap().borrow();
+    fn invoke_handler(&mut self, messenger_stack: &mut Vec<(GlobalNodeIdentifier, Messenger)>, messenger: &mut Messenger) -> bool {
+        let node = self.nodes.get(&self.global_node_id).unwrap().borrow();
         let dormant = node
             .properties
             .get("dormant")
@@ -64,24 +57,26 @@ impl<'a> NodeMessengerContext<'a> {
         let local_id = node.local_id;
         let messenger_handler = node.messenger_handler;
         drop(node);
-        let mut context = Self {
-            global_node_id,
-            touched_properties: HashSet::new(),
-            nodes,
-            theme_properties,
-        };
-        let mut messengers = messenger_handler(&mut context, messenger);
+        let mut messengers = messenger_handler(self, messenger);
         let reflect = messengers.is_empty();
-        if !context.touched_properties.is_empty() {
+        let mut node = self.nodes.get(&self.global_node_id).unwrap().borrow_mut();
+        if !node.touched_properties.is_empty() {
+            let mut touched_properties = HashSet::new();
+            std::mem::swap(&mut touched_properties, &mut node.touched_properties);
             messengers.push(Messenger::new(
                 &message::PROPERTIES_CHANGED,
                 hash_map! {
                     "child_id" => Value::NodeOrObservableIdentifier(local_id),
-                    "attributes" => Value::Attributes(context.touched_properties),
+                    "attributes" => Value::Attributes(touched_properties),
                 },
             ));
         }
-        messenger_stack.append(&mut messengers.into_iter().map(|messenger| (global_node_id, messenger)).collect::<Vec<_>>());
+        messenger_stack.append(
+            &mut messengers
+                .into_iter()
+                .map(|messenger| (self.global_node_id, messenger))
+                .collect::<Vec<_>>(),
+        );
         reflect
     }
 
@@ -110,9 +105,14 @@ impl<'a> NodeMessengerContext<'a> {
         node.properties.insert(attribute, value);
     }
 
-    pub fn set_attribute(&mut self, attribute: &'static str, value: Value) {
-        self.set_attribute_privately(attribute, value);
-        self.touched_properties.insert(attribute);
+    pub fn set_attribute(&mut self, attribute: &'static str, value: Value) -> bool {
+        let mut node = self.nodes.get(&self.global_node_id).unwrap().borrow_mut();
+        if node.properties.get(attribute) == Some(&value) {
+            return false;
+        }
+        node.properties.insert(attribute, value);
+        node.touched_properties.insert(attribute);
+        true
     }
 
     pub fn get_half_extent(&self) -> SafeFloat<f32, 2> {
@@ -156,13 +156,11 @@ impl<'a> NodeMessengerContext<'a> {
             let child_node_rc = self.nodes.get(global_child_id).unwrap();
             if let Some(callback) = callback {
                 let mut child_node = child_node_rc.borrow_mut();
-                child_node.needs_reconfiguration = true;
                 callback(&mut child_node);
-                if child_node.needs_reconfiguration {
-                    child_node_rc.clone()
-                } else {
+                if child_node.touched_properties.is_empty() {
                     return;
                 }
+                child_node_rc.clone()
             } else {
                 messengers.push(Messenger::new(
                     &message::CONFIGURE_CHILD,
@@ -325,19 +323,24 @@ impl NodeHierarchy {
                             continue;
                         }
                         node.configuration_in_process = true;
-                        let mut messenger = Messenger::new(&message::RECONFIGURE, hash_map! {});
-                        drop(node);
-                        NodeMessengerContext::invoke_handler(
-                            global_node_id,
-                            &mut self.nodes,
-                            &self.theme_properties,
-                            &mut messenger_stack,
-                            &mut messenger,
+                        let mut touched_properties = HashSet::new();
+                        std::mem::swap(&mut touched_properties, &mut node.touched_properties);
+                        let mut messenger = Messenger::new(
+                            &message::RECONFIGURE,
+                            hash_map! {
+                                "attributes" => Value::Attributes(touched_properties),
+                            },
                         );
+                        drop(node);
+                        NodeMessengerContext {
+                            global_node_id,
+                            nodes: &mut self.nodes,
+                            theme_properties: &self.theme_properties,
+                        }
+                        .invoke_handler(&mut messenger_stack, &mut messenger);
                     }
                     "Configured" => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
-                        node.needs_reconfiguration = false;
                         node.configuration_in_process = false;
                         let mut ordered_children = node
                             .children
@@ -469,13 +472,12 @@ impl NodeHierarchy {
                         let (invoke, _stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, &node, Some(local_child_id));
                         drop(node);
                         if invoke {
-                            NodeMessengerContext::invoke_handler(
-                                global_parent_id,
-                                &mut self.nodes,
-                                &self.theme_properties,
-                                &mut messenger_stack,
-                                &mut messenger,
-                            );
+                            NodeMessengerContext {
+                                global_node_id: global_parent_id,
+                                nodes: &mut self.nodes,
+                                theme_properties: &self.theme_properties,
+                            }
+                            .invoke_handler(&mut messenger_stack, &mut messenger);
                         }
                     }
                 }
@@ -497,13 +499,12 @@ impl NodeHierarchy {
                             let (invoke, stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
                             drop(node);
                             if invoke {
-                                NodeMessengerContext::invoke_handler(
-                                    *global_child_id,
-                                    &mut self.nodes,
-                                    &self.theme_properties,
-                                    &mut messenger_stack,
-                                    &mut messenger,
-                                );
+                                NodeMessengerContext {
+                                    global_node_id: *global_child_id,
+                                    nodes: &mut self.nodes,
+                                    theme_properties: &self.theme_properties,
+                                }
+                                .invoke_handler(&mut messenger_stack, &mut messenger);
                                 (messenger.behavior.reset_at_node_edge)(&mut messenger);
                             }
                             if stop {
@@ -522,13 +523,12 @@ impl NodeHierarchy {
                         let (invoke, stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
                         drop(node);
                         if invoke {
-                            reflect &= NodeMessengerContext::invoke_handler(
-                                *global_child_id,
-                                &mut self.nodes,
-                                &self.theme_properties,
-                                &mut messenger_stack,
-                                &mut messenger,
-                            );
+                            reflect &= NodeMessengerContext {
+                                global_node_id: *global_child_id,
+                                nodes: &mut self.nodes,
+                                theme_properties: &self.theme_properties,
+                            }
+                            .invoke_handler(&mut messenger_stack, &mut messenger);
                             (messenger.behavior.reset_at_node_edge)(&mut messenger);
                         }
                         if stop {
@@ -536,13 +536,12 @@ impl NodeHierarchy {
                         }
                     }
                     if reflect && (messenger.behavior.do_reflect)(&mut messenger) {
-                        NodeMessengerContext::invoke_handler(
+                        NodeMessengerContext {
                             global_node_id,
-                            &mut self.nodes,
-                            &self.theme_properties,
-                            &mut messenger_stack,
-                            &mut messenger,
-                        );
+                            nodes: &mut self.nodes,
+                            theme_properties: &self.theme_properties,
+                        }
+                        .invoke_handler(&mut messenger_stack, &mut messenger);
                     }
                 }
                 PropagationDirection::Observers(observable) => {
@@ -572,13 +571,12 @@ impl NodeHierarchy {
                                 (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
                             }
                         }
-                        NodeMessengerContext::invoke_handler(
-                            *global_node_id,
-                            &mut self.nodes,
-                            &self.theme_properties,
-                            &mut messenger_stack,
-                            &mut messenger,
-                        );
+                        NodeMessengerContext {
+                            global_node_id: *global_node_id,
+                            nodes: &mut self.nodes,
+                            theme_properties: &self.theme_properties,
+                        }
+                        .invoke_handler(&mut messenger_stack, &mut messenger);
                     }
                 }
             }
