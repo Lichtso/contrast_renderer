@@ -18,7 +18,7 @@ fn range_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
-                let half_extent = context.get_half_extent();
+                let half_extent = context.get_half_extent(false);
                 let bar_color_attribute = if match_option!(context.get_attribute("is_filled"), Value::Boolean).unwrap() {
                     "range_filled_color"
                 } else {
@@ -47,7 +47,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
-                let half_extent = context.get_half_extent();
+                let half_extent = context.get_half_extent(false);
                 rendering.clip_paths = vec![Path::from_rounded_rect(
                     [0.0, 0.0],
                     half_extent.unwrap(),
@@ -61,7 +61,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let half_extent = context.get_half_extent().unwrap();
+            let half_extent = context.get_half_extent(false).unwrap();
             let axis = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap_or(Orientation::Horizontal) as usize;
             let numeric_value = match_option!(context.get_attribute("numeric_value"), Value::Float1)
                 .map(|value| value.unwrap())
@@ -79,7 +79,6 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
             empty_half_extent[axis] = half_extent[axis] - filled_half_extent[axis];
             empty_translation[axis] = (half_extent[axis] - empty_half_extent[axis]) * translation.signum();
             filled_translation[axis] = (filled_half_extent[axis] - half_extent[axis]) * translation.signum();
-            context.set_attribute("half_extent", Value::Float2(half_extent.into()));
             let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
             context.configure_child(
                 &mut result,
@@ -120,6 +119,9 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                         node.set_attribute("text_content", Value::TextString(text_content));
                         node.set_attribute("text_interaction", Value::TextInteraction(text_interaction));
                         node.set_attribute_privately("layer_index", Value::Natural1(1));
+                        if let Some(half_extent) = node.get_attribute("proposed_half_extent").cloned() {
+                            node.set_attribute("half_extent", half_extent);
+                        }
                     }
                 }),
             );
@@ -146,7 +148,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
                     let absolute_position: ppga2d::Point = (*input_state.absolute_positions.get(&0).unwrap()).into();
                     let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
-                    let half_extent = context.get_half_extent().unwrap();
+                    let half_extent = context.get_half_extent(false).unwrap();
                     let axis = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap_or(Orientation::Horizontal) as usize;
                     let numeric_value = match_option!(context.get_attribute("numeric_value"), Value::Float1)
                         .map(|value| value.unwrap())

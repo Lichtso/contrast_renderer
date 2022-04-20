@@ -115,9 +115,9 @@ impl<'a> NodeMessengerContext<'a> {
         true
     }
 
-    pub fn get_half_extent(&self) -> SafeFloat<f32, 2> {
+    pub fn get_half_extent(&self, proposed: bool) -> SafeFloat<f32, 2> {
         let node = self.nodes.get(&self.global_node_id).unwrap().borrow();
-        node.get_half_extent()
+        node.get_half_extent(proposed)
     }
 
     pub fn does_observe(&self, observable: &NodeOrObservableIdentifier) -> bool {

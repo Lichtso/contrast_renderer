@@ -103,8 +103,11 @@ impl application_framework::Application for Application {
         node.properties = contrast_renderer::hash_map! {
             "reverse" => Value::Boolean(false),
             "orientation" => Value::Orientation(contrast_renderer::ui::Orientation::Vertical),
+            "list_minor_axis_alignment" => Value::Float1(0.0.into()),
         };
         node.set_messenger_handler(contrast_renderer::ui::list::list);
+        node.set_attribute("half_extent", Value::Float2([150.0, 100.0].into()));
+        node.set_attribute("proposed_half_extent", Value::Float2([0.0, 0.0].into()));
         let parent_id = ui_node_hierarchy.insert_and_configure_node(None, node);
 
         let mut node = Node::default();
@@ -113,16 +116,6 @@ impl application_framework::Application for Application {
             "is_checked" => Value::Boolean(false),
             "enable_interaction" => Value::Boolean(true),
         };
-        node.set_attribute(
-            "half_extent",
-            Value::Float2(
-                *contrast_renderer::match_option!(
-                    ui_node_hierarchy.theme_properties.get("ckeckbox_half_extent").unwrap(),
-                    contrast_renderer::ui::wrapped_values::Value::Float2
-                )
-                .unwrap(),
-            ),
-        );
         node.set_messenger_handler(contrast_renderer::ui::checkbox::checkbox);
         ui_node_hierarchy.insert_and_configure_node(Some((parent_id, NodeOrObservableIdentifier::Indexed(0))), node);
 
@@ -165,15 +158,15 @@ impl application_framework::Application for Application {
                 },
             ],
         };
-        node.set_attribute("half_extent", Value::Float2([100.0, 40.0].into()));
+        node.set_attribute("proposed_half_extent", Value::Float2([100.0, 40.0].into()));
         node.set_messenger_handler(contrast_renderer::ui::range::range);
         ui_node_hierarchy.insert_and_configure_node(Some((parent_id, NodeOrObservableIdentifier::Indexed(1))), node);
 
         let mut node = Node::default();
         node.properties = contrast_renderer::hash_map! {
             "weight" => Value::Float1(1.0.into()),
-            "text_interaction" => Value::TextInteraction(contrast_renderer::ui::TextInteraction::None),
-            "text_content" => Value::TextString("World".to_string()),
+            "text_interaction" => Value::TextInteraction(contrast_renderer::ui::TextInteraction::Editing),
+            "text_content" => Value::TextString("Hello World".to_string()),
         };
         node.set_messenger_handler(contrast_renderer::ui::label::text_label);
         ui_node_hierarchy.insert_and_configure_node(Some((parent_id, NodeOrObservableIdentifier::Indexed(2))), node);

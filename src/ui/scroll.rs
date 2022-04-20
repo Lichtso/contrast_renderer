@@ -17,7 +17,7 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
-                let half_extent = context.get_half_extent();
+                let half_extent = context.get_half_extent(false);
                 let fill_path = Path::from_rounded_rect(
                     [0.0, 0.0],
                     half_extent.unwrap(),
@@ -99,7 +99,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
-                let half_extent = context.get_half_extent();
+                let half_extent = context.get_half_extent(false);
                 rendering.clip_paths = vec![Path::from_rounded_rect(
                     [0.0, 0.0],
                     half_extent.unwrap(),
@@ -115,10 +115,10 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         "Reconfigure" => {
             let content_half_extent = context
                 .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
-                    content.get_half_extent().unwrap()
+                    content.get_half_extent(true).unwrap()
                 })
                 .unwrap();
-            let half_extent = context.get_half_extent().unwrap();
+            let half_extent = context.get_half_extent(false).unwrap();
             let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Float4)
                 .map(|value| value.into())
                 .unwrap_or_else(ppga2d::Motor::one);
@@ -244,7 +244,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         "PropertiesChanged" => {
             if match_option!(messenger.get_attribute("attributes"), Value::Attributes)
                 .unwrap()
-                .contains("half_extent")
+                .contains("proposed_half_extent")
             {
                 return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
             }
