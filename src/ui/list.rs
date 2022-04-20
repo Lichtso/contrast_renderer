@@ -58,7 +58,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
             if first_phase {
                 result.insert(0, Messenger::new(&message::RECONFIGURE, hash_map! {}));
             } else if propose_half_extent {
-                context.set_attribute("proposed_half_extent", Value::Float2(half_extent.into()));
+                context.set_half_extent(half_extent.into());
             }
             for child_index in 0..context.get_number_of_children() {
                 let local_child_id = NodeOrObservableIdentifier::Indexed(child_index);
