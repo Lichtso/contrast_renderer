@@ -350,10 +350,11 @@ impl Node {
         self.properties.get(attribute)
     }
 
-    pub fn get_half_extent(&self) -> SafeFloat<f32, 2> {
-        self.properties
-            .get("half_extent")
-            .map(|value| *match_option!(value, Value::Float2).unwrap())
+    pub fn get_half_extent(&self, proposed: bool) -> SafeFloat<f32, 2> {
+        let value = if proposed { self.properties.get("proposed_half_extent") } else { None };
+        value
+            .or_else(|| self.properties.get("half_extent"))
+            .and_then(|value| match_option!(value, Value::Float2).cloned())
             .unwrap_or_else(|| [0.0; 2].into())
     }
 }

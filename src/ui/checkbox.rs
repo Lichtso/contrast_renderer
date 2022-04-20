@@ -15,7 +15,7 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
-                let half_extent = context.get_half_extent().unwrap();
+                let half_extent = context.get_half_extent(false).unwrap();
                 let is_checked = match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
                 let fill_color_attribute = if is_checked {
                     "checkbox_checked_color"
@@ -32,15 +32,16 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                 );
                 rendering.colored_paths.push((fill_color, vec![fill_path]));
                 if is_checked {
+                    let shorter_edge = half_extent[0].min(half_extent[1]);
                     let mut stroke_path = Path::from_polygon(&[
-                        [-0.5 * half_extent[0], 0.4 * half_extent[1]],
-                        [0.0, -0.3 * half_extent[1]],
-                        [0.8 * half_extent[0], 1.5 * half_extent[1]],
+                        [-0.5 * shorter_edge, 0.4 * shorter_edge],
+                        [0.0, -0.3 * shorter_edge],
+                        [0.8 * shorter_edge, 1.5 * shorter_edge],
                     ]);
                     stroke_path.stroke_options = Some(StrokeOptions {
-                        width: (0.2 * half_extent[0]).into(),
+                        width: (0.2 * shorter_edge).into(),
                         offset: 0.0.into(),
-                        miter_clip: (0.1 * half_extent[0]).into(),
+                        miter_clip: (0.1 * shorter_edge).into(),
                         closed: false,
                         dynamic_stroke_options_group: 0,
                         curve_approximation: CurveApproximation::UniformlySpacedParameters(0),
@@ -61,6 +62,7 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
+            context.set_attribute("proposed_half_extent", context.derive_attribute("ckeckbox_half_extent"));
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
         }

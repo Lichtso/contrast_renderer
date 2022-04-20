@@ -15,7 +15,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
-                let half_extent = context.get_half_extent().unwrap();
+                let half_extent = context.get_half_extent(false).unwrap();
                 let corner_radius = match_option!(context.derive_attribute("speech_balloon_corner_radius"), Value::Float1)
                     .unwrap()
                     .unwrap();
@@ -130,16 +130,16 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
             let content_half_extent = context
-                .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.get_half_extent())
+                .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.get_half_extent(true))
                 .unwrap();
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            context.set_attribute("half_extent", Value::Float2(content_half_extent));
+            context.set_attribute("proposed_half_extent", Value::Float2(content_half_extent));
             vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
         }
         "PropertiesChanged" => {
             if match_option!(messenger.get_attribute("attributes"), Value::Attributes)
                 .unwrap()
-                .contains("half_extent")
+                .contains("proposed_half_extent")
             {
                 return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
             }
