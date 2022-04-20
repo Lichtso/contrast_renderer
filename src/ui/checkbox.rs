@@ -61,7 +61,7 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            context.set_attribute("is_rendering_dirty", Value::Boolean(true));
+            context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
         }
         "PointerInput" => {

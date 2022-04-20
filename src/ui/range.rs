@@ -34,7 +34,7 @@ fn range_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            context.set_attribute("is_rendering_dirty", Value::Boolean(true));
+            context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
         }
         _ => Vec::new(),
@@ -87,7 +87,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 Some(&mut |node: &mut Node| {
                     node.set_messenger_handler(range_bar);
                     node.set_attribute("is_filled", Value::Boolean(false));
-                    node.set_attribute("motor", Value::Float4(translate2d(empty_translation).into()));
+                    node.set_attribute_privately("motor", Value::Float4(translate2d(empty_translation).into()));
                     node.set_attribute("half_extent", Value::Float2(empty_half_extent.into()));
                 }),
             );
@@ -97,7 +97,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 Some(&mut |node: &mut Node| {
                     node.set_messenger_handler(range_bar);
                     node.set_attribute("is_filled", Value::Boolean(true));
-                    node.set_attribute("motor", Value::Float4(translate2d(filled_translation).into()));
+                    node.set_attribute_privately("motor", Value::Float4(translate2d(filled_translation).into()));
                     node.set_attribute("half_extent", Value::Float2(filled_half_extent.into()));
                 }),
             );
@@ -119,11 +119,11 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                         node.set_messenger_handler(text_label);
                         node.set_attribute("text_content", Value::TextString(text_content));
                         node.set_attribute("text_interaction", Value::TextInteraction(text_interaction));
-                        node.set_attribute("layer_index", Value::Natural1(1));
+                        node.set_attribute_privately("layer_index", Value::Natural1(1));
                     }
                 }),
             );
-            context.set_attribute("is_rendering_dirty", Value::Boolean(true));
+            context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             result
         }
         "PointerInput" => {

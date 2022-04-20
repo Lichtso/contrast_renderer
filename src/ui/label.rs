@@ -28,7 +28,7 @@ fn text_selection(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            context.set_attribute("is_rendering_dirty", Value::Boolean(true));
+            context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
         }
         _ => Vec::new(),
@@ -98,14 +98,14 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 if text_interaction == TextInteraction::Editing || (text_interaction == TextInteraction::Selection && cursor_a != cursor_b) {
                     Some(|node: &mut Node| {
                         node.set_messenger_handler(text_selection);
-                        node.set_attribute("motor", Value::Float4(translate2d([selection_translation, 0.0]).into()));
+                        node.set_attribute_privately("motor", Value::Float4(translate2d([selection_translation, 0.0]).into()));
                         node.set_attribute("half_extent", Value::Float2([selection_half_width, layout.size.unwrap() * 0.4].into()));
                     })
                 } else {
                     None
                 },
             );
-            context.set_attribute("is_rendering_dirty", Value::Boolean(true));
+            context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             result
         }
         "PointerInput" => {

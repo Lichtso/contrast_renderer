@@ -55,7 +55,7 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            context.set_attribute("is_rendering_dirty", Value::Boolean(true));
+            context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
         }
         "PointerInput" => {
@@ -136,7 +136,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 &mut result,
                 NodeOrObservableIdentifier::Named("content"),
                 Some(|node: &mut Node| {
-                    node.set_attribute("motor", Value::Float4(content_motor.into()));
+                    node.set_attribute_privately("motor", Value::Float4(content_motor.into()));
                     node.set_attribute("scale", Value::Float1(content_scale.into()));
                 }),
             );
@@ -181,8 +181,8 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                             node.set_attribute("orientation", Value::Orientation(orientation));
                             node.set_attribute("content_motor", Value::Float4(content_motor.into()));
                             node.set_attribute("movement_scale", Value::Float1(movement_scale.into()));
-                            node.set_attribute("layer_index", Value::Natural1(1));
-                            node.set_attribute("motor", Value::Float4(translate2d(bar_translation).into()));
+                            node.set_attribute_privately("layer_index", Value::Natural1(1));
+                            node.set_attribute_privately("motor", Value::Float4(translate2d(bar_translation).into()));
                             node.set_attribute("half_extent", Value::Float2(bar_half_extent.into()));
                         })
                     } else {
@@ -190,7 +190,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     },
                 );
             }
-            context.set_attribute("is_rendering_dirty", Value::Boolean(true));
+            context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             result
         }
         "PointerInput" => {

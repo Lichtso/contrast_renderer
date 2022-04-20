@@ -333,6 +333,10 @@ impl Node {
         true
     }
 
+    pub fn set_attribute_privately(&mut self, attribute: &'static str, value: Value) {
+        self.properties.insert(attribute, value);
+    }
+
     pub fn set_attribute(&mut self, attribute: &'static str, value: Value) -> bool {
         if self.properties.get(attribute) == Some(&value) {
             return false;
