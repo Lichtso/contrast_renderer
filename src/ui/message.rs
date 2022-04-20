@@ -76,6 +76,7 @@ pub struct Messenger {
 impl std::fmt::Debug for Messenger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug_struct = f.debug_struct(self.behavior.label);
+        debug_struct.field("propagation_direction", &self.propagation_direction);
         for (attribute, value) in self.properties.iter() {
             debug_struct.field(attribute, value);
         }

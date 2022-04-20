@@ -545,6 +545,7 @@ impl NodeHierarchy {
                     }
                 }
                 PropagationDirection::Observers(observable) => {
+                    messenger.propagation_direction = messenger.behavior.default_propagation_direction;
                     let captured_observable = (messenger.behavior.get_captured_observable)(&messenger);
                     let global_node_ids = if let Some((is_captured_observable, observers)) = captured_observable
                         .and_then(|captured_observable| self.observer_channels.get(&captured_observable).map(|observers| (true, observers)))
@@ -557,7 +558,6 @@ impl NodeHierarchy {
                     } else {
                         continue;
                     };
-                    messenger.propagation_direction = messenger.behavior.default_propagation_direction;
                     for global_node_id in global_node_ids.iter() {
                         {
                             let mut global_node_id = *global_node_id;
