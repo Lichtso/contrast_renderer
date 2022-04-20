@@ -132,7 +132,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             let content_half_extent = context
                 .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.get_half_extent())
                 .unwrap();
-            context.set_attribute("is_rendering_dirty", Value::Boolean(true));
+            context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             context.set_attribute("half_extent", Value::Float2(content_half_extent));
             vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
         }

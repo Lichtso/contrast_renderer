@@ -191,7 +191,7 @@ impl<'a> NodeMessengerContext<'a> {
         let motor: ppga2d::Motor = (*match_option!(prepare_rendering.get_attribute("motor"), Value::Float4).unwrap()).into();
         let scale: f32 = match_option!(prepare_rendering.get_attribute("scale"), Value::Float1).unwrap().unwrap();
         let change_rendering = self.get_attribute("is_rendering_dirty") == Value::Boolean(true);
-        self.set_attribute("is_rendering_dirty", Value::Boolean(false));
+        self.set_attribute_privately("is_rendering_dirty", Value::Boolean(false));
         let motor3d = motor2d_to_motor3d(&motor);
         let mut model_matrix = motor3d_to_mat4(&motor3d);
         model_matrix[0].g0[0] *= scale;
