@@ -345,7 +345,7 @@ pub const POINTER_INPUT: MessengerBehavior = MessengerBehavior {
         relative_position.g0[1] *= scale;
         relative_position.g0[2] *= scale;
         relative_position = motor.transformation(relative_position);
-        let half_extent = &node.get_half_extent().unwrap();
+        let half_extent = &node.get_half_extent(false).unwrap();
         let is_inside_bounds = relative_position.g0[1].abs() <= half_extent[0] && relative_position.g0[2].abs() <= half_extent[1];
         input_state.is_inside_bounds.insert(changed_pointer, is_inside_bounds);
         if is_inside_bounds {
