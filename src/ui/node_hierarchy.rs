@@ -115,6 +115,11 @@ impl<'a> NodeMessengerContext<'a> {
         true
     }
 
+    pub fn touch_attribute(&mut self, attribute: &'static str) {
+        let mut node = self.nodes.get(&self.global_node_id).unwrap().borrow_mut();
+        node.touched_properties.insert(attribute);
+    }
+
     pub fn get_half_extent(&self, proposed: bool) -> SafeFloat<f32, 2> {
         let node = self.nodes.get(&self.global_node_id).unwrap().borrow();
         node.get_half_extent(proposed)

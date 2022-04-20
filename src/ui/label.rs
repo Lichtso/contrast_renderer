@@ -186,7 +186,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     if text_interaction != TextInteraction::Editing {
                         return Vec::new();
                     }
-                    context.set_attribute("text_content", Value::TextString(text_content));
+                    context.touch_attribute("text_content");
                     vec![]
                 }
                 _ => {
