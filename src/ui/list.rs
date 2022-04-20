@@ -81,7 +81,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                         if reverse {
                             translation[major_axis] *= -1.0;
                         }
-                        node.set_attribute("motor", Value::Float4(translate2d(translation).into()));
+                        node.set_attribute_privately("motor", Value::Float4(translate2d(translation).into()));
                         let mut proposed_half_extent = [None, None];
                         if weight > 0.0 {
                             proposed_half_extent[major_axis] = Some(child_half_extent[major_axis]);
@@ -91,14 +91,14 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                         }
                         /* TODO
                         if let Some(value) = proposed_half_extent[0] {
-                            node.properties.insert("proposed_half_width", Value::Float1(value.into()));
+                            node.set_attribute("proposed_half_width", Value::Float1(value.into()));
                         } else {
-                            node.properties.remove("proposed_half_width");
+                            node.set_attribute("proposed_half_width", Value::Void);
                         }
                         if let Some(value) = proposed_half_extent[1] {
-                            node.properties.insert("proposed_half_height", Value::Float1(value.into()));
+                            node.set_attribute("proposed_half_height", Value::Float1(value.into()));
                         } else {
-                            node.properties.remove("proposed_half_height");
+                            node.set_attribute("proposed_half_height", Value::Void);
                         }*/
                     }),
                 );
