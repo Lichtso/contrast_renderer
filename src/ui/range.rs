@@ -119,9 +119,6 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                         node.set_attribute("text_content", Value::TextString(text_content));
                         node.set_attribute("text_interaction", Value::TextInteraction(text_interaction));
                         node.set_attribute_privately("layer_index", Value::Natural1(1));
-                        if let Some(half_extent) = node.get_attribute("proposed_half_extent").cloned() {
-                            node.set_attribute("half_extent", half_extent);
-                        }
                     }
                 }),
             );
