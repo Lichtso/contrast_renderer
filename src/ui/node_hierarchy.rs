@@ -120,6 +120,11 @@ impl<'a> NodeMessengerContext<'a> {
         node.touched_properties.insert(attribute);
     }
 
+    pub fn set_half_extent(&mut self, half_extent: SafeFloat<f32, 2>) {
+        self.set_attribute("half_extent", Value::Float2(half_extent));
+        self.set_attribute("proposed_half_extent", Value::Float2(half_extent));
+    }
+
     pub fn get_half_extent(&self, proposed: bool) -> SafeFloat<f32, 2> {
         let node = self.nodes.get(&self.global_node_id).unwrap().borrow();
         node.get_half_extent(proposed)
