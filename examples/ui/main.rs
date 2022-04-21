@@ -77,10 +77,14 @@ impl application_framework::Application for Application {
             "checkbox_corner_radius" => Value::Float1(7.0.into()),
             "ckeckbox_half_extent" => Value::Float2([10.0, 10.0].into()),
 
-            "speech_balloon_fill_color" => Value::Float4([0.05, 0.05, 0.05, 1.0].into()),
+            "speech_balloon_fill_color" => Value::Float4([0.02, 0.02, 0.02, 1.0].into()),
             "speech_balloon_stroke_color" => Value::Float4([0.8, 0.8, 0.8, 1.0].into()),
             "speech_balloon_stroke_width" => Value::Float1(2.0.into()),
             "speech_balloon_corner_radius" => Value::Float1(10.0.into()),
+            "speech_balloon_round_bottom_left" => Value::Boolean(true),
+            "speech_balloon_round_top_left" => Value::Boolean(true),
+            "speech_balloon_round_top_right" => Value::Boolean(true),
+            "speech_balloon_round_bottom_right" => Value::Boolean(true),
             "speech_balloon_arrow_extent" => Value::Float1(20.0.into()),
             "speech_balloon_arrow_origin" => Value::Float1(0.0.into()),
             "speech_balloon_arrow_side" => Value::Side(contrast_renderer::ui::Side::Bottom),
@@ -100,6 +104,11 @@ impl application_framework::Application for Application {
         ui_event_translator.load_keymap(KEYMAP).unwrap();
 
         let mut node = Node::default();
+        node.properties = contrast_renderer::hash_map! {};
+        node.set_messenger_handler(contrast_renderer::ui::speech_balloon::speech_balloon);
+        let speech_balloon_node_id = ui_node_hierarchy.insert_and_configure_node(None, node);
+
+        let mut node = Node::default();
         node.properties = contrast_renderer::hash_map! {
             "reverse" => Value::Boolean(false),
             "orientation" => Value::Orientation(contrast_renderer::ui::Orientation::Vertical),
@@ -108,7 +117,8 @@ impl application_framework::Application for Application {
         node.set_messenger_handler(contrast_renderer::ui::list::list);
         node.set_attribute("half_extent", Value::Float2([150.0, 100.0].into()));
         node.set_attribute("proposed_half_extent", Value::Float2([0.0, 0.0].into()));
-        let parent_id = ui_node_hierarchy.insert_and_configure_node(None, node);
+        let list_node_id =
+            ui_node_hierarchy.insert_and_configure_node(Some((speech_balloon_node_id, NodeOrObservableIdentifier::Named("content"))), node);
 
         let mut node = Node::default();
         node.properties = contrast_renderer::hash_map! {
@@ -117,7 +127,7 @@ impl application_framework::Application for Application {
             "enable_interaction" => Value::Boolean(true),
         };
         node.set_messenger_handler(contrast_renderer::ui::checkbox::checkbox);
-        ui_node_hierarchy.insert_and_configure_node(Some((parent_id, NodeOrObservableIdentifier::Indexed(0))), node);
+        ui_node_hierarchy.insert_and_configure_node(Some((list_node_id, NodeOrObservableIdentifier::Indexed(0))), node);
 
         let mut node = Node::default();
         node.properties = contrast_renderer::hash_map! {
@@ -160,7 +170,7 @@ impl application_framework::Application for Application {
         };
         node.set_attribute("proposed_half_extent", Value::Float2([100.0, 40.0].into()));
         node.set_messenger_handler(contrast_renderer::ui::range::range);
-        ui_node_hierarchy.insert_and_configure_node(Some((parent_id, NodeOrObservableIdentifier::Indexed(1))), node);
+        ui_node_hierarchy.insert_and_configure_node(Some((list_node_id, NodeOrObservableIdentifier::Indexed(1))), node);
 
         let mut node = Node::default();
         node.properties = contrast_renderer::hash_map! {
@@ -169,7 +179,7 @@ impl application_framework::Application for Application {
             "text_content" => Value::TextString("Hello World".to_string()),
         };
         node.set_messenger_handler(contrast_renderer::ui::label::text_label);
-        ui_node_hierarchy.insert_and_configure_node(Some((parent_id, NodeOrObservableIdentifier::Indexed(2))), node);
+        ui_node_hierarchy.insert_and_configure_node(Some((list_node_id, NodeOrObservableIdentifier::Indexed(2))), node);
 
         Self {
             depth_stencil_texture_view: None,
