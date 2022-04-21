@@ -52,13 +52,9 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 major_half_extent_to_distribute
             };
             let mut major_axis_offset = -half_extent[major_axis];
-            half_extent[0] += padding[0];
-            half_extent[1] += padding[1];
             let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
             if first_phase {
                 result.insert(0, Messenger::new(&message::RECONFIGURE, hash_map! {}));
-            } else if propose_half_extent {
-                context.set_half_extent(half_extent.into());
             }
             for child_index in 0..context.get_number_of_children() {
                 let local_child_id = NodeOrObservableIdentifier::Indexed(child_index);
@@ -93,6 +89,11 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                         }
                     }),
                 );
+            }
+            half_extent[0] += padding[0];
+            half_extent[1] += padding[1];
+            if !first_phase && propose_half_extent {
+                context.set_half_extent(half_extent.into());
             }
             result
         }

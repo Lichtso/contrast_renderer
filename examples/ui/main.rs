@@ -94,7 +94,7 @@ impl application_framework::Application for Application {
             "scroll_corner_radius" => Value::Float1(10.0.into()),
 
             "list_margin" => Value::Float1(10.0.into()),
-            "list_padding" => Value::Float2([10.0, 10.0].into()),
+            "list_padding" => Value::Float2([20.0, 20.0].into()),
         };
         let mut ui_event_translator = contrast_renderer::ui::message::WinitEventTranslator::default();
         ui_event_translator.load_keymap(KEYMAP).unwrap();
