@@ -86,7 +86,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                     ),
                 ];
                 let mut fill_path = Path {
-                    start: vertices[3].2[2].into(),
+                    start: vertices[3].3[2].into(),
                     ..Path::default()
                 };
                 for (side, corner_name, arrow, corner) in vertices.iter() {
@@ -97,11 +97,18 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                             });
                         }
                     }
-                    fill_path.push_line(LineSegment {
-                        control_points: [corner[0].into()],
-                    });
                     if match_option!(context.derive_attribute(corner_name), Value::Boolean).unwrap() {
+                        fill_path.push_line(LineSegment {
+                            control_points: [corner[0].into()],
+                        });
                         fill_path.push_quarter_ellipse(corner[1], corner[2]);
+                    } else {
+                        fill_path.push_line(LineSegment {
+                            control_points: [corner[1].into()],
+                        });
+                        if corner_name == &"speech_balloon_round_bottom_right" {
+                            fill_path.start = vertices[3].3[1].into();
+                        }
                     }
                 }
                 let stroke_width = match_option!(context.derive_attribute("speech_balloon_stroke_width"), Value::Float1).unwrap();
@@ -129,11 +136,19 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let content_half_extent = context
-                .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.get_half_extent(true))
-                .unwrap();
+            if let Some(content_half_extent) =
+                context.inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.get_half_extent(true))
+            {
+                let mut half_extent = content_half_extent.unwrap();
+                let padding = match_option!(context.derive_attribute("speech_balloon_stroke_width"), Value::Float1)
+                    .unwrap()
+                    .unwrap()
+                    * 0.5;
+                half_extent[0] += padding;
+                half_extent[1] += padding;
+                context.set_half_extent(half_extent.into());
+            }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            context.set_half_extent(content_half_extent);
             vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
         }
         "PropertiesChanged" => {
