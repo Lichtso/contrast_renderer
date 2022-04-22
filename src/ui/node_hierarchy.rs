@@ -515,7 +515,7 @@ impl NodeHierarchy {
                                     theme_properties: &self.theme_properties,
                                 }
                                 .invoke_handler(&mut messenger_stack, &mut messenger);
-                                (messenger.behavior.reset_at_node_edge)(&mut messenger);
+                                (messenger.behavior.reset_at_node_edge)(&mut messenger, false);
                             }
                             if stop {
                                 break;
@@ -539,7 +539,7 @@ impl NodeHierarchy {
                                 theme_properties: &self.theme_properties,
                             }
                             .invoke_handler(&mut messenger_stack, &mut messenger);
-                            (messenger.behavior.reset_at_node_edge)(&mut messenger);
+                            (messenger.behavior.reset_at_node_edge)(&mut messenger, false);
                         }
                         if stop {
                             break;
@@ -557,36 +557,44 @@ impl NodeHierarchy {
                 PropagationDirection::Observers(observable) => {
                     messenger.propagation_direction = messenger.behavior.default_propagation_direction;
                     let captured_observable = (messenger.behavior.get_captured_observable)(&messenger);
-                    let global_node_ids = if let Some((is_captured_observable, observers)) = captured_observable
+                    let (is_captured_observable, global_node_ids) = if let Some((is_captured_observable, observers)) = captured_observable
                         .and_then(|captured_observable| self.observer_channels.get(&captured_observable).map(|observers| (true, observers)))
                         .or_else(|| self.observer_channels.get(&observable).map(|observers| (false, observers)))
                     {
-                        if is_captured_observable {
-                            (messenger.behavior.do_reflect)(&mut messenger);
-                        }
-                        observers.iter().cloned().collect::<Vec<_>>()
+                        (is_captured_observable, observers.iter().cloned().collect::<Vec<_>>())
                     } else {
                         continue;
                     };
+                    if is_captured_observable {
+                        (messenger.behavior.do_reflect)(&mut messenger);
+                    }
                     for global_node_id in global_node_ids.iter() {
+                        let mut invoke_handler = true;
+                        let mut parents_path = vec![*global_node_id];
                         {
                             let mut global_node_id = *global_node_id;
-                            let mut parents_path = vec![global_node_id];
                             while let Some(global_parent_id) = self.nodes.get(&global_node_id).unwrap().borrow().parent {
                                 global_node_id = global_parent_id;
                                 parents_path.push(global_parent_id);
                             }
                             for global_node_id in parents_path.iter().rev() {
                                 let node = self.nodes.get(global_node_id).unwrap().borrow();
-                                (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
+                                let (invoke, _stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
+                                if !invoke && !is_captured_observable {
+                                    invoke_handler = false;
+                                    break;
+                                }
                             }
                         }
-                        NodeMessengerContext {
-                            global_node_id: *global_node_id,
-                            nodes: &mut self.nodes,
-                            theme_properties: &self.theme_properties,
+                        if invoke_handler || is_captured_observable {
+                            NodeMessengerContext {
+                                global_node_id: *global_node_id,
+                                nodes: &mut self.nodes,
+                                theme_properties: &self.theme_properties,
+                            }
+                            .invoke_handler(&mut messenger_stack, &mut messenger);
                         }
-                        .invoke_handler(&mut messenger_stack, &mut messenger);
+                        (messenger.behavior.reset_at_node_edge)(&mut messenger, true);
                     }
                 }
             }

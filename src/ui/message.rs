@@ -59,7 +59,7 @@ pub struct MessengerBehavior {
     /// Updates the message when this [Messenger] carries it over an edge from one [Node] to an adjacent one
     pub update_at_node_edge: fn(&mut Messenger, &Node, Option<NodeOrObservableIdentifier>) -> (bool, bool),
     /// Resets the changes made by update_at_node_edge so that they can be performed again for a different child node
-    pub reset_at_node_edge: fn(&mut Messenger),
+    pub reset_at_node_edge: fn(&mut Messenger, bool),
 }
 
 /// The [Messenger] carries messages between [Node]s
@@ -156,7 +156,7 @@ const GET_CAPTURED_OBSERVABLE: fn(&Messenger) -> Option<NodeOrObservableIdentifi
 const DO_REFLECT: fn(&mut Messenger) -> bool = |_messenger| false;
 const UPDATE_AT_NODE_EDGE: fn(&mut Messenger, &Node, Option<NodeOrObservableIdentifier>) -> (bool, bool) =
     |_messenger, _node, _from_child_to_parent| (true, false);
-const RESET_AT_NODE_EDGE: fn(&mut Messenger) = |_messenger| {};
+const RESET_AT_NODE_EDGE: fn(&mut Messenger, bool) = |_messenger, _to_absolute_position| {};
 
 /// The node should reevaluate itself and answer with Configured and ConfigureChild
 pub const RECONFIGURE: MessengerBehavior = MessengerBehavior {
@@ -241,7 +241,7 @@ pub const PREPARE_RENDERING: MessengerBehavior = MessengerBehavior {
         messenger.properties.insert("opacity", Value::Float1(opacity.into()));
         (true, false)
     },
-    reset_at_node_edge: |messenger| {
+    reset_at_node_edge: |messenger, _to_absolute_position| {
         messenger.properties.insert("motor", messenger.get_attribute("motor_in_parent").clone());
         messenger.properties.insert("scale", messenger.get_attribute("scale_in_parent").clone());
         messenger
@@ -353,10 +353,14 @@ pub const POINTER_INPUT: MessengerBehavior = MessengerBehavior {
         }
         (is_inside_bounds, is_inside_bounds)
     },
-    reset_at_node_edge: |messenger| {
+    reset_at_node_edge: |messenger, to_absolute_position| {
         let changed_pointer = match_option!(*messenger.get_attribute("changed_pointer"), Value::InputChannel).unwrap();
         let input_state = match_option!(messenger.get_attribute_mut("input_state"), Value::InputState).unwrap();
-        let relative_position = *input_state.relative_positions_in_parent.get(&changed_pointer).unwrap();
+        let relative_position = if to_absolute_position {
+            *input_state.absolute_positions.get(&changed_pointer).unwrap()
+        } else {
+            *input_state.relative_positions_in_parent.get(&changed_pointer).unwrap()
+        };
         input_state.relative_positions.insert(changed_pointer, relative_position);
     },
 };
