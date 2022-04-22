@@ -178,6 +178,31 @@ pub struct StrokeBuilder {
     path_line_vertices: Vec<Vertex2f1i>,
 }
 
+fn get_quadratic_tangents(control_points: &[ppga2d::Point; 3]) -> (ppga2d::Plane, ppga2d::Plane) {
+    let mut segment_start_tangent = control_points[0].regressive_product(control_points[1]).signum();
+    let mut segment_end_tangent = control_points[1].regressive_product(control_points[2]).signum();
+    if segment_start_tangent.g0[0].is_nan() || segment_end_tangent.g0[0].is_nan() {
+        segment_start_tangent = control_points[0].regressive_product(control_points[2]).signum();
+        segment_end_tangent = segment_start_tangent;
+    }
+    (segment_start_tangent, segment_end_tangent)
+}
+
+fn get_cubic_tangents(control_points: &[ppga2d::Point; 4]) -> (ppga2d::Plane, ppga2d::Plane) {
+    let mut segment_start_tangent = control_points[0].regressive_product(control_points[1]).signum();
+    if segment_start_tangent.g0[0].is_nan() {
+        segment_start_tangent = control_points[0].regressive_product(control_points[2]).signum();
+    }
+    let mut segment_end_tangent = control_points[2].regressive_product(control_points[3]).signum();
+    if segment_end_tangent.g0[0].is_nan() {
+        segment_end_tangent = control_points[1].regressive_product(control_points[3]).signum();
+    }
+    if segment_start_tangent.g0[0].is_nan() || segment_end_tangent.g0[0].is_nan() {
+        segment_end_tangent = control_points[0].regressive_product(control_points[3]).signum();
+    }
+    (segment_start_tangent, segment_end_tangent)
+}
+
 impl StrokeBuilder {
     pub fn add_path(&mut self, proto_hull: &mut Vec<SafeFloat<f32, 2>>, path: &Path) -> Result<(), Error> {
         let stroke_options = path.stroke_options.as_ref().unwrap();
@@ -190,7 +215,8 @@ impl StrokeBuilder {
         let mut rational_quadratic_curve_segment_iter = path.rational_quadratic_curve_segments.iter().peekable();
         let mut rational_cubic_curve_segment_iter = path.rational_cubic_curve_segments.iter().peekable();
         let mut length_accumulator = 0.0;
-        for (i, segment_type) in path.segment_types.iter().enumerate() {
+        let mut is_first_segment = true;
+        for segment_type in path.segment_types.iter() {
             let next_control_point;
             let segment_start_tangent;
             let segment_end_tangent;
@@ -204,45 +230,47 @@ impl StrokeBuilder {
                 SegmentType::IntegralQuadraticCurve => {
                     let segment = integral_quadratic_curve_segment_iter.peek().unwrap();
                     next_control_point = vec_to_point(segment.control_points[1].unwrap());
-                    segment_start_tangent = previous_control_point
-                        .regressive_product(vec_to_point(segment.control_points[0].unwrap()))
-                        .signum();
-                    segment_end_tangent = vec_to_point(segment.control_points[0].unwrap())
-                        .regressive_product(next_control_point)
-                        .signum();
+                    (segment_start_tangent, segment_end_tangent) = get_quadratic_tangents(&[
+                        previous_control_point,
+                        vec_to_point(segment.control_points[0].unwrap()),
+                        next_control_point,
+                    ]);
                 }
                 SegmentType::IntegralCubicCurve => {
                     let segment = integral_cubic_curve_segment_iter.peek().unwrap();
                     next_control_point = vec_to_point(segment.control_points[2].unwrap());
-                    segment_start_tangent = previous_control_point
-                        .regressive_product(vec_to_point(segment.control_points[0].unwrap()))
-                        .signum();
-                    segment_end_tangent = vec_to_point(segment.control_points[1].unwrap())
-                        .regressive_product(next_control_point)
-                        .signum();
+                    (segment_start_tangent, segment_end_tangent) = get_cubic_tangents(&[
+                        previous_control_point,
+                        vec_to_point(segment.control_points[0].unwrap()),
+                        vec_to_point(segment.control_points[1].unwrap()),
+                        next_control_point,
+                    ]);
                 }
                 SegmentType::RationalQuadraticCurve => {
                     let segment = rational_quadratic_curve_segment_iter.peek().unwrap();
                     next_control_point = vec_to_point(segment.control_points[1].unwrap());
-                    segment_start_tangent = previous_control_point
-                        .regressive_product(vec_to_point(segment.control_points[0].unwrap()))
-                        .signum();
-                    segment_end_tangent = vec_to_point(segment.control_points[0].unwrap())
-                        .regressive_product(next_control_point)
-                        .signum();
+                    (segment_start_tangent, segment_end_tangent) = get_quadratic_tangents(&[
+                        previous_control_point,
+                        vec_to_point(segment.control_points[0].unwrap()),
+                        next_control_point,
+                    ]);
                 }
                 SegmentType::RationalCubicCurve => {
                     let segment = rational_cubic_curve_segment_iter.peek().unwrap();
                     next_control_point = vec_to_point(segment.control_points[2].unwrap());
-                    segment_start_tangent = previous_control_point
-                        .regressive_product(vec_to_point(segment.control_points[0].unwrap()))
-                        .signum();
-                    segment_end_tangent = vec_to_point(segment.control_points[1].unwrap())
-                        .regressive_product(next_control_point)
-                        .signum();
+                    (segment_start_tangent, segment_end_tangent) = get_cubic_tangents(&[
+                        previous_control_point,
+                        vec_to_point(segment.control_points[0].unwrap()),
+                        vec_to_point(segment.control_points[1].unwrap()),
+                        next_control_point,
+                    ]);
                 }
             }
-            if i == 0 {
+            if segment_start_tangent.g0[0].is_nan() || segment_end_tangent.g0[0].is_nan() {
+                continue;
+            }
+            if is_first_segment {
+                is_first_segment = false;
                 first_tangent = segment_start_tangent;
                 if !stroke_options.closed {
                     let normal = rotate_90_degree_clockwise(segment_start_tangent);
