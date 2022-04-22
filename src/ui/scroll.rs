@@ -113,82 +113,82 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let content_half_extent = context
-                .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
-                    content.get_half_extent(true).unwrap()
-                })
-                .unwrap();
-            let half_extent = context.get_half_extent(false).unwrap();
-            let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Float4)
-                .map(|value| value.into())
-                .unwrap_or_else(ppga2d::Motor::one);
-            let content_scale = match_option!(context.get_attribute("content_scale"), Value::Float1)
-                .map(|value| value.unwrap())
-                .unwrap_or(1.0);
-            let scroll_bar_half_width = match_option!(context.derive_attribute("scroll_bar_corner_radius"), Value::Float1)
-                .unwrap()
-                .unwrap();
-            let scroll_bar_half_min_length = match_option!(context.derive_attribute("scroll_bar_half_min_length"), Value::Float1)
-                .unwrap()
-                .unwrap();
             let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
-            context.configure_child(
-                &mut result,
-                NodeOrObservableIdentifier::Named("content"),
-                Some(|node: &mut Node| {
-                    node.set_attribute_privately("motor", Value::Float4(content_motor.into()));
-                    node.set_attribute("scale", Value::Float1(content_scale.into()));
-                }),
-            );
-            for (orientation, sign, name) in [
-                (Orientation::Horizontal, -1.0, "horizontal_bar"),
-                (Orientation::Vertical, 1.0, "vertical_bar"),
-            ] {
-                let axis = orientation as usize;
-                let scroll_bar_type = match_option!(context.get_attribute(name), Value::ScrollBarType).unwrap_or(ScrollBarType::Always);
-                let content_half_extent = content_half_extent[axis] * content_scale;
-                let max_translation = (content_half_extent - half_extent[axis]).max(0.0);
-                let content_translation = (sign * -2.0 * content_motor.g0[3 - axis]).clamp(-max_translation, max_translation);
-                if scroll_bar_type != ScrollBarType::Infinite {
-                    content_motor.g0[3 - axis] = sign * -0.5 * content_translation;
+            if let Some(content_half_extent) = context.inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
+                content.get_half_extent(true).unwrap()
+            }) {
+                let half_extent = context.get_half_extent(false).unwrap();
+                let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Float4)
+                    .map(|value| value.into())
+                    .unwrap_or_else(ppga2d::Motor::one);
+                let content_scale = match_option!(context.get_attribute("content_scale"), Value::Float1)
+                    .map(|value| value.unwrap())
+                    .unwrap_or(1.0);
+                let scroll_bar_half_width = match_option!(context.derive_attribute("scroll_bar_corner_radius"), Value::Float1)
+                    .unwrap()
+                    .unwrap();
+                let scroll_bar_half_min_length = match_option!(context.derive_attribute("scroll_bar_half_min_length"), Value::Float1)
+                    .unwrap()
+                    .unwrap();
+                for (orientation, sign, name) in [
+                    (Orientation::Horizontal, -1.0, "horizontal_bar"),
+                    (Orientation::Vertical, 1.0, "vertical_bar"),
+                ] {
+                    let axis = orientation as usize;
+                    let scroll_bar_type = match_option!(context.get_attribute(name), Value::ScrollBarType).unwrap_or(ScrollBarType::Overflow);
+                    let content_half_extent = content_half_extent[axis] * content_scale;
+                    let max_translation = (content_half_extent - half_extent[axis]).max(0.0);
+                    let content_translation = (sign * -2.0 * content_motor.g0[3 - axis]).clamp(-max_translation, max_translation);
+                    if scroll_bar_type != ScrollBarType::Infinite {
+                        content_motor.g0[3 - axis] = sign * -0.5 * content_translation;
+                    }
+                    let content_ratio = if content_half_extent == 0.0 { 1.0 } else { 1.0 / content_half_extent };
+                    let mut max_half_extent = half_extent[axis] - 4.0 * scroll_bar_half_width;
+                    let mut bar_translation = [0.0, 0.0];
+                    let mut bar_half_extent = [0.0, 0.0];
+                    bar_half_extent[axis] = max_half_extent * (half_extent[axis] * content_ratio).min(1.0);
+                    if bar_half_extent[axis] < scroll_bar_half_min_length {
+                        max_half_extent -= scroll_bar_half_min_length - bar_half_extent[axis];
+                        bar_half_extent[axis] = scroll_bar_half_min_length;
+                    }
+                    bar_half_extent[1 - axis] = scroll_bar_half_width;
+                    bar_translation[axis] = sign * 2.0 * scroll_bar_half_width - max_half_extent * content_translation * content_ratio;
+                    bar_translation[1 - axis] = sign * (half_extent[1 - axis] - 3.0 * scroll_bar_half_width);
+                    let possible_movement = max_half_extent - bar_half_extent[axis];
+                    let movement_scale = if possible_movement <= 0.0 {
+                        0.0
+                    } else {
+                        max_translation / possible_movement
+                    };
+                    context.configure_child(
+                        &mut result,
+                        NodeOrObservableIdentifier::Named(name),
+                        if scroll_bar_type == ScrollBarType::Always
+                            || (scroll_bar_type == ScrollBarType::Overflow && half_extent[axis] < content_half_extent)
+                        {
+                            Some(|node: &mut Node| {
+                                node.set_messenger_handler(scroll_bar);
+                                node.set_attribute("orientation", Value::Orientation(orientation));
+                                node.set_attribute("content_motor", Value::Float4(content_motor.into()));
+                                node.set_attribute("movement_scale", Value::Float1(movement_scale.into()));
+                                node.set_attribute_privately("layer_index", Value::Natural1(1));
+                                node.set_attribute_privately("motor", Value::Float4(translate2d(bar_translation).into()));
+                                node.set_attribute("half_extent", Value::Float2(bar_half_extent.into()));
+                            })
+                        } else {
+                            None
+                        },
+                    );
                 }
-                let content_ratio = if content_half_extent == 0.0 { 1.0 } else { 1.0 / content_half_extent };
-                let mut max_half_extent = half_extent[axis] - 4.0 * scroll_bar_half_width;
-                let mut bar_translation = [0.0, 0.0];
-                let mut bar_half_extent = [0.0, 0.0];
-                bar_half_extent[axis] = max_half_extent * (half_extent[axis] * content_ratio).min(1.0);
-                if bar_half_extent[axis] < scroll_bar_half_min_length {
-                    max_half_extent -= scroll_bar_half_min_length - bar_half_extent[axis];
-                    bar_half_extent[axis] = scroll_bar_half_min_length;
-                }
-                bar_half_extent[1 - axis] = scroll_bar_half_width;
-                bar_translation[axis] = sign * 2.0 * scroll_bar_half_width - max_half_extent * content_translation * content_ratio;
-                bar_translation[1 - axis] = sign * (half_extent[1 - axis] - 3.0 * scroll_bar_half_width);
-                let possible_movement = max_half_extent - bar_half_extent[axis];
-                let movement_scale = if possible_movement <= 0.0 {
-                    0.0
-                } else {
-                    max_translation / possible_movement
-                };
                 context.configure_child(
                     &mut result,
-                    NodeOrObservableIdentifier::Named(name),
-                    if scroll_bar_type == ScrollBarType::Always
-                        || (scroll_bar_type == ScrollBarType::Overflow && half_extent[axis] < content_half_extent)
-                    {
-                        Some(|node: &mut Node| {
-                            node.set_messenger_handler(scroll_bar);
-                            node.set_attribute("orientation", Value::Orientation(orientation));
-                            node.set_attribute("content_motor", Value::Float4(content_motor.into()));
-                            node.set_attribute("movement_scale", Value::Float1(movement_scale.into()));
-                            node.set_attribute_privately("layer_index", Value::Natural1(1));
-                            node.set_attribute_privately("motor", Value::Float4(translate2d(bar_translation).into()));
-                            node.set_attribute("half_extent", Value::Float2(bar_half_extent.into()));
-                        })
-                    } else {
-                        None
-                    },
+                    NodeOrObservableIdentifier::Named("content"),
+                    Some(|node: &mut Node| {
+                        node.set_attribute_privately("motor", Value::Float4(content_motor.into()));
+                        node.set_attribute("scale", Value::Float1(content_scale.into()));
+                    }),
                 );
+                context.set_attribute("content_motor", Value::Float4(content_motor.into()));
             }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             result

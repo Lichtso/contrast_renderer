@@ -107,6 +107,18 @@ impl application_framework::Application for Application {
         node.properties = contrast_renderer::hash_map! {};
         node.set_messenger_handler(contrast_renderer::ui::speech_balloon::speech_balloon);
         let speech_balloon_node_id = ui_node_hierarchy.insert_and_configure_node(None, node);
+        let mut node = Node::default();
+        node.properties = contrast_renderer::hash_map! {
+            "content_motor" => Value::Float4([1.0, 0.0, 0.0, 0.0].into()),
+            "content_scale" => Value::Float1(1.0.into()),
+            "horizontal_bar" => Value::ScrollBarType(contrast_renderer::ui::ScrollBarType::Overflow),
+            "vertical_bar" => Value::ScrollBarType(contrast_renderer::ui::ScrollBarType::Overflow),
+        };
+        node.set_messenger_handler(contrast_renderer::ui::scroll::scroll);
+        node.set_attribute("half_extent", Value::Float2([150.0, 50.0].into()));
+        node.set_attribute("proposed_half_extent", Value::Float2([150.0, 50.0].into()));
+        let scroll_node_id =
+            ui_node_hierarchy.insert_and_configure_node(Some((speech_balloon_node_id, NodeOrObservableIdentifier::Named("content"))), node);
 
         let mut node = Node::default();
         node.properties = contrast_renderer::hash_map! {
@@ -117,8 +129,7 @@ impl application_framework::Application for Application {
         node.set_messenger_handler(contrast_renderer::ui::list::list);
         node.set_attribute("half_extent", Value::Float2([150.0, 100.0].into()));
         node.set_attribute("proposed_half_extent", Value::Float2([0.0, 0.0].into()));
-        let list_node_id =
-            ui_node_hierarchy.insert_and_configure_node(Some((speech_balloon_node_id, NodeOrObservableIdentifier::Named("content"))), node);
+        let list_node_id = ui_node_hierarchy.insert_and_configure_node(Some((scroll_node_id, NodeOrObservableIdentifier::Named("content"))), node);
 
         let mut node = Node::default();
         node.properties = contrast_renderer::hash_map! {
