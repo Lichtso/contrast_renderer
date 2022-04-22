@@ -271,13 +271,11 @@ impl NodeHierarchy {
         node: Node,
     ) -> GlobalNodeIdentifier {
         let global_node_id = self.insert_node(parent_link, Rc::new(RefCell::new(node)));
-        self.process_messengers(
-            vec![(global_node_id, Messenger::new(&message::RECONFIGURE, hash_map! {}))],
-            None,
-            None,
-            None,
-            None,
-        );
+        let mut messenger_stack = vec![(global_node_id, Messenger::new(&message::RECONFIGURE, hash_map! {}))];
+        if let Some((global_parent_id, _local_child_id)) = parent_link {
+            messenger_stack.push((global_parent_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
+        }
+        self.process_messengers(messenger_stack, None, None, None, None);
         global_node_id
     }
 
