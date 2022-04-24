@@ -255,7 +255,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 let content_motor = context
                     .inspect_child(
                         match_option!(messenger.get_attribute("child_id"), Value::NodeOrObservableIdentifier).unwrap(),
-                        |child_node: &Node| child_node.get_attribute("content_motor").unwrap().clone(),
+                        |child_node: &Node| child_node.get_attribute("content_motor"),
                     )
                     .unwrap();
                 context.set_attribute("content_motor", content_motor);
