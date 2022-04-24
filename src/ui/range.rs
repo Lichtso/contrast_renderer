@@ -180,7 +180,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                     let text_content = context
                         .inspect_child(
                             match_option!(messenger.get_attribute("child_id"), Value::NodeOrObservableIdentifier).unwrap(),
-                            |child_node: &Node| match_option!(child_node.get_attribute("text_content").unwrap().clone(), Value::TextString).unwrap(),
+                            |child_node: &Node| match_option!(child_node.get_attribute("text_content"), Value::TextString).unwrap(),
                         )
                         .unwrap();
                     if let Some(mut new_numeric_value) = (textual_projection.backward)(text_content) {

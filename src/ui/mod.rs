@@ -346,8 +346,8 @@ impl Node {
         true
     }
 
-    pub fn get_attribute(&self, attribute: &'static str) -> Option<&Value> {
-        self.properties.get(attribute)
+    pub fn get_attribute(&self, attribute: &'static str) -> Value {
+        self.properties.get(attribute).cloned().unwrap_or(Value::Void)
     }
 
     pub fn get_half_extent(&self, proposed: bool) -> SafeFloat<f32, 2> {
