@@ -18,6 +18,7 @@ pub mod range;
 pub mod renderer;
 pub mod scroll;
 pub mod speech_balloon;
+pub mod tabs;
 pub mod wrapped_values;
 
 pub type GlobalNodeIdentifier = usize;
@@ -31,6 +32,10 @@ pub enum NodeOrObservableIdentifier {
     Named(&'static str),
     /// Useful for dynamic lists
     Indexed(usize),
+    /// Useful for dynamic tables
+    Indexed2D(usize),
+    /// Useful for multiple dynamic lists
+    NamedAndIndexed(&'static str, usize),
     /// Captured button input source
     ButtonInput(usize),
     /// Captured axis input source
