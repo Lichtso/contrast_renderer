@@ -58,7 +58,7 @@ impl application_framework::Application for Application {
         );
         let ui_renderer = contrast_renderer::ui::renderer::Renderer::new(renderer, device);
         let mut ui_node_hierarchy = contrast_renderer::ui::node_hierarchy::NodeHierarchy::default();
-        ui_node_hierarchy.theme_properties = contrast_renderer::hash_map! {
+        ui_node_hierarchy.theme_properties = hash_map! {
             "font_face" => Value::TextFont(std::rc::Rc::new(contrast_renderer::text::Font::new("OpenSans-Regular".to_string(), OPEN_SANS_TTF))),
             "font_size" => Value::Float1(40.0.into()),
             "text_orientation" => Value::TextOrientation(contrast_renderer::text::Orientation::LeftToRight),
@@ -99,17 +99,57 @@ impl application_framework::Application for Application {
 
             "list_margin" => Value::Float1(10.0.into()),
             "list_padding" => Value::Float2([20.0, 20.0].into()),
+
+            "tab_fill_color" => Value::Float4([0.03, 0.03, 0.03, 1.0].into()),
+            "tab_corner_radius" => Value::Float1(7.0.into()),
+            "tab_handle_inactive_fill_color" => Value::Float4([0.02, 0.02, 0.02, 1.0].into()),
+            "tab_handle_active_fill_color" => Value::Float4([0.6, 0.6, 0.6, 1.0].into()),
+            "tab_handle_stroke_color" => Value::Float4([0.8, 0.8, 0.8, 1.0].into()),
+            "tab_handle_stroke_width" => Value::Float1(2.0.into()),
+            "tab_handle_half_extent" => Value::Float2([5.0, 5.0].into()),
+            "tab_handle_margin" => Value::Float1(10.0.into()),
+            "tab_handle_padding" => Value::Float1(20.0.into()),
+            "tabs_margin" => Value::Float1(5.0.into()),
+            "tabs_padding" => Value::Float2([10.0, 10.0].into()),
         };
         let mut ui_event_translator = contrast_renderer::ui::message::WinitEventTranslator::default();
         ui_event_translator.load_keymap(KEYMAP).unwrap();
 
         let mut node = Node::default();
-        node.properties = contrast_renderer::hash_map! {};
+        node.properties = hash_map! {
+            "orientation" => Value::Orientation(contrast_renderer::ui::Orientation::Horizontal),
+            "half_extent" => Value::Float2([500.0, 300.0].into()),
+        };
+        node.set_messenger_handler(contrast_renderer::ui::tabs::tab_container);
+        let tab_container_node_id = ui_node_hierarchy.insert_and_configure_node(None, node);
+
+        let weights = [0.6, 0.3, 0.1];
+        for (child_index, weight) in weights.iter().enumerate() {
+            let mut node = Node::default();
+            node.properties = hash_map! {};
+            node.set_messenger_handler(contrast_renderer::ui::tabs::tab);
+            ui_node_hierarchy.insert_and_configure_node(
+                Some((tab_container_node_id, NodeOrObservableIdentifier::NamedAndIndexed("tab", child_index))),
+                node,
+            );
+            let mut node = Node::default();
+            node.properties = hash_map! {
+                "weight" => Value::Float1(weight.into()),
+            };
+            node.set_messenger_handler(contrast_renderer::ui::tabs::tab_handle);
+            ui_node_hierarchy.insert_and_configure_node(
+                Some((tab_container_node_id, NodeOrObservableIdentifier::NamedAndIndexed("handle", child_index))),
+                node,
+            );
+        }
+
+        /*let mut node = Node::default();
+        node.properties = hash_map! {};
         node.set_messenger_handler(contrast_renderer::ui::speech_balloon::speech_balloon);
         let speech_balloon_node_id = ui_node_hierarchy.insert_and_configure_node(None, node);
 
         let mut node = Node::default();
-        node.properties = contrast_renderer::hash_map! {
+        node.properties = hash_map! {
             "half_extent" => Value::Float2([150.0, 50.0].into()),
             "proposed_half_extent" => Value::Float2([150.0, 50.0].into()),
             "content_motor" => Value::Float4([1.0, 0.0, 0.0, 0.0].into()),
@@ -122,7 +162,7 @@ impl application_framework::Application for Application {
             ui_node_hierarchy.insert_and_configure_node(Some((speech_balloon_node_id, NodeOrObservableIdentifier::Named("content"))), node);
 
         let mut node = Node::default();
-        node.properties = contrast_renderer::hash_map! {
+        node.properties = hash_map! {
             "half_extent" => Value::Float2([150.0, 100.0].into()),
             "proposed_half_extent" => Value::Float2([0.0, 0.0].into()),
             "reverse" => Value::Boolean(false),
@@ -133,7 +173,7 @@ impl application_framework::Application for Application {
         let list_node_id = ui_node_hierarchy.insert_and_configure_node(Some((scroll_node_id, NodeOrObservableIdentifier::Named("content"))), node);
 
         let mut node = Node::default();
-        node.properties = contrast_renderer::hash_map! {
+        node.properties = hash_map! {
             "is_checked" => Value::Boolean(false),
             "enable_interaction" => Value::Boolean(true),
         };
@@ -141,7 +181,7 @@ impl application_framework::Application for Application {
         ui_node_hierarchy.insert_and_configure_node(Some((list_node_id, NodeOrObservableIdentifier::Indexed(0))), node);
 
         let mut node = Node::default();
-        node.properties = contrast_renderer::hash_map! {
+        node.properties = hash_map! {
             "proposed_half_extent" => Value::Float2([100.0, 40.0].into()),
             "orientation" => Value::Orientation(contrast_renderer::ui::Orientation::Horizontal),
             "numeric_value" => Value::Float1(0.5.into()),
@@ -183,12 +223,12 @@ impl application_framework::Application for Application {
         ui_node_hierarchy.insert_and_configure_node(Some((list_node_id, NodeOrObservableIdentifier::Indexed(1))), node);
 
         let mut node = Node::default();
-        node.properties = contrast_renderer::hash_map! {
+        node.properties = hash_map! {
             "text_interaction" => Value::TextInteraction(contrast_renderer::ui::TextInteraction::Editing),
             "text_content" => Value::TextString("Hello World".to_string()),
         };
         node.set_messenger_handler(contrast_renderer::ui::label::text_label);
-        ui_node_hierarchy.insert_and_configure_node(Some((list_node_id, NodeOrObservableIdentifier::Indexed(2))), node);
+        ui_node_hierarchy.insert_and_configure_node(Some((list_node_id, NodeOrObservableIdentifier::Indexed(2))), node);*/
 
         Self {
             depth_stencil_texture_view: None,
