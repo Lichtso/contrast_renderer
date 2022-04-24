@@ -27,12 +27,12 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
             let minor_axis = 1 - major_axis;
             let mut half_extent = [0.0, 0.0];
             let mut weight_sum: f32 = 0.0;
-            context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, child: &Node| {
-                let weight = match_option!(child.properties.get("weight").unwrap(), Value::Float1)
+            context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
+                let weight = match_option!(node.get_attribute("weight"), Value::Float1)
                     .map(|value| value.unwrap())
                     .unwrap_or(0.0)
                     .max(0.0);
-                let child_half_extent = child.get_half_extent(true).unwrap();
+                let child_half_extent = node.get_half_extent(true).unwrap();
                 half_extent[major_axis] += child_half_extent[major_axis];
                 half_extent[minor_axis] = half_extent[minor_axis].max(child_half_extent[minor_axis]);
                 weight_sum += weight;
@@ -57,12 +57,11 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 result.insert(0, Messenger::new(&message::RECONFIGURE, hash_map! {}));
             }
             for child_index in 0..context.get_number_of_children() {
-                let local_child_id = NodeOrObservableIdentifier::Indexed(child_index);
                 context.configure_child(
                     &mut result,
-                    local_child_id,
+                    NodeOrObservableIdentifier::Indexed(child_index),
                     Some(|node: &mut Node| {
-                        let weight = match_option!(node.properties.get("weight").unwrap(), Value::Float1)
+                        let weight = match_option!(node.get_attribute("weight"), Value::Float1)
                             .map(|value| value.unwrap())
                             .unwrap_or(0.0)
                             .max(0.0);
