@@ -45,13 +45,14 @@ pub struct NodeMessengerContext<'a> {
 
 impl<'a> NodeMessengerContext<'a> {
     fn invoke_handler(&mut self, messenger_stack: &mut Vec<(GlobalNodeIdentifier, Messenger)>, messenger: &mut Messenger) -> bool {
-        let node = self.nodes.get(&self.global_node_id).unwrap().borrow();
+        let mut node = self.nodes.get(&self.global_node_id).unwrap().borrow_mut();
         let dormant = node
             .properties
             .get("dormant")
             .map(|value| *match_option!(value, Value::Boolean).unwrap())
             .unwrap_or(false);
         if dormant {
+            node.configuration_in_process = false;
             return true;
         }
         let local_id = node.local_id;
