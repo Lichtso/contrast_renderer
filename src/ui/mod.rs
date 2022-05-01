@@ -242,13 +242,10 @@ pub type MessengerHandler = for<'a> fn(context: &mut NodeMessengerContext, messa
 
 /// Common body of all nodes.
 pub struct Node {
-    /// Node trait
-    pub messenger_handler: MessengerHandler,
-    /// Node instance properties
-    pub properties: HashMap<&'static str, Value>,
-    /// Ongoing animation frames per property
-    pub property_animations: HashMap<&'static str, Vec<AnimationFrame>>,
-    touched_properties: HashSet<&'static str>,
+    messenger_handler: MessengerHandler,
+    properties: HashMap<&'static str, Value>,
+    property_animations: HashMap<&'static str, Vec<AnimationFrame>>,
+    touched_attributes: HashSet<&'static str>,
 
     global_id: GlobalNodeIdentifier,
     local_id: NodeOrObservableIdentifier,
@@ -284,7 +281,7 @@ impl Default for Node {
             messenger_handler: |_context: &mut NodeMessengerContext, _message: &Messenger| panic!(),
             properties: HashMap::new(),
             property_animations: HashMap::new(),
-            touched_properties: HashSet::new(),
+            touched_attributes: HashSet::new(),
 
             global_id: 0,
             local_id: NodeOrObservableIdentifier::Named("uninitialized"),
@@ -305,6 +302,7 @@ impl Default for Node {
 impl Node {
     pub(crate) fn advance_property_animations(&mut self, current_time: f64) -> bool {
         let properties = &mut self.properties;
+        let touched_attributes = &mut self.touched_attributes;
         let mut result = false;
         self.property_animations.retain(|attribute, key_frames| {
             let retain_from_index = key_frames
@@ -319,10 +317,12 @@ impl Node {
             } else if key_frames.len() == 1 {
                 result |= true;
                 properties.insert(attribute, key_frames[0].value.clone());
+                touched_attributes.insert(attribute);
                 false
             } else {
                 result |= true;
                 properties.insert(attribute, key_frames[1].interpolate(&key_frames[0], current_time));
+                touched_attributes.insert(attribute);
                 true
             }
         });
@@ -334,8 +334,16 @@ impl Node {
             return false;
         }
         self.messenger_handler = messenger_handler;
-        self.touched_properties.insert("messenger_handler");
+        self.touched_attributes.insert("messenger_handler");
         true
+    }
+
+    pub fn get_touched_attributes(&self) -> &HashSet<&'static str> {
+        &self.touched_attributes
+    }
+
+    pub fn get_attribute(&self, attribute: &'static str) -> Value {
+        self.properties.get(attribute).cloned().unwrap_or(Value::Void)
     }
 
     pub fn set_attribute_privately(&mut self, attribute: &'static str, value: Value) {
@@ -347,12 +355,30 @@ impl Node {
             return false;
         }
         self.properties.insert(attribute, value);
-        self.touched_properties.insert(attribute);
+        self.touched_attributes.insert(attribute);
         true
     }
 
-    pub fn get_attribute(&self, attribute: &'static str) -> Value {
-        self.properties.get(attribute).cloned().unwrap_or(Value::Void)
+    pub fn set_attribute_animated(&mut self, attribute: &'static str, value: Value, start_time: f64, duration: f64) -> bool {
+        if self.properties.get(attribute) == Some(&value) {
+            return false;
+        }
+        self.property_animations.insert(
+            attribute,
+            vec![
+                AnimationFrame {
+                    timestamp: start_time.into(),
+                    interpolation_control_points: [0.0, 0.0, 0.0, 0.0].into(),
+                    value: self.get_attribute(attribute),
+                },
+                AnimationFrame {
+                    timestamp: (start_time + duration).into(),
+                    interpolation_control_points: [0.0, 0.0, 3.0, 1.0].into(),
+                    value,
+                },
+            ],
+        );
+        true
     }
 
     pub fn get_half_extent(&self, proposed: bool) -> SafeFloat<f32, 2> {

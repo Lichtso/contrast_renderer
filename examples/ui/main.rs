@@ -3,7 +3,7 @@ mod application_framework;
 
 use contrast_renderer::{
     hash_map,
-    ui::{wrapped_values::Value, Node, NodeOrObservableIdentifier},
+    ui::{wrapped_values::Value, NodeOrObservableIdentifier},
 };
 use geometric_algebra::{ppga2d, ppga3d};
 use std::rc::Rc;
@@ -115,92 +115,73 @@ impl application_framework::Application for Application {
         let mut ui_event_translator = contrast_renderer::ui::message::WinitEventTranslator::default();
         ui_event_translator.load_keymap(KEYMAP).unwrap();
 
-        let mut node = Node::default();
-        node.properties = hash_map! {
-            "orientation" => Value::Orientation(contrast_renderer::ui::Orientation::Horizontal),
-            "half_extent" => Value::Float2([500.0, 300.0].into()),
-        };
-        node.set_messenger_handler(contrast_renderer::ui::tabs::tab_container);
-        let tab_container_node_id = ui_node_hierarchy.insert_and_configure_node(None, node);
+        /*let speech_balloon_node_id = ui_node_hierarchy.create_node(
+            contrast_renderer::ui::speech_balloon::speech_balloon,
+            hash_map! {},
+            None,
+        );*/
 
-        let weights = [0.6, 0.3, 0.1];
+        let tab_container_node_id = ui_node_hierarchy.create_node(
+            contrast_renderer::ui::tabs::tab_container,
+            hash_map! {
+                "orientation" => Value::Orientation(contrast_renderer::ui::Orientation::Horizontal),
+                "half_extent" => Value::Float2([500.0, 300.0].into()),
+            },
+            None,
+        );
+
+        let weights = [0.1, 0.3, 0.6];
+        let mut tab_node_id = 0;
         for (child_index, weight) in weights.iter().enumerate() {
-            let mut node = Node::default();
-            node.properties = hash_map! {};
-            node.set_messenger_handler(contrast_renderer::ui::tabs::tab);
-            ui_node_hierarchy.insert_and_configure_node(
+            tab_node_id = ui_node_hierarchy.create_node(
+                contrast_renderer::ui::tabs::tab,
+                hash_map! {},
                 Some((tab_container_node_id, NodeOrObservableIdentifier::NamedAndIndexed("tab", child_index))),
-                node,
             );
-            let mut node = Node::default();
-            node.properties = hash_map! {
-                "weight" => Value::Float1(weight.into()),
-            };
-            node.set_messenger_handler(contrast_renderer::ui::tabs::tab_handle);
-            ui_node_hierarchy.insert_and_configure_node(
+            ui_node_hierarchy.create_node(
+                contrast_renderer::ui::tabs::tab_handle,
+                hash_map! {
+                    "weight" => Value::Float1(weight.into()),
+                },
                 Some((tab_container_node_id, NodeOrObservableIdentifier::NamedAndIndexed("handle", child_index))),
-                node,
             );
         }
 
-        /*let mut node = Node::default();
-        node.properties = hash_map! {};
-        node.set_messenger_handler(contrast_renderer::ui::speech_balloon::speech_balloon);
-        let speech_balloon_node_id = ui_node_hierarchy.insert_and_configure_node(None, node);
+        let scroll_node_id = ui_node_hierarchy.create_node(
+            contrast_renderer::ui::scroll::scroll,
+            hash_map! {
+                "half_extent" => Value::Float2([150.0, 50.0].into()),
+                "proposed_half_extent" => Value::Float2([150.0, 50.0].into()),
+                "content_motor" => Value::Float4([1.0, 0.0, 0.0, 0.0].into()),
+                "content_scale" => Value::Float1(1.0.into()),
+                "horizontal_bar" => Value::ScrollBarType(contrast_renderer::ui::ScrollBarType::Overflow),
+                "vertical_bar" => Value::ScrollBarType(contrast_renderer::ui::ScrollBarType::Overflow),
+            },
+            Some((tab_node_id, NodeOrObservableIdentifier::Named("content"))),
+        );
 
-        let mut node = Node::default();
-        node.properties = hash_map! {
-            "half_extent" => Value::Float2([150.0, 50.0].into()),
-            "proposed_half_extent" => Value::Float2([150.0, 50.0].into()),
-            "content_motor" => Value::Float4([1.0, 0.0, 0.0, 0.0].into()),
-            "content_scale" => Value::Float1(1.0.into()),
-            "horizontal_bar" => Value::ScrollBarType(contrast_renderer::ui::ScrollBarType::Overflow),
-            "vertical_bar" => Value::ScrollBarType(contrast_renderer::ui::ScrollBarType::Overflow),
-        };
-        node.set_messenger_handler(contrast_renderer::ui::scroll::scroll);
-        let scroll_node_id =
-            ui_node_hierarchy.insert_and_configure_node(Some((speech_balloon_node_id, NodeOrObservableIdentifier::Named("content"))), node);
+        let list_node_id = ui_node_hierarchy.create_node(
+            contrast_renderer::ui::list::list,
+            hash_map! {
+                "half_extent" => Value::Float2([150.0, 100.0].into()),
+                "proposed_half_extent" => Value::Float2([0.0, 0.0].into()),
+                "reverse" => Value::Boolean(false),
+                "orientation" => Value::Orientation(contrast_renderer::ui::Orientation::Vertical),
+                "list_minor_axis_alignment" => Value::Float1(0.0.into()),
+            },
+            Some((scroll_node_id, NodeOrObservableIdentifier::Named("content"))),
+        );
 
-        let mut node = Node::default();
-        node.properties = hash_map! {
-            "half_extent" => Value::Float2([150.0, 100.0].into()),
-            "proposed_half_extent" => Value::Float2([0.0, 0.0].into()),
-            "reverse" => Value::Boolean(false),
-            "orientation" => Value::Orientation(contrast_renderer::ui::Orientation::Vertical),
-            "list_minor_axis_alignment" => Value::Float1(0.0.into()),
-        };
-        node.set_messenger_handler(contrast_renderer::ui::list::list);
-        let list_node_id = ui_node_hierarchy.insert_and_configure_node(Some((scroll_node_id, NodeOrObservableIdentifier::Named("content"))), node);
+        ui_node_hierarchy.create_node(
+            contrast_renderer::ui::checkbox::checkbox,
+            hash_map! {
+                "is_checked" => Value::Boolean(false),
+                "enable_interaction" => Value::Boolean(true),
+            },
+            Some((list_node_id, NodeOrObservableIdentifier::Indexed(0))),
+        );
 
-        let mut node = Node::default();
-        node.properties = hash_map! {
-            "is_checked" => Value::Boolean(false),
-            "enable_interaction" => Value::Boolean(true),
-        };
-        node.set_messenger_handler(contrast_renderer::ui::checkbox::checkbox);
-        ui_node_hierarchy.insert_and_configure_node(Some((list_node_id, NodeOrObservableIdentifier::Indexed(0))), node);
-
-        let mut node = Node::default();
-        node.properties = hash_map! {
-            "proposed_half_extent" => Value::Float2([100.0, 40.0].into()),
-            "orientation" => Value::Orientation(contrast_renderer::ui::Orientation::Horizontal),
-            "numeric_value" => Value::Float1(0.5.into()),
-            "numeric_value_range" => Value::Float2([0.0, 1.0].into()),
-            "enable_interaction" => Value::Boolean(true),
-            "textual_projection" => Value::TextualProjection(contrast_renderer::ui::TextualProjection {
-                forward: |value: f32| format!("{:.2}%", value * 100.0),
-                backward: |string: String| {
-                    string.char_indices().last().and_then(|(index, character)| {
-                        if character != '%' {
-                            None
-                        } else {
-                            string[0..index].parse::<f32>().ok().map(|value| value / 100.0)
-                        }
-                    })
-                },
-            }),
-        };
-        node.property_animations = hash_map! {
+        /*node.property_animations = hash_map! {
             "numeric_value" => vec![
                 contrast_renderer::ui::AnimationFrame {
                     timestamp: 0.0.into(),
@@ -218,17 +199,39 @@ impl application_framework::Application for Application {
                     value: Value::Float1(0.0.into()),
                 },
             ],
-        };
-        node.set_messenger_handler(contrast_renderer::ui::range::range);
-        ui_node_hierarchy.insert_and_configure_node(Some((list_node_id, NodeOrObservableIdentifier::Indexed(1))), node);
+        };*/
+        ui_node_hierarchy.create_node(
+            contrast_renderer::ui::range::range,
+            hash_map! {
+                "proposed_half_extent" => Value::Float2([100.0, 40.0].into()),
+                "orientation" => Value::Orientation(contrast_renderer::ui::Orientation::Horizontal),
+                "numeric_value" => Value::Float1(0.5.into()),
+                "numeric_value_range" => Value::Float2([0.0, 1.0].into()),
+                "enable_interaction" => Value::Boolean(true),
+                "textual_projection" => Value::TextualProjection(contrast_renderer::ui::TextualProjection {
+                    forward: |value: f32| format!("{:.2}%", value * 100.0),
+                    backward: |string: String| {
+                        string.char_indices().last().and_then(|(index, character)| {
+                            if character != '%' {
+                                None
+                            } else {
+                                string[0..index].parse::<f32>().ok().map(|value| value / 100.0)
+                            }
+                        })
+                    },
+                }),
+            },
+            Some((list_node_id, NodeOrObservableIdentifier::Indexed(1))),
+        );
 
-        let mut node = Node::default();
-        node.properties = hash_map! {
-            "text_interaction" => Value::TextInteraction(contrast_renderer::ui::TextInteraction::Editing),
-            "text_content" => Value::TextString("Hello World".to_string()),
-        };
-        node.set_messenger_handler(contrast_renderer::ui::label::text_label);
-        ui_node_hierarchy.insert_and_configure_node(Some((list_node_id, NodeOrObservableIdentifier::Indexed(2))), node);*/
+        ui_node_hierarchy.create_node(
+            contrast_renderer::ui::label::text_label,
+            hash_map! {
+                "text_interaction" => Value::TextInteraction(contrast_renderer::ui::TextInteraction::Editing),
+                "text_content" => Value::TextString("Hello World".to_string()),
+            },
+            Some((list_node_id, NodeOrObservableIdentifier::Indexed(2))),
+        );
 
         Self {
             depth_stencil_texture_view: None,
