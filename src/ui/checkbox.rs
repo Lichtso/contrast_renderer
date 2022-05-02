@@ -57,9 +57,13 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
+            let result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            if !context.was_attribute_touched(&["is_checked"]) {
+                return result;
+            }
             context.set_half_extent(match_option!(context.derive_attribute("ckeckbox_half_extent"), Value::Float2).unwrap());
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
+            result
         }
         "PointerInput" => {
             if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false)

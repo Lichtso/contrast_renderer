@@ -16,9 +16,19 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let propose_half_extent = context.get_attribute("proposed_half_extent") != Value::Void;
             let first_phase = match_option!(context.get_attribute("first_phase"), Value::Boolean).unwrap_or(true);
             context.set_attribute_privately("first_phase", Value::Boolean(!first_phase));
+            let mut unaffected = first_phase && !context.was_attribute_touched(&["half_extent", "proposed_half_extent", "orientation", "reverse"]);
+            context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
+                if node.was_attribute_touched(&["proposed_half_extent"]) {
+                    unaffected = false;
+                }
+            });
+            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            if unaffected {
+                return result;
+            }
+            let propose_half_extent = context.get_attribute("proposed_half_extent") != Value::Void;
             let margin = match_option!(context.derive_attribute("list_margin"), Value::Float1).unwrap().unwrap();
             let padding = match_option!(context.derive_attribute("list_padding"), Value::Float2).unwrap().unwrap();
             let minor_axis_alignment = context.derive_attribute("list_minor_axis_alignment");
@@ -52,7 +62,6 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 major_half_extent_to_distribute
             };
             let mut major_axis_offset = -half_extent[major_axis];
-            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
             if first_phase {
                 result.insert(0, Messenger::new(&message::RECONFIGURE, hash_map! {}));
             }
@@ -95,18 +104,6 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 context.set_half_extent(half_extent.into());
             }
             result
-        }
-        "PropertiesChanged" => {
-            let mut proposed_half_extent = false;
-            context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
-                if node.was_attribute_touched("proposed_half_extent") {
-                    proposed_half_extent = true;
-                }
-            });
-            if proposed_half_extent {
-                return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
-            }
-            Vec::new()
         }
         "PointerInput" => {
             vec![messenger.clone()]
