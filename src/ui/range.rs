@@ -35,7 +35,7 @@ fn range_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
             let unaffected = !context.was_attribute_touched(&["half_extent", "is_filled"]);
-            let result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            let result = Vec::new();
             if unaffected {
                 return result;
             }
@@ -103,7 +103,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                     }
                 }
             }
-            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            let mut result = Vec::new();
             if unaffected {
                 return result;
             }

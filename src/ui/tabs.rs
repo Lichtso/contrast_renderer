@@ -32,7 +32,7 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
             // let unaffected = !context.was_attribute_touched(&["half_extent"]) && context.get_number_of_children() == 1;
-            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            let mut result = Vec::new();
             // if unaffected {
             //     return result;
             // }
@@ -101,7 +101,7 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
             let unaffected = !context.was_attribute_touched(&["half_extent", "weight"]);
-            let result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            let result = Vec::new();
             if unaffected {
                 return result;
             }
@@ -149,7 +149,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                     active = Some(*local_child_id);
                 }
             });
-            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            let mut result = Vec::new();
             if unaffected {
                 return result;
             }
