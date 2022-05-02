@@ -54,29 +54,18 @@ impl<'a> NodeMessengerContext<'a> {
             node.configuration_in_process = false;
             return true;
         }
-        let local_id = node.local_id;
         let messenger_handler = node.messenger_handler;
         drop(node);
-        let mut messengers = messenger_handler(self, messenger);
+        let mut messengers = messenger_handler(self, messenger)
+            .into_iter()
+            .map(|messenger| (self.global_node_id, messenger))
+            .collect::<Vec<_>>();
         let reflect = messengers.is_empty();
-        let mut node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow_mut();
+        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
         if !node.touched_attributes.is_empty() {
-            let mut touched_attributes = HashSet::new();
-            std::mem::swap(&mut touched_attributes, &mut node.touched_attributes);
-            messengers.push(Messenger::new(
-                &message::PROPERTIES_CHANGED,
-                hash_map! {
-                    "child_id" => Value::NodeOrObservableIdentifier(local_id),
-                    "attributes" => Value::Attributes(touched_attributes),
-                },
-            ));
+            messengers.push((self.global_node_id, Messenger::new(&message::PROPERTIES_CHANGED, hash_map! {})));
         }
-        messenger_stack.append(
-            &mut messengers
-                .into_iter()
-                .map(|messenger| (self.global_node_id, messenger))
-                .collect::<Vec<_>>(),
-        );
+        messenger_stack.append(&mut messengers);
         reflect
     }
 
@@ -93,6 +82,16 @@ impl<'a> NodeMessengerContext<'a> {
                 return self.node_hierarchy.theme_properties.get(attribute).cloned().unwrap_or(Value::Void);
             }
         }
+    }
+
+    pub fn was_attribute_touched(&self, attribute: &'static str) -> bool {
+        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
+        node.was_attribute_touched(attribute)
+    }
+
+    pub fn touch_attribute(&mut self, attribute: &'static str) {
+        let mut node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow_mut();
+        node.touch_attribute(attribute);
     }
 
     pub fn get_attribute(&self, attribute: &'static str) -> Value {
@@ -113,11 +112,6 @@ impl<'a> NodeMessengerContext<'a> {
     pub fn set_attribute_animated(&mut self, attribute: &'static str, value: Value, start_time: f64, duration: f64) -> bool {
         let mut node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow_mut();
         node.set_attribute_animated(attribute, value, start_time, duration)
-    }
-
-    pub fn touch_attribute(&mut self, attribute: &'static str) {
-        let mut node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow_mut();
-        node.touched_attributes.insert(attribute);
     }
 
     pub fn set_half_extent(&mut self, half_extent: SafeFloat<f32, 2>) {

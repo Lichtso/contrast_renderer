@@ -203,25 +203,24 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
             result
         }
         "PropertiesChanged" => {
-            if match_option!(messenger.get_attribute("attributes"), Value::Attributes)
-                .unwrap()
-                .contains("active")
-            {
+            let mut active = None;
+            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, node: &Node| {
+                if node.was_attribute_touched("active") {
+                    active = Some(*local_child_id);
+                }
+            });
+            if let Some(NodeOrObservableIdentifier::NamedAndIndexed("handle", handle_index)) = active {
                 let mut result = vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
-                if let Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::NamedAndIndexed("handle", handle_index)) =
-                    messenger.get_attribute("child_id")
-                {
-                    let tab_count = context.get_number_of_children() / 2;
-                    for child_index in 0..tab_count {
-                        let weight = if child_index == *handle_index { 1.0 } else { 0.0 };
-                        context.configure_child(
-                            &mut result,
-                            NodeOrObservableIdentifier::NamedAndIndexed("handle", child_index),
-                            Some(|node: &mut Node| {
-                                node.set_attribute_animated("weight", Value::Float1(weight.into()), context.get_last_animation_time(), 5.0);
-                            }),
-                        );
-                    }
+                let tab_count = context.get_number_of_children() / 2;
+                for child_index in 0..tab_count {
+                    let weight = if child_index == handle_index { 1.0 } else { 0.0 };
+                    context.configure_child(
+                        &mut result,
+                        NodeOrObservableIdentifier::NamedAndIndexed("handle", child_index),
+                        Some(|node: &mut Node| {
+                            node.set_attribute_animated("weight", Value::Float1(weight.into()), context.get_last_animation_time(), 5.0);
+                        }),
+                    );
                 }
                 return result;
             }
