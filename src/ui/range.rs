@@ -172,17 +172,17 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
             Vec::new()
         }
         "PropertiesChanged" => {
-            if match_option!(messenger.get_attribute("attributes"), Value::Attributes)
-                .unwrap()
-                .contains("text_content")
-            {
-                if let Value::TextualProjection(textual_projection) = context.get_attribute("textual_projection") {
-                    let text_content = context
-                        .inspect_child(
-                            match_option!(messenger.get_attribute("child_id"), Value::NodeOrObservableIdentifier).unwrap(),
-                            |child_node: &Node| match_option!(child_node.get_attribute("text_content"), Value::TextString).unwrap(),
-                        )
-                        .unwrap();
+            if let Value::TextualProjection(textual_projection) = context.get_attribute("textual_projection") {
+                let text_content = context
+                    .inspect_child(&NodeOrObservableIdentifier::Named("textual"), |node: &Node| {
+                        if node.was_attribute_touched("text_content") {
+                            match_option!(node.get_attribute("text_content"), Value::TextString)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap();
+                if let Some(text_content) = text_content {
                     if let Some(mut new_numeric_value) = (textual_projection.backward)(text_content) {
                         let numeric_value = match_option!(context.get_attribute("numeric_value"), Value::Float1)
                             .map(|value| value.unwrap())

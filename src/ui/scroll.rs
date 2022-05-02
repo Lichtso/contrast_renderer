@@ -242,26 +242,25 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             }
         }
         "PropertiesChanged" => {
-            if match_option!(messenger.get_attribute("attributes"), Value::Attributes)
-                .unwrap()
-                .contains("proposed_half_extent")
-            {
-                return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
-            }
-            if match_option!(messenger.get_attribute("attributes"), Value::Attributes)
-                .unwrap()
-                .contains("content_motor")
-            {
-                let content_motor = context
-                    .inspect_child(
-                        match_option!(messenger.get_attribute("child_id"), Value::NodeOrObservableIdentifier).unwrap(),
-                        |child_node: &Node| child_node.get_attribute("content_motor"),
-                    )
-                    .unwrap();
+            let mut proposed_half_extent = false;
+            let mut content_motor = None;
+            context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
+                if node.was_attribute_touched("proposed_half_extent") {
+                    proposed_half_extent = true;
+                }
+                if node.was_attribute_touched("content_motor") {
+                    content_motor = Some(node.get_attribute("content_motor"));
+                }
+            });
+            let result = if proposed_half_extent || content_motor.is_some() {
+                vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
+            } else {
+                Vec::new()
+            };
+            if let Some(content_motor) = content_motor {
                 context.set_attribute("content_motor", content_motor);
-                return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
             }
-            Vec::new()
+            result
         }
         _ => Vec::new(),
     }
