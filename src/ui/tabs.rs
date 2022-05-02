@@ -31,7 +31,11 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
+            // let unaffected = !context.was_attribute_touched(&["half_extent"]) && context.get_number_of_children() == 1;
             let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            // if unaffected {
+            //     return result;
+            // }
             if context.get_number_of_children() == 1 {
                 context.configure_child(
                     &mut result,
@@ -96,9 +100,14 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
+            let unaffected = !context.was_attribute_touched(&["half_extent", "weight"]);
+            let result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            if unaffected {
+                return result;
+            }
             context.set_half_extent(match_option!(context.derive_attribute("tab_handle_half_extent"), Value::Float2).unwrap());
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
+            result
         }
         "PointerInput" => {
             if messenger.propagation_direction != PropagationDirection::Parent {
@@ -129,6 +138,34 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
+            let mut unaffected = !context.was_attribute_touched(&["half_extent", "orientation"]);
+            let mut active = None;
+            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, node: &Node| {
+                if node.was_attribute_touched(&["weight"]) {
+                    unaffected = false;
+                }
+                if node.was_attribute_touched(&["active"]) {
+                    unaffected = false;
+                    active = Some(*local_child_id);
+                }
+            });
+            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            if unaffected {
+                return result;
+            }
+            if let Some(NodeOrObservableIdentifier::NamedAndIndexed("handle", handle_index)) = active {
+                let tab_count = context.get_number_of_children() / 2;
+                for child_index in 0..tab_count {
+                    let weight = if child_index == handle_index { 1.0 } else { 0.0 };
+                    context.configure_child(
+                        &mut result,
+                        NodeOrObservableIdentifier::NamedAndIndexed("handle", child_index),
+                        Some(|node: &mut Node| {
+                            node.set_attribute_animated("weight", Value::Float1(weight.into()), context.get_last_animation_time(), 5.0);
+                        }),
+                    );
+                }
+            }
             let tab_count = context.get_number_of_children() / 2;
             let tab_handle_margin = match_option!(context.derive_attribute("tab_handle_margin"), Value::Float1)
                 .unwrap()
@@ -162,7 +199,6 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                 .fold(0usize, |counter, weight| if *weight > 0.0 { counter + 1 } else { counter });
             let mut major_axis_offset = -half_extent[major_axis];
             half_extent[major_axis] -= margin * 0.5 * open_tab_count.saturating_sub(1) as f32;
-            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
             for (child_index, weight) in weights.iter().enumerate() {
                 context.configure_child(
                     &mut result,
@@ -201,30 +237,6 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                 );
             }
             result
-        }
-        "PropertiesChanged" => {
-            let mut active = None;
-            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, node: &Node| {
-                if node.was_attribute_touched("active") {
-                    active = Some(*local_child_id);
-                }
-            });
-            if let Some(NodeOrObservableIdentifier::NamedAndIndexed("handle", handle_index)) = active {
-                let mut result = vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
-                let tab_count = context.get_number_of_children() / 2;
-                for child_index in 0..tab_count {
-                    let weight = if child_index == handle_index { 1.0 } else { 0.0 };
-                    context.configure_child(
-                        &mut result,
-                        NodeOrObservableIdentifier::NamedAndIndexed("handle", child_index),
-                        Some(|node: &mut Node| {
-                            node.set_attribute_animated("weight", Value::Float1(weight.into()), context.get_last_animation_time(), 5.0);
-                        }),
-                    );
-                }
-                return result;
-            }
-            Vec::new()
         }
         "PointerInput" => {
             if messenger.propagation_direction != PropagationDirection::Parent {

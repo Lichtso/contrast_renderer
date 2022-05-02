@@ -34,8 +34,13 @@ fn range_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
+            let unaffected = !context.was_attribute_touched(&["half_extent", "is_filled"]);
+            let result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            if unaffected {
+                return result;
+            }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
+            result
         }
         _ => Vec::new(),
     }
@@ -61,6 +66,47 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
+            let mut unaffected = !context.was_attribute_touched(&[
+                "half_extent",
+                "orientation",
+                "numeric_value",
+                "numeric_value_range",
+                "snap_clamp_function",
+                "textual_projection",
+            ]);
+            if let Value::TextualProjection(textual_projection) = context.get_attribute("textual_projection") {
+                let text_content = context
+                    .inspect_child(&NodeOrObservableIdentifier::Named("textual"), |node: &Node| {
+                        if node.was_attribute_touched(&["text_content"]) {
+                            match_option!(node.get_attribute("text_content"), Value::TextString)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(None);
+                if let Some(text_content) = text_content {
+                    if let Some(mut new_numeric_value) = (textual_projection.backward)(text_content) {
+                        let numeric_value = match_option!(context.get_attribute("numeric_value"), Value::Float1)
+                            .map(|value| value.unwrap())
+                            .unwrap_or(0.0);
+                        let numeric_value_range = match_option!(context.get_attribute("numeric_value_range"), Value::Float2)
+                            .map(|value| value.unwrap())
+                            .unwrap_or([0.0, 1.0]);
+                        if let Value::SnapClampFunction(snap_clamp_function) = context.get_attribute("snap_clamp_function") {
+                            new_numeric_value = (snap_clamp_function.handler)(new_numeric_value, &numeric_value_range);
+                        }
+                        if new_numeric_value != numeric_value {
+                            unaffected = false;
+                            context.set_attribute("numeric_value", Value::Float1(new_numeric_value.into()));
+                            context.set_attribute("rendering_is_dirty", Value::Boolean(true));
+                        }
+                    }
+                }
+            }
+            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            if unaffected {
+                return result;
+            }
             let half_extent = context.get_half_extent(false).unwrap();
             let axis = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap_or(Orientation::Horizontal) as usize;
             let numeric_value = match_option!(context.get_attribute("numeric_value"), Value::Float1)
@@ -79,7 +125,6 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
             empty_half_extent[axis] = half_extent[axis] - filled_half_extent[axis];
             empty_translation[axis] = (half_extent[axis] - empty_half_extent[axis]) * translation.signum();
             filled_translation[axis] = (filled_half_extent[axis] - half_extent[axis]) * translation.signum();
-            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
             context.configure_child(
                 &mut result,
                 NodeOrObservableIdentifier::Named("empty"),
@@ -165,38 +210,6 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                     if numeric_value != new_numeric_value {
                         context.set_attribute("numeric_value", Value::Float1(new_numeric_value.into()));
                         context.set_attribute("rendering_is_dirty", Value::Boolean(true));
-                        return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
-                    }
-                }
-            }
-            Vec::new()
-        }
-        "PropertiesChanged" => {
-            if let Value::TextualProjection(textual_projection) = context.get_attribute("textual_projection") {
-                let text_content = context
-                    .inspect_child(&NodeOrObservableIdentifier::Named("textual"), |node: &Node| {
-                        if node.was_attribute_touched("text_content") {
-                            match_option!(node.get_attribute("text_content"), Value::TextString)
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap();
-                if let Some(text_content) = text_content {
-                    if let Some(mut new_numeric_value) = (textual_projection.backward)(text_content) {
-                        let numeric_value = match_option!(context.get_attribute("numeric_value"), Value::Float1)
-                            .map(|value| value.unwrap())
-                            .unwrap_or(0.0);
-                        let numeric_value_range = match_option!(context.get_attribute("numeric_value_range"), Value::Float2)
-                            .map(|value| value.unwrap())
-                            .unwrap_or([0.0, 1.0]);
-                        if let Value::SnapClampFunction(snap_clamp_function) = context.get_attribute("snap_clamp_function") {
-                            new_numeric_value = (snap_clamp_function.handler)(new_numeric_value, &numeric_value_range);
-                        }
-                        if new_numeric_value != numeric_value {
-                            context.set_attribute("numeric_value", Value::Float1(new_numeric_value.into()));
-                            context.set_attribute("rendering_is_dirty", Value::Boolean(true));
-                        }
                         return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
                     }
                 }
