@@ -56,7 +56,7 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
             let unaffected = !context.was_attribute_touched(&["half_extent"]);
-            let result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            let result = Vec::new();
             if unaffected {
                 return result;
             }
@@ -129,7 +129,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     content_motor = Some(node.get_attribute("content_motor"));
                 }
             });
-            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            let mut result = Vec::new();
             if unaffected {
                 return result;
             }
