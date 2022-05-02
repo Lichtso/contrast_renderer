@@ -24,7 +24,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                     unaffected = false;
                 }
             });
-            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            let mut result = Vec::new();
             if unaffected {
                 return result;
             }

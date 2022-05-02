@@ -57,7 +57,7 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            let result = Vec::new();
             if !context.was_attribute_touched(&["is_checked"]) {
                 return result;
             }

@@ -29,7 +29,7 @@ fn text_selection(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
             let unaffected = !context.was_attribute_touched(&["half_extent"]);
-            let result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            let result = Vec::new();
             if unaffected {
                 return result;
             }
@@ -73,7 +73,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            let mut result = Vec::new();
             if !context.was_attribute_touched(&["text_content", "cursor_a", "cursor_b", "text_interaction"]) {
                 return result;
             }

@@ -1,8 +1,8 @@
 use crate::{
-    hash_map, match_option,
+    match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, LineSegment, Path, StrokeOptions},
     ui::{
-        message::{self, rendering_default_behavior, Messenger},
+        message::{rendering_default_behavior, Messenger},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering, Side,
@@ -143,7 +143,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 }
             });
             if unaffected {
-                return vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+                return Vec::new();
             }
             if let Some(content_half_extent) =
                 context.inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.get_half_extent(true))
@@ -158,7 +158,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 context.set_half_extent(half_extent.into());
             }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
+            Vec::new()
         }
         "PointerInput" => {
             vec![messenger.clone()]

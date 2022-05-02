@@ -61,6 +61,16 @@ impl<'a> NodeMessengerContext<'a> {
             .map(|messenger| (self.global_node_id, messenger))
             .collect::<Vec<_>>();
         let reflect = messengers.is_empty();
+        if messenger.behavior.label == "Reconfigure" {
+            let first_is_explicit_reconfigure = messengers
+                .first()
+                .map(|(_global_node_id, messenger)| messenger.behavior.label == "Reconfigure")
+                .unwrap_or(false);
+            messengers.insert(
+                if first_is_explicit_reconfigure { 1 } else { 0 },
+                (self.global_node_id, Messenger::new(&message::CONFIGURED, hash_map! {})),
+            );
+        }
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
         if !node.touched_attributes.is_empty() {
             if let Some(global_parent_id) = node.parent {
