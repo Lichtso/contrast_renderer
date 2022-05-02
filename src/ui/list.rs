@@ -97,10 +97,13 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
             result
         }
         "PropertiesChanged" => {
-            if match_option!(messenger.get_attribute("attributes"), Value::Attributes)
-                .unwrap()
-                .contains("proposed_half_extent")
-            {
+            let mut proposed_half_extent = false;
+            context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
+                if node.was_attribute_touched("proposed_half_extent") {
+                    proposed_half_extent = true;
+                }
+            });
+            if proposed_half_extent {
                 return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
             }
             Vec::new()

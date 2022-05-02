@@ -338,8 +338,12 @@ impl Node {
         true
     }
 
-    pub fn get_touched_attributes(&self) -> &HashSet<&'static str> {
-        &self.touched_attributes
+    pub fn was_attribute_touched(&self, attribute: &'static str) -> bool {
+        self.touched_attributes.contains(attribute)
+    }
+
+    pub fn touch_attribute(&mut self, attribute: &'static str) {
+        self.touched_attributes.insert(attribute);
     }
 
     pub fn get_attribute(&self, attribute: &'static str) -> Value {
