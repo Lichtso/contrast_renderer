@@ -63,7 +63,9 @@ impl<'a> NodeMessengerContext<'a> {
         let reflect = messengers.is_empty();
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
         if !node.touched_attributes.is_empty() {
-            messengers.push((self.global_node_id, Messenger::new(&message::PROPERTIES_CHANGED, hash_map! {})));
+            if let Some(global_parent_id) = node.parent {
+                messengers.push((global_parent_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
+            }
         }
         messenger_stack.append(&mut messengers);
         reflect
@@ -84,9 +86,9 @@ impl<'a> NodeMessengerContext<'a> {
         }
     }
 
-    pub fn was_attribute_touched(&self, attribute: &'static str) -> bool {
+    pub fn was_attribute_touched(&self, attributes: &[&'static str]) -> bool {
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
-        node.was_attribute_touched(attribute)
+        node.was_attribute_touched(attributes)
     }
 
     pub fn touch_attribute(&mut self, attribute: &'static str) {
@@ -284,9 +286,11 @@ impl NodeHierarchy {
         properties: HashMap<&'static str, Value>,
         parent_link: Option<(GlobalNodeIdentifier, NodeOrObservableIdentifier)>,
     ) -> GlobalNodeIdentifier {
+        let touched_attributes = properties.keys().cloned().collect();
         let node = Node {
             messenger_handler,
             properties,
+            touched_attributes,
             ..Node::default()
         };
         self.insert_and_configure_node(node, parent_link)
@@ -357,16 +361,11 @@ impl NodeHierarchy {
                             continue;
                         }
                         node.configuration_in_process = true;
-                        let mut touched_attributes = HashSet::new();
-                        std::mem::swap(&mut touched_attributes, &mut node.touched_attributes);
-                        let mut messenger = Messenger::new(
-                            &message::RECONFIGURE,
-                            hash_map! {
-                                "attributes" => Value::Attributes(touched_attributes),
-                            },
-                        );
+                        let mut messenger = Messenger::new(&message::RECONFIGURE, hash_map! {});
                         drop(node);
                         self.invoke_handler(&mut messenger_stack, global_node_id, &mut messenger);
+                        let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
+                        node.touched_attributes.clear();
                     }
                     "Configured" => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();

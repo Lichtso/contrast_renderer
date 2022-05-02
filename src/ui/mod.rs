@@ -338,8 +338,13 @@ impl Node {
         true
     }
 
-    pub fn was_attribute_touched(&self, attribute: &'static str) -> bool {
-        self.touched_attributes.contains(attribute)
+    pub fn was_attribute_touched(&self, attributes: &[&'static str]) -> bool {
+        for attribute in attributes {
+            if self.touched_attributes.contains(attribute) {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn touch_attribute(&mut self, attribute: &'static str) {

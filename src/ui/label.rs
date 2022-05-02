@@ -28,8 +28,13 @@ fn text_selection(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
+            let unaffected = !context.was_attribute_touched(&["half_extent"]);
+            let result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            if unaffected {
+                return result;
+            }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
+            result
         }
         _ => Vec::new(),
     }
@@ -68,6 +73,10 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
+            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            if !context.was_attribute_touched(&["text_content", "cursor_a", "cursor_b", "text_interaction"]) {
+                return result;
+            }
             let text_font = match_option!(context.derive_attribute("font_face"), Value::TextFont).unwrap();
             let layout = layout!(context);
             let text_content = match_option!(context.get_attribute("text_content"), Value::TextString).unwrap_or_else(String::default);
@@ -77,7 +86,6 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             let half_extent = half_extent_of_text(text_font.face(), &layout, &text_content);
             let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
             context.set_half_extent(half_extent);
-            let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
             let selection_start_position =
                 half_extent_of_text(text_font.face(), &layout, &text_content.chars().take(range.start).collect::<String>()).unwrap()[0] * 2.0
                     - half_extent.unwrap()[0];
