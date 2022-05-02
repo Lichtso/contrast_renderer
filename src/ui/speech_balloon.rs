@@ -136,6 +136,15 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
+            let mut unaffected = true;
+            context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
+                if node.was_attribute_touched(&["proposed_half_extent"]) {
+                    unaffected = false;
+                }
+            });
+            if unaffected {
+                return vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            }
             if let Some(content_half_extent) =
                 context.inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.get_half_extent(true))
             {
@@ -150,18 +159,6 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
-        }
-        "PropertiesChanged" => {
-            let mut proposed_half_extent = false;
-            context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
-                if node.was_attribute_touched("proposed_half_extent") {
-                    proposed_half_extent = true;
-                }
-            });
-            if proposed_half_extent {
-                return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
-            }
-            Vec::new()
         }
         "PointerInput" => {
             vec![messenger.clone()]

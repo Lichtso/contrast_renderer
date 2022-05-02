@@ -55,8 +55,13 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
+            let unaffected = !context.was_attribute_touched(&["half_extent"]);
+            let result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            if unaffected {
+                return result;
+            }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            vec![Messenger::new(&message::CONFIGURED, hash_map! {})]
+            result
         }
         "PointerInput" => {
             if messenger.propagation_direction != PropagationDirection::Parent {
@@ -113,7 +118,24 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
+            let mut unaffected = !context.was_attribute_touched(&["half_extent", "content_motor", "content_scale"]);
+            let mut content_motor = None;
+            context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
+                if node.was_attribute_touched(&["proposed_half_extent"]) {
+                    unaffected = false;
+                }
+                if node.was_attribute_touched(&["content_motor"]) {
+                    unaffected = false;
+                    content_motor = Some(node.get_attribute("content_motor"));
+                }
+            });
             let mut result = vec![Messenger::new(&message::CONFIGURED, hash_map! {})];
+            if unaffected {
+                return result;
+            }
+            if let Some(content_motor) = content_motor {
+                context.set_attribute("content_motor", content_motor);
+            }
             if let Some(content_half_extent) = context.inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
                 content.get_half_extent(true).unwrap()
             }) {
@@ -240,27 +262,6 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             } else {
                 vec![messenger.clone()]
             }
-        }
-        "PropertiesChanged" => {
-            let mut proposed_half_extent = false;
-            let mut content_motor = None;
-            context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
-                if node.was_attribute_touched("proposed_half_extent") {
-                    proposed_half_extent = true;
-                }
-                if node.was_attribute_touched("content_motor") {
-                    content_motor = Some(node.get_attribute("content_motor"));
-                }
-            });
-            let result = if proposed_half_extent || content_motor.is_some() {
-                vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
-            } else {
-                Vec::new()
-            };
-            if let Some(content_motor) = content_motor {
-                context.set_attribute("content_motor", content_motor);
-            }
-            result
         }
         _ => Vec::new(),
     }
