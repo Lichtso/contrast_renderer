@@ -103,7 +103,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                     }
                 }
             }
-            let mut result = Vec::new();
+            let result = Vec::new();
             if unaffected {
                 return result;
             }
@@ -126,7 +126,6 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
             empty_translation[axis] = (half_extent[axis] - empty_half_extent[axis]) * translation.signum();
             filled_translation[axis] = (filled_half_extent[axis] - half_extent[axis]) * translation.signum();
             context.configure_child(
-                &mut result,
                 NodeOrObservableIdentifier::Named("empty"),
                 Some(&mut |node: &mut Node| {
                     node.set_messenger_handler(range_bar);
@@ -136,7 +135,6 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 }),
             );
             context.configure_child(
-                &mut result,
                 NodeOrObservableIdentifier::Named("filled"),
                 Some(&mut |node: &mut Node| {
                     node.set_messenger_handler(range_bar);
@@ -156,7 +154,6 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 TextInteraction::None
             };
             context.configure_child(
-                &mut result,
                 NodeOrObservableIdentifier::Named("textual"),
                 text_content.map(|text_content| {
                     |node: &mut Node| {

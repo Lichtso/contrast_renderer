@@ -136,7 +136,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let mut unaffected = true;
+            let mut unaffected = !context.was_attribute_touched(&["child_count"]);
             context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
                 if node.was_attribute_touched(&["proposed_half_extent"]) {
                     unaffected = false;
