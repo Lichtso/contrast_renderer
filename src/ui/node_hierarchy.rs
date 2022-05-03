@@ -61,6 +61,18 @@ impl<'a> NodeMessengerContext<'a> {
             .map(|messenger| (self.global_node_id, messenger))
             .collect::<Vec<_>>();
         let reflect = messengers.is_empty();
+        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
+        if !node.touched_attributes.is_empty() {
+            if let Some(global_parent_id) = node.parent {
+                messengers.push((global_parent_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
+            }
+        }
+        for global_child_id in node.children.values() {
+            let child_node = self.node_hierarchy.nodes.get(global_child_id).unwrap().borrow();
+            if !child_node.touched_attributes.is_empty() {
+                messengers.push((*global_child_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
+            }
+        }
         if messenger.behavior.label == "Reconfigure" {
             let first_is_explicit_reconfigure = messengers
                 .first()
@@ -70,13 +82,9 @@ impl<'a> NodeMessengerContext<'a> {
                 if first_is_explicit_reconfigure { 1 } else { 0 },
                 (self.global_node_id, Messenger::new(&message::CONFIGURED, hash_map! {})),
             );
-        }
-        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
-        if !node.touched_attributes.is_empty() {
-            if let Some(global_parent_id) = node.parent {
-                messengers.push((global_parent_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
-            }
-        }
+        } /*else if !child_node.touched_attributes.is_empty() {
+              messengers.push((self.global_node_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
+          }*/
         messenger_stack.append(&mut messengers);
         reflect
     }
@@ -165,46 +173,33 @@ impl<'a> NodeMessengerContext<'a> {
             .map(|global_child_id| callback(&self.node_hierarchy.nodes.get(global_child_id).unwrap().borrow()))
     }
 
-    pub fn configure_child<F: FnOnce(&mut Node)>(
-        &self,
-        messengers: &mut Vec<Messenger>,
-        local_child_id: NodeOrObservableIdentifier,
-        callback: Option<F>,
-    ) {
+    pub fn add_child(&mut self, local_child_id: NodeOrObservableIdentifier, child_node: Rc<RefCell<Node>>) {
+        let _global_child_id = self.node_hierarchy.insert_node(Some((self.global_node_id, local_child_id)), child_node);
+    }
+
+    pub fn remove_child(&mut self, local_child_id: NodeOrObservableIdentifier) -> Option<Rc<RefCell<Node>>> {
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
-        let child_node = if let Some(global_child_id) = node.children.get(&local_child_id) {
-            let child_node_rc = self.node_hierarchy.nodes.get(global_child_id).unwrap();
+        let global_child_id = node.children.get(&local_child_id).cloned();
+        drop(node);
+        global_child_id.map(|global_child_id| self.node_hierarchy.delete_node(global_child_id))
+    }
+
+    pub fn configure_child<F: FnOnce(&mut Node)>(&mut self, local_child_id: NodeOrObservableIdentifier, callback: Option<F>) {
+        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
+        if let Some(global_child_id) = node.children.get(&local_child_id).cloned() {
+            drop(node);
             if let Some(callback) = callback {
-                let mut child_node = child_node_rc.borrow_mut();
+                let mut child_node = self.node_hierarchy.nodes.get(&global_child_id).unwrap().borrow_mut();
                 callback(&mut child_node);
-                if child_node.touched_attributes.is_empty() {
-                    return;
-                }
-                child_node_rc.clone()
             } else {
-                messengers.push(Messenger::new(
-                    &message::CONFIGURE_CHILD,
-                    hash_map! {
-                        "local_id" => Value::NodeOrObservableIdentifier(local_child_id),
-                        "node" => Value::Void,
-                    },
-                ));
-                return;
+                self.remove_child(local_child_id);
             }
         } else if let Some(callback) = callback {
+            drop(node);
             let mut child_node = Node::default();
             callback(&mut child_node);
-            Rc::new(RefCell::new(child_node))
-        } else {
-            return;
-        };
-        messengers.push(Messenger::new(
-            &message::CONFIGURE_CHILD,
-            hash_map! {
-                "local_id" => Value::NodeOrObservableIdentifier(local_child_id),
-                "node" => Value::Node(child_node),
-            },
-        ));
+            self.add_child(local_child_id, Rc::new(RefCell::new(child_node)));
+        }
     }
 
     pub fn update_rendering_helper(&mut self, prepare_rendering: &Messenger) -> Messenger {
@@ -259,7 +254,9 @@ impl NodeHierarchy {
         if let Some((global_parent_id, local_child_id)) = parent_link {
             borrowed_node.local_id = local_child_id;
             borrowed_node.parent = Some(global_parent_id);
+            borrowed_node.touch_attribute("parent");
             let mut parent = self.nodes.get(&global_parent_id).unwrap().borrow_mut();
+            parent.touch_attribute("child_count");
             parent.children.insert(local_child_id, global_node_id);
         } else {
             borrowed_node.local_id = NodeOrObservableIdentifier::Named("root");
@@ -306,20 +303,26 @@ impl NodeHierarchy {
         self.insert_and_configure_node(node, parent_link)
     }
 
-    pub fn delete_node(&mut self, global_node_id: GlobalNodeIdentifier) {
-        let node = self.nodes.get(&global_node_id).unwrap().borrow();
+    pub fn delete_node(&mut self, global_node_id: GlobalNodeIdentifier) -> Rc<RefCell<Node>> {
+        let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
         for observable in node.observes.iter() {
             self.observer_channels.get_mut(observable).unwrap().remove(&global_node_id);
         }
         if let Some(global_parent_id) = node.parent {
+            node.touch_attribute("parent");
+            let local_child_id = node.local_id;
+            drop(node);
             let mut parent = self.nodes.get(&global_parent_id).unwrap().borrow_mut();
-            parent.children.remove(&node.local_id);
+            parent.touch_attribute("child_count");
+            parent.children.remove(&local_child_id);
+        } else {
+            drop(node);
         }
-        drop(node);
         let node = self.nodes.remove(&global_node_id).unwrap();
         for (_local_child_id, global_child_id) in node.borrow().children.iter() {
             self.delete_node(*global_child_id);
         }
+        node
     }
 
     /// Sends a [Messenger] to a set of UI nodes observing the given observable.
@@ -399,28 +402,6 @@ impl NodeHierarchy {
                             .into_iter()
                             .map(|(_layer_index, global_child_id)| global_child_id)
                             .collect();
-                    }
-                    "ConfigureChild" => {
-                        let node = self.nodes.get(&global_node_id).unwrap().borrow();
-                        let local_child_id = *match_option!(messenger.get_attribute("local_id"), Value::NodeOrObservableIdentifier).unwrap();
-                        let global_child_id = node.children.get(&local_child_id).cloned();
-                        drop(node);
-                        if let Some(mut global_child_id) = global_child_id {
-                            if let Value::Node(new_child_node) = messenger.get_attribute("node") {
-                                if !Rc::ptr_eq(new_child_node, self.nodes.get(&global_child_id).unwrap()) {
-                                    self.delete_node(global_child_id);
-                                    global_child_id = self.insert_node(Some((global_node_id, local_child_id)), new_child_node.clone());
-                                }
-                                messenger_stack.push((global_child_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
-                            } else {
-                                self.delete_node(global_child_id);
-                            }
-                        } else if let Value::Node(new_child_node) = messenger.get_attribute("node") {
-                            let global_child_id = self.insert_node(Some((global_node_id, local_child_id)), new_child_node.clone());
-                            messenger_stack.push((global_child_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
-                        } else {
-                            panic!("Can not delete what does not exist");
-                        }
                     }
                     "Observe" => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
