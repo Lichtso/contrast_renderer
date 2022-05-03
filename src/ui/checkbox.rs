@@ -1,8 +1,8 @@
 use crate::{
-    hash_map, match_option,
+    match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{self, pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Rendering,
@@ -57,13 +57,12 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let result = Vec::new();
             if !context.was_attribute_touched(&["is_checked"]) {
-                return result;
+                return Vec::new();
             }
             context.set_half_extent(match_option!(context.derive_attribute("ckeckbox_half_extent"), Value::Float2).unwrap());
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            result
+            Vec::new()
         }
         "PointerInput" => {
             if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false)
@@ -74,16 +73,14 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
             if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) {
                 if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
-                    let mut result = pointer_and_button_input_focus(messenger);
                     if !*pressed
                         && *input_state.is_inside_bounds.get(&0).unwrap()
                         && context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap())
                     {
                         let is_checked = !match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
                         context.set_attribute("is_checked", Value::Boolean(is_checked));
-                        result.push(Messenger::new(&message::RECONFIGURE, hash_map! {}));
                     }
-                    return result;
+                    return pointer_and_button_input_focus(messenger);
                 }
             }
             Vec::new()
