@@ -18,7 +18,8 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
         "Reconfigure" => {
             let first_phase = match_option!(context.get_attribute("first_phase"), Value::Boolean).unwrap_or(true);
             context.set_attribute_privately("first_phase", Value::Boolean(!first_phase));
-            let mut unaffected = first_phase && !context.was_attribute_touched(&["half_extent", "proposed_half_extent", "orientation", "reverse"]);
+            let mut unaffected =
+                first_phase && !context.was_attribute_touched(&["child_count", "half_extent", "proposed_half_extent", "orientation", "reverse"]);
             context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
                 if node.was_attribute_touched(&["proposed_half_extent"]) {
                     unaffected = false;
@@ -67,7 +68,6 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
             }
             for child_index in 0..context.get_number_of_children() {
                 context.configure_child(
-                    &mut result,
                     NodeOrObservableIdentifier::Indexed(child_index),
                     Some(|node: &mut Node| {
                         let weight = match_option!(node.get_attribute("weight"), Value::Float1)

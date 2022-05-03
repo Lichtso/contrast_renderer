@@ -73,7 +73,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let mut result = Vec::new();
+            let result = Vec::new();
             if !context.was_attribute_touched(&["text_content", "cursor_a", "cursor_b", "text_interaction"]) {
                 return result;
             }
@@ -101,7 +101,6 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 )
             };
             context.configure_child(
-                &mut result,
                 NodeOrObservableIdentifier::Named("selection"),
                 if text_interaction == TextInteraction::Editing || (text_interaction == TextInteraction::Selection && cursor_a != cursor_b) {
                     Some(|node: &mut Node| {

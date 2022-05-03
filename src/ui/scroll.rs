@@ -118,7 +118,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let mut unaffected = !context.was_attribute_touched(&["half_extent", "content_motor", "content_scale"]);
+            let mut unaffected = !context.was_attribute_touched(&["child_count", "half_extent", "content_motor", "content_scale"]);
             let mut content_motor = None;
             context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
                 if node.was_attribute_touched(&["proposed_half_extent"]) {
@@ -129,7 +129,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     content_motor = Some(node.get_attribute("content_motor"));
                 }
             });
-            let mut result = Vec::new();
+            let result = Vec::new();
             if unaffected {
                 return result;
             }
@@ -183,7 +183,6 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                         max_translation / possible_movement
                     };
                     context.configure_child(
-                        &mut result,
                         NodeOrObservableIdentifier::Named(name),
                         if scroll_bar_type == ScrollBarType::Always
                             || (scroll_bar_type == ScrollBarType::Overflow && half_extent[axis] < content_half_extent)
@@ -203,7 +202,6 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     );
                 }
                 context.configure_child(
-                    &mut result,
                     NodeOrObservableIdentifier::Named("content"),
                     Some(|node: &mut Node| {
                         node.set_attribute_privately("motor", Value::Float4(content_motor.into()));
