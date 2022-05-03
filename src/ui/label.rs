@@ -1,9 +1,9 @@
 use crate::{
-    hash_map, match_option,
+    match_option,
     path::Path,
     text::{byte_offset_of_char_index, half_extent_of_text, index_of_char_at, paths_of_text, Layout},
     ui::{
-        message::{self, pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering, TextInteraction,
@@ -29,12 +29,11 @@ fn text_selection(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
             let unaffected = !context.was_attribute_touched(&["half_extent"]);
-            let result = Vec::new();
             if unaffected {
-                return result;
+                return Vec::new();
             }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            result
+            Vec::new()
         }
         _ => Vec::new(),
     }
@@ -73,9 +72,8 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let result = Vec::new();
             if !context.was_attribute_touched(&["text_content", "cursor_a", "cursor_b", "text_interaction"]) {
-                return result;
+                return Vec::new();
             }
             let text_font = match_option!(context.derive_attribute("font_face"), Value::TextFont).unwrap();
             let layout = layout!(context);
@@ -113,7 +111,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 },
             );
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            result
+            Vec::new()
         }
         "PointerInput" => {
             let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
@@ -133,12 +131,10 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                         context.set_attribute("cursor_a", Value::Natural1(index));
                         context.set_attribute("cursor_b", Value::Natural1(index));
                     }
-                    let mut result = pointer_and_button_input_focus(messenger);
-                    result.push(Messenger::new(&message::RECONFIGURE, hash_map! {}));
-                    return result;
+                    return pointer_and_button_input_focus(messenger);
                 } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
                     context.set_attribute("cursor_b", Value::Natural1(index));
-                    return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
+                    return Vec::new();
                 }
             }
             Vec::new()
@@ -186,7 +182,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                         context.set_attribute("cursor_a", Value::Natural1(cursor_a));
                         context.set_attribute("cursor_b", Value::Natural1(cursor_b));
                     }
-                    vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
+                    Vec::new()
                 }
                 '⌥' | '⎈' | '⇧' | '⌘' => Vec::new(),
                 '⏎' => {
@@ -244,7 +240,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     context.set_attribute_privately("text_content", Value::TextString(text_content));
                     context.set_attribute("cursor_a", Value::Natural1(cursor_a));
                     context.set_attribute("cursor_b", Value::Natural1(cursor_b));
-                    vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
+                    Vec::new()
                 }
             }
         }

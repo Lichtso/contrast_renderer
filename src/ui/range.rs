@@ -1,9 +1,9 @@
 use crate::{
-    hash_map, match_option,
+    match_option,
     path::Path,
     ui::{
         label::text_label,
-        message::{self, pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation, Rendering, TextInteraction,
@@ -34,13 +34,11 @@ fn range_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let unaffected = !context.was_attribute_touched(&["half_extent", "is_filled"]);
-            let result = Vec::new();
-            if unaffected {
-                return result;
+            if !context.was_attribute_touched(&["half_extent", "is_filled"]) {
+                return Vec::new();
             }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            result
+            Vec::new()
         }
         _ => Vec::new(),
     }
@@ -103,9 +101,8 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                     }
                 }
             }
-            let result = Vec::new();
             if unaffected {
-                return result;
+                return Vec::new();
             }
             let half_extent = context.get_half_extent(false).unwrap();
             let axis = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap_or(Orientation::Horizontal) as usize;
@@ -165,7 +162,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 }),
             );
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            result
+            Vec::new()
         }
         "PointerInput" => {
             if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false)
@@ -207,7 +204,6 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                     if numeric_value != new_numeric_value {
                         context.set_attribute("numeric_value", Value::Float1(new_numeric_value.into()));
                         context.set_attribute("rendering_is_dirty", Value::Boolean(true));
-                        return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
                     }
                 }
             }

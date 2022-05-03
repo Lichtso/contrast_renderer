@@ -1,8 +1,8 @@
 use crate::{
-    hash_map, match_option,
+    match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{self, pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation, Rendering, ScrollBarType,
@@ -55,13 +55,11 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let unaffected = !context.was_attribute_touched(&["half_extent"]);
-            let result = Vec::new();
-            if unaffected {
-                return result;
+            if !context.was_attribute_touched(&["half_extent"]) {
+                return Vec::new();
             }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            result
+            Vec::new()
         }
         "PointerInput" => {
             if messenger.propagation_direction != PropagationDirection::Parent {
@@ -129,9 +127,8 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     content_motor = Some(node.get_attribute("content_motor"));
                 }
             });
-            let result = Vec::new();
             if unaffected {
-                return result;
+                return Vec::new();
             }
             if let Some(content_motor) = content_motor {
                 context.set_attribute("content_motor", content_motor);
@@ -211,7 +208,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 context.set_attribute("content_motor", Value::Float4(content_motor.into()));
             }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            result
+            Vec::new()
         }
         "PointerInput" => {
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
@@ -238,7 +235,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     let delta = absolute_position - pointer_start;
                     content_motor = translate2d([delta.g0[1] * scale, delta.g0[2] * scale]) * content_motor;
                     context.set_attribute("content_motor", Value::Float4(content_motor.into()));
-                    return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
+                    return Vec::new();
                 }
             }
             vec![messenger.clone()]
@@ -256,7 +253,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 let delta: ppga2d::Point = match_option!(context.get_attribute("delta"), Value::Float3).unwrap().into();
                 content_motor = translate2d([delta.g0[1] * scale, delta.g0[2] * scale]) * content_motor;
                 context.set_attribute("content_motor", Value::Float4(content_motor.into()));
-                vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
+                Vec::new()
             } else {
                 vec![messenger.clone()]
             }

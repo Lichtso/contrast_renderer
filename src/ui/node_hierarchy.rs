@@ -62,6 +62,11 @@ impl<'a> NodeMessengerContext<'a> {
             .collect::<Vec<_>>();
         let reflect = messengers.is_empty();
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
+        if messenger.behavior.label == "Reconfigure" {
+            messengers.push((self.global_node_id, Messenger::new(&message::CONFIGURED, hash_map! {})));
+        } else if !node.touched_attributes.is_empty() {
+            messengers.push((self.global_node_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
+        }
         if !node.touched_attributes.is_empty() {
             if let Some(global_parent_id) = node.parent {
                 messengers.push((global_parent_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
@@ -73,18 +78,6 @@ impl<'a> NodeMessengerContext<'a> {
                 messengers.push((*global_child_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
             }
         }
-        if messenger.behavior.label == "Reconfigure" {
-            let first_is_explicit_reconfigure = messengers
-                .first()
-                .map(|(_global_node_id, messenger)| messenger.behavior.label == "Reconfigure")
-                .unwrap_or(false);
-            messengers.insert(
-                if first_is_explicit_reconfigure { 1 } else { 0 },
-                (self.global_node_id, Messenger::new(&message::CONFIGURED, hash_map! {})),
-            );
-        } /*else if !child_node.touched_attributes.is_empty() {
-              messengers.push((self.global_node_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
-          }*/
         messenger_stack.append(&mut messengers);
         reflect
     }

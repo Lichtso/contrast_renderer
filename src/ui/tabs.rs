@@ -1,8 +1,8 @@
 use crate::{
-    hash_map, match_option,
+    match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{self, pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation, Rendering,
@@ -31,10 +31,8 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let unaffected = !context.was_attribute_touched(&["child_count", "half_extent"]);
-            let result = Vec::new();
-            if unaffected {
-                return result;
+            if !context.was_attribute_touched(&["child_count", "half_extent"]) {
+                return Vec::new();
             }
             let half_extent = context.get_half_extent(false);
             if context.get_number_of_children() == 1 {
@@ -46,7 +44,7 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
                 );
             }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            result
+            Vec::new()
         }
         "PointerInput" => {
             vec![messenger.clone()]
@@ -100,14 +98,12 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let unaffected = !context.was_attribute_touched(&["half_extent", "weight"]);
-            let result = Vec::new();
-            if unaffected {
-                return result;
+            if !context.was_attribute_touched(&["half_extent", "weight"]) {
+                return Vec::new();
             }
             context.set_half_extent(match_option!(context.derive_attribute("tab_handle_half_extent"), Value::Float2).unwrap());
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            result
+            Vec::new()
         }
         "PointerInput" => {
             if messenger.propagation_direction != PropagationDirection::Parent {
@@ -149,9 +145,8 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                     active = Some(*local_child_id);
                 }
             });
-            let result = Vec::new();
             if unaffected {
-                return result;
+                return Vec::new();
             }
             if let Some(NodeOrObservableIdentifier::NamedAndIndexed("handle", handle_index)) = active {
                 let tab_count = context.get_number_of_children() / 2;
@@ -234,7 +229,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                     }),
                 );
             }
-            result
+            Vec::new()
         }
         "PointerInput" => {
             if messenger.propagation_direction != PropagationDirection::Parent {
@@ -312,7 +307,6 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                             }),
                         );
                     }
-                    return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
                 }
             }
             Vec::new()
