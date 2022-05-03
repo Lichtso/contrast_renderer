@@ -16,27 +16,6 @@ use std::{
     rc::Rc,
 };
 
-/*#[derive(PartialEq, Eq)]
-struct NodeLayer {
-    index: usize,
-    global_node_id: GlobalNodeIdentifier,
-}
-impl PartialOrd for NodeLayer {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-impl Ord for NodeLayer {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.index.cmp(&other.index)
-    }
-}
-let mut children = node
-    .children
-    .iter()
-    .map(|(_local_child_id, global_child_id)| NodeLayer { index: self.nodes.get(global_child_id).unwrap().borrow().layer_index, global_node_id: *global_child_id })
-    .collect::<std::collections::BinaryHeap<NodeLayer>>();*/
-
 pub struct NodeMessengerContext<'a> {
     global_node_id: GlobalNodeIdentifier,
     node_hierarchy: &'a mut NodeHierarchy,
@@ -61,7 +40,7 @@ impl<'a> NodeMessengerContext<'a> {
             .map(|messenger| (self.global_node_id, messenger))
             .collect::<Vec<_>>();
         let reflect = messengers.is_empty();
-        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
+        let mut node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow_mut();
         if messenger.behavior.label == "Reconfigure" {
             messengers.push((self.global_node_id, Messenger::new(&message::CONFIGURED, hash_map! {})));
         } else if !node.touched_attributes.is_empty() {
@@ -72,11 +51,35 @@ impl<'a> NodeMessengerContext<'a> {
                 messengers.push((global_parent_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
             }
         }
+        let mut children_order_changed = node.was_attribute_touched(&["child_count"]);
         for global_child_id in node.children.values() {
             let child_node = self.node_hierarchy.nodes.get(global_child_id).unwrap().borrow();
             if !child_node.touched_attributes.is_empty() {
                 messengers.push((*global_child_id, Messenger::new(&message::RECONFIGURE, hash_map! {})));
+                if child_node.was_attribute_touched(&["layer_index"]) {
+                    children_order_changed = true;
+                }
             }
+        }
+        if children_order_changed {
+            let mut ordered_children = node
+                .children
+                .iter()
+                .map(|(_local_child_id, global_child_id)| {
+                    let child_node = self.node_hierarchy.nodes.get(global_child_id).unwrap().borrow();
+                    let layer_index = child_node
+                        .properties
+                        .get("layer_index")
+                        .map(|value| *match_option!(value, Value::Natural1).unwrap())
+                        .unwrap_or(0);
+                    (layer_index, *global_child_id)
+                })
+                .collect::<Vec<(usize, GlobalNodeIdentifier)>>();
+            ordered_children.sort_by_key(|entry| entry.0);
+            node.ordered_children = ordered_children
+                .into_iter()
+                .map(|(_layer_index, global_child_id)| global_child_id)
+                .collect();
         }
         messenger_stack.append(&mut messengers);
         reflect
@@ -367,8 +370,8 @@ impl NodeHierarchy {
                             continue;
                         }
                         node.configuration_in_process = true;
-                        let mut messenger = Messenger::new(&message::RECONFIGURE, hash_map! {});
                         drop(node);
+                        let mut messenger = Messenger::new(&message::RECONFIGURE, hash_map! {});
                         self.invoke_handler(&mut messenger_stack, global_node_id, &mut messenger);
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
                         node.touched_attributes.clear();
@@ -376,25 +379,6 @@ impl NodeHierarchy {
                     "Configured" => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
                         node.configuration_in_process = false;
-                        let mut ordered_children = node
-                            .children
-                            .iter()
-                            .filter(|(_local_child_id, global_child_id)| **global_child_id != global_node_id)
-                            .map(|(_local_child_id, global_child_id)| {
-                                let child_node = self.nodes.get(global_child_id).unwrap().borrow();
-                                let layer_index = child_node
-                                    .properties
-                                    .get("layer_index")
-                                    .map(|value| *match_option!(value, Value::Natural1).unwrap())
-                                    .unwrap_or(0);
-                                (layer_index, *global_child_id)
-                            })
-                            .collect::<Vec<(usize, GlobalNodeIdentifier)>>();
-                        ordered_children.sort_by_key(|entry| entry.0);
-                        node.ordered_children = ordered_children
-                            .into_iter()
-                            .map(|(_layer_index, global_child_id)| global_child_id)
-                            .collect();
                     }
                     "Observe" => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
