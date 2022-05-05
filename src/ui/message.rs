@@ -17,7 +17,9 @@ pub enum PropagationDirection {
     Return,
     /// Propagates to parent.
     Parent,
-    /// Propagates to all children of the parent except for the last sender.
+    /// Propagates to a specific child.
+    Child(NodeOrObservableIdentifier),
+    /// Propagates to all children of the parent except for the sender.
     Siblings,
     /// Propagates to children.
     Children,
@@ -283,17 +285,22 @@ pub const RENDER_UNCLIP: MessengerBehavior = MessengerBehavior {
 /// Send for button and key press or release
 pub const BUTTON_INPUT: MessengerBehavior = MessengerBehavior {
     label: "ButtonInput",
-    default_propagation_direction: PropagationDirection::Children,
+    default_propagation_direction: PropagationDirection::Parent,
     get_captured_observable: |messenger| Some(*match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()),
     do_reflect: DO_REFLECT,
-    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    update_at_node_edge: |messenger, _node, from_child_to_parent| {
+        if let Some(local_id) = from_child_to_parent {
+            messenger.properties.insert("child_id", Value::NodeOrObservableIdentifier(local_id));
+        }
+        (true, false)
+    },
     reset_at_node_edge: RESET_AT_NODE_EDGE,
 };
 
 /// Send for scroll wheel or joystick movements
 pub const AXIS_INPUT: MessengerBehavior = MessengerBehavior {
     label: "AxisInput",
-    default_propagation_direction: PropagationDirection::Children,
+    default_propagation_direction: PropagationDirection::None,
     get_captured_observable: |messenger| Some(*match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()),
     do_reflect: DO_REFLECT,
     update_at_node_edge: UPDATE_AT_NODE_EDGE,

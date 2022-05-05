@@ -472,6 +472,24 @@ impl NodeHierarchy {
                         }
                     }
                 }
+                PropagationDirection::Child(local_child_id) => {
+                    let node = self.nodes.get(&global_node_id).unwrap().borrow();
+                    let global_child_id = node.children.get(&local_child_id).cloned();
+                    drop(node);
+                    let mut reflect = true;
+                    if let Some(global_child_id) = global_child_id {
+                        let node = self.nodes.get(&global_child_id).unwrap().borrow();
+                        let (invoke, _stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
+                        drop(node);
+                        if invoke {
+                            reflect &= self.invoke_handler(&mut messenger_stack, global_child_id, &mut messenger);
+                            (messenger.behavior.reset_at_node_edge)(&mut messenger, false);
+                        }
+                    }
+                    if reflect && (messenger.behavior.do_reflect)(&mut messenger) {
+                        self.invoke_handler(&mut messenger_stack, global_node_id, &mut messenger);
+                    }
+                }
                 PropagationDirection::Siblings => {
                     let node = self.nodes.get(&global_node_id).unwrap().borrow();
                     let global_parent_id = node.parent;
