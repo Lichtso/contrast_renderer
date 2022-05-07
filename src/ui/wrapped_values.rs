@@ -6,11 +6,7 @@ use crate::{
         TextualProjection,
     },
 };
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
@@ -39,9 +35,7 @@ pub enum Value {
     InputState(Box<InputState>),
     Rendering(Box<Rendering>),
     NodeOrObservableIdentifier(NodeOrObservableIdentifier),
-    NodeOrObservableIdentifiers(HashSet<NodeOrObservableIdentifier>),
     Node(Rc<RefCell<Node>>),
-    Attributes(HashSet<&'static str>),
     Map(HashMap<&'static str, Value>),
     Vec(Vec<Value>),
 }

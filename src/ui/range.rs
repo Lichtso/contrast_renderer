@@ -3,7 +3,7 @@ use crate::{
     path::Path,
     ui::{
         label::text_label,
-        message::{pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation, Rendering, TextInteraction,
@@ -180,7 +180,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                     } else {
                         context.set_attribute("pointer_start", Value::Void);
                     }
-                    return pointer_and_button_input_focus(messenger);
+                    context.pointer_and_button_input_focus(messenger);
                 } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
                     let absolute_position: ppga2d::Point = (*input_state.absolute_positions.get(&0).unwrap()).into();
                     let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
