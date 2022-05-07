@@ -2,7 +2,7 @@ use crate::{
     match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation, Rendering,
@@ -118,7 +118,7 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     {
                         context.touch_attribute("active");
                     }
-                    return pointer_and_button_input_focus(messenger);
+                    context.pointer_and_button_input_focus(messenger);
                 }
             }
             Vec::new()
@@ -283,7 +283,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                     } else {
                         context.set_attribute("pointer_start", Value::Void);
                     }
-                    return pointer_and_button_input_focus(messenger);
+                    context.pointer_and_button_input_focus(messenger);
                 } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
                     let mut weights = match_option!(context.get_attribute("weights"), Value::Float2).unwrap().unwrap();
                     let half_extents = match_option!(context.get_attribute("half_extents"), Value::Float2).unwrap().unwrap();

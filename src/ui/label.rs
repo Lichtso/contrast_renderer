@@ -3,7 +3,7 @@ use crate::{
     path::Path,
     text::{byte_offset_of_char_index, half_extent_of_text, index_of_char_at, paths_of_text, Layout},
     ui::{
-        message::{pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering, TextInteraction,
@@ -131,10 +131,9 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                         context.set_attribute("cursor_a", Value::Natural1(index));
                         context.set_attribute("cursor_b", Value::Natural1(index));
                     }
-                    return pointer_and_button_input_focus(messenger);
+                    context.pointer_and_button_input_focus(messenger);
                 } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
                     context.set_attribute("cursor_b", Value::Natural1(index));
-                    return Vec::new();
                 }
             }
             Vec::new()

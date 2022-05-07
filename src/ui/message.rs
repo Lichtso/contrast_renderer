@@ -2,7 +2,7 @@
 
 use crate::{
     error::Error,
-    hash_map, hash_set, match_option,
+    hash_map, match_option,
     ui::{wrapped_values::Value, InputState, Node, NodeOrObservableIdentifier, Orientation},
 };
 use geometric_algebra::{ppga2d, Dual, Inverse, One, SquaredMagnitude, Transformation, Zero};
@@ -116,44 +116,6 @@ pub fn rendering_default_behavior(_messenger: &Messenger) -> Vec<Messenger> {
     ]
 }
 
-pub fn pointer_and_button_input_focus(messenger: &Messenger) -> Vec<Messenger> {
-    if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
-        let pointer_input = *match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap();
-        let button_input = NodeOrObservableIdentifier::ButtonInput(match_option!(pointer_input, NodeOrObservableIdentifier::PointerInput).unwrap());
-        if *pressed {
-            vec![
-                Messenger::new(
-                    &OBSERVE,
-                    hash_map! {
-                        "observables" => Value::NodeOrObservableIdentifiers(hash_set!{
-                            pointer_input, button_input
-                        }),
-                    },
-                ),
-                Messenger::new(
-                    &UNSUBSCRIBE_OBSERVERS,
-                    hash_map! {
-                        "observables" => Value::NodeOrObservableIdentifiers(hash_set!{
-                            button_input
-                        }),
-                    },
-                ),
-            ]
-        } else {
-            vec![Messenger::new(
-                &OBSERVE,
-                hash_map! {
-                    "observables" => Value::NodeOrObservableIdentifiers(hash_set!{
-                        button_input
-                    }),
-                },
-            )]
-        }
-    } else {
-        Vec::new()
-    }
-}
-
 const GET_CAPTURED_OBSERVABLE: fn(&Messenger) -> Option<NodeOrObservableIdentifier> = |_messenger| None;
 const DO_REFLECT: fn(&mut Messenger) -> bool = |_messenger| false;
 const UPDATE_AT_NODE_EDGE: fn(&mut Messenger, &Node, Option<NodeOrObservableIdentifier>) -> (bool, bool) =
@@ -173,26 +135,6 @@ pub const RECONFIGURE: MessengerBehavior = MessengerBehavior {
 /// Lets the framework know that the node has finished its configuration
 pub const CONFIGURED: MessengerBehavior = MessengerBehavior {
     label: "Configured",
-    default_propagation_direction: PropagationDirection::Return,
-    get_captured_observable: GET_CAPTURED_OBSERVABLE,
-    do_reflect: DO_REFLECT,
-    update_at_node_edge: UPDATE_AT_NODE_EDGE,
-    reset_at_node_edge: RESET_AT_NODE_EDGE,
-};
-
-/// Lets the framework know the new set of observables to be observed by the node
-pub const OBSERVE: MessengerBehavior = MessengerBehavior {
-    label: "Observe",
-    default_propagation_direction: PropagationDirection::Return,
-    get_captured_observable: GET_CAPTURED_OBSERVABLE,
-    do_reflect: DO_REFLECT,
-    update_at_node_edge: UPDATE_AT_NODE_EDGE,
-    reset_at_node_edge: RESET_AT_NODE_EDGE,
-};
-
-/// Makes all observers of an observable stop observing it
-pub const UNSUBSCRIBE_OBSERVERS: MessengerBehavior = MessengerBehavior {
-    label: "UnsubscribeObservers",
     default_propagation_direction: PropagationDirection::Return,
     get_captured_observable: GET_CAPTURED_OBSERVABLE,
     do_reflect: DO_REFLECT,
