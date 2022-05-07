@@ -1,5 +1,5 @@
 use crate::{
-    hash_map, match_option,
+    hash_map, hash_set, match_option,
     safe_float::SafeFloat,
     ui::{
         message::{self, Messenger, PropagationDirection},
@@ -198,6 +198,21 @@ impl<'a> NodeMessengerContext<'a> {
         }
     }
 
+    pub fn observe(&mut self, mut observables: HashSet<NodeOrObservableIdentifier>, unsubscribe_others: bool) {
+        if unsubscribe_others {
+            self.node_hierarchy.unsubscribe_observers(observables.iter());
+        }
+        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
+        if node.parent.is_none() {
+            observables.insert(NodeOrObservableIdentifier::Named("root"));
+        }
+        drop(node);
+        self.node_hierarchy.unsubscribe_observer(self.global_node_id, Some(&observables));
+        self.node_hierarchy.subscribe_observer(self.global_node_id, observables.iter());
+        let mut node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow_mut();
+        node.observes = observables;
+    }
+
     pub fn update_rendering_helper(&mut self, prepare_rendering: &Messenger) -> Messenger {
         let motor: ppga2d::Motor = (*match_option!(prepare_rendering.get_attribute("motor"), Value::Float4).unwrap()).into();
         let scale: f32 = match_option!(prepare_rendering.get_attribute("scale"), Value::Float1).unwrap().unwrap();
@@ -223,6 +238,19 @@ impl<'a> NodeMessengerContext<'a> {
                 "rendering" => if change_rendering { Value::Boolean(true) } else { Value::Void },
             },
         )
+    }
+
+    pub fn pointer_and_button_input_focus(&mut self, messenger: &Messenger) {
+        if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
+            let pointer_input = *match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap();
+            let button_input =
+                NodeOrObservableIdentifier::ButtonInput(match_option!(pointer_input, NodeOrObservableIdentifier::PointerInput).unwrap());
+            if *pressed {
+                self.observe(hash_set! {pointer_input, button_input}, true);
+            } else {
+                self.observe(hash_set! {button_input}, true);
+            }
+        }
     }
 }
 
@@ -258,12 +286,7 @@ impl NodeHierarchy {
             borrowed_node.local_id = NodeOrObservableIdentifier::Named("root");
             borrowed_node.observes.insert(NodeOrObservableIdentifier::Named("root"));
         }
-        for observable_topic in borrowed_node.observes.iter() {
-            self.observer_channels
-                .entry(*observable_topic)
-                .or_insert_with(HashSet::new)
-                .insert(global_node_id);
-        }
+        self.subscribe_observer(global_node_id, borrowed_node.observes.iter());
         drop(borrowed_node);
         self.nodes.insert(global_node_id, node);
         global_node_id
@@ -300,10 +323,8 @@ impl NodeHierarchy {
     }
 
     pub fn delete_node(&mut self, global_node_id: GlobalNodeIdentifier) -> Rc<RefCell<Node>> {
+        self.unsubscribe_observer(global_node_id, None);
         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
-        for observable in node.observes.iter() {
-            self.observer_channels.get_mut(observable).unwrap().remove(&global_node_id);
-        }
         if let Some(global_parent_id) = node.parent {
             node.touch_attribute("parent");
             let local_child_id = node.local_id;
@@ -319,6 +340,53 @@ impl NodeHierarchy {
             self.delete_node(*global_child_id);
         }
         node
+    }
+
+    fn subscribe_observer<'a, I: IntoIterator<Item = &'a NodeOrObservableIdentifier>>(
+        &mut self,
+        global_node_id: GlobalNodeIdentifier,
+        observables: I,
+    ) {
+        for observable in observables {
+            self.observer_channels
+                .entry(*observable)
+                .or_insert_with(HashSet::new)
+                .insert(global_node_id);
+        }
+    }
+
+    fn unsubscribe_observer(&mut self, global_node_id: GlobalNodeIdentifier, except_observables: Option<&HashSet<NodeOrObservableIdentifier>>) {
+        let node = self.nodes.get(&global_node_id).unwrap().borrow();
+        for observable in node.observes.iter() {
+            if except_observables.map(|observables| observables.contains(observable)).unwrap_or(false) {
+                continue;
+            }
+            match self.observer_channels.entry(*observable) {
+                hash_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().remove(&global_node_id);
+                    if entry.get().is_empty() {
+                        entry.remove_entry();
+                    }
+                }
+                hash_map::Entry::Vacant(_entry) => {}
+            }
+        }
+    }
+
+    /// Unsubscribes all observers of the given observables
+    pub fn unsubscribe_observers<'a, I: IntoIterator<Item = &'a NodeOrObservableIdentifier>>(&mut self, observables: I) {
+        for observable in observables {
+            match self.observer_channels.entry(*observable) {
+                hash_map::Entry::Occupied(entry) => {
+                    for global_node_id in entry.get() {
+                        let mut node = self.nodes.get(global_node_id).unwrap().borrow_mut();
+                        node.observes.remove(observable);
+                    }
+                    entry.remove_entry();
+                }
+                hash_map::Entry::Vacant(_entry) => {}
+            }
+        }
     }
 
     /// Sends a [Messenger] to a set of UI nodes observing the given observable.
@@ -379,52 +447,6 @@ impl NodeHierarchy {
                     "Configured" => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
                         node.configuration_in_process = false;
-                    }
-                    "Observe" => {
-                        let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
-                        let mut observables = match_option!(messenger.get_attribute("observables"), Value::NodeOrObservableIdentifiers)
-                            .unwrap()
-                            .clone();
-                        if node.parent.is_none() {
-                            observables.insert(NodeOrObservableIdentifier::Named("root"));
-                        }
-                        for observable in node.observes.iter() {
-                            if !observables.contains(observable) {
-                                match self.observer_channels.entry(*observable) {
-                                    hash_map::Entry::Occupied(mut entry) => {
-                                        entry.get_mut().remove(&global_node_id);
-                                        if entry.get().is_empty() {
-                                            entry.remove_entry();
-                                        }
-                                    }
-                                    hash_map::Entry::Vacant(_entry) => {}
-                                }
-                            }
-                        }
-                        for observable in observables.iter() {
-                            self.observer_channels
-                                .entry(*observable)
-                                .or_insert_with(HashSet::new)
-                                .insert(global_node_id);
-                        }
-                        node.observes = observables;
-                    }
-                    "UnsubscribeObservers" => {
-                        let observables = match_option!(messenger.get_attribute("observables"), Value::NodeOrObservableIdentifiers)
-                            .unwrap()
-                            .clone();
-                        for observable in observables {
-                            match self.observer_channels.entry(observable) {
-                                hash_map::Entry::Occupied(entry) => {
-                                    for global_node_id in entry.get() {
-                                        let mut node = self.nodes.get(global_node_id).unwrap().borrow_mut();
-                                        node.observes.remove(&observable);
-                                    }
-                                    entry.remove_entry();
-                                }
-                                hash_map::Entry::Vacant(_entry) => {}
-                            }
-                        }
                     }
                     "UpdateRendering" => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
