@@ -2,7 +2,7 @@ use crate::{
     match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{pointer_and_button_input_focus, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Rendering,
@@ -80,7 +80,7 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                         let is_checked = !match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
                         context.set_attribute("is_checked", Value::Boolean(is_checked));
                     }
-                    return pointer_and_button_input_focus(messenger);
+                    context.pointer_and_button_input_focus(messenger);
                 }
             }
             Vec::new()
