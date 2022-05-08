@@ -109,6 +109,7 @@ impl application_framework::Application for Application {
             "tab_handle_half_extent" => Value::Float2([5.0, 5.0].into()),
             "tab_handle_margin" => Value::Float1(10.0.into()),
             "tab_handle_padding" => Value::Float1(20.0.into()),
+            "tabs_splitter_width" => Value::Float1(20.0.into()),
             "tabs_margin" => Value::Float1(5.0.into()),
             "tabs_padding" => Value::Float2([10.0, 10.0].into()),
         };

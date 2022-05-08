@@ -2,7 +2,7 @@ use crate::{
     match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, LineSegment, Path, StrokeOptions},
     ui::{
-        message::{rendering_default_behavior, Messenger},
+        message::{focus_parent_or_child, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering, Side,
@@ -163,6 +163,31 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
         }
         "PointerInput" => {
             vec![messenger.clone()]
+        }
+        "ButtonInput" => {
+            let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
+            let changed_keycode = *match_option!(messenger.get_attribute("changed_keycode"), Value::Character).unwrap();
+            if !input_state.pressed_keycodes.contains(&changed_keycode) {
+                return Vec::new();
+            }
+            match changed_keycode {
+                '⇥' => {
+                    let focus_child_id = match messenger.get_attribute("origin") {
+                        Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("content")) => None,
+                        Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("parent")) => {
+                            Some(NodeOrObservableIdentifier::Named("content"))
+                        }
+                        _ => panic!(),
+                    };
+                    vec![focus_parent_or_child(messenger, focus_child_id)]
+                }
+                '←' | '→' | '↑' | '↓' => {
+                    let mut messenger = messenger.clone();
+                    messenger.propagation_direction = PropagationDirection::Parent;
+                    vec![messenger]
+                }
+                _ => Vec::new(),
+            }
         }
         _ => Vec::new(),
     }

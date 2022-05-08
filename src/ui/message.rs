@@ -29,16 +29,6 @@ pub enum PropagationDirection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum FocusNavigationDirection {
-    Left,
-    Right,
-    Up,
-    Down,
-    In,
-    Out,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ChangeLayoutDirection {
     MoveLeft,
     MoveRight,
@@ -125,6 +115,30 @@ pub fn rendering_default_behavior(_messenger: &Messenger) -> Vec<Messenger> {
         Messenger::new(&RENDER, HashMap::new()),
         Messenger::new(&RENDER_AND_CLIP, HashMap::new()),
     ]
+}
+
+pub fn focus_parent_or_child(messenger: &Messenger, child_id: Option<NodeOrObservableIdentifier>) -> Messenger {
+    let mut input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap().clone();
+    if child_id.is_some() {
+        input_state.pressed_keycodes.remove(&'⇧');
+    } else {
+        input_state.pressed_keycodes.insert('⇧');
+    }
+    input_state.pressed_keycodes.insert('⇥');
+    let mut messenger = Messenger::new(
+        &BUTTON_INPUT,
+        hash_map! {
+            "input_source" => messenger.get_attribute("input_source").clone(),
+            "input_state" => Value::InputState(input_state),
+            "changed_keycode" => Value::Character('⇥'),
+        },
+    );
+    if let Some(child_id) = child_id {
+        messenger.propagation_direction = PropagationDirection::Child(child_id);
+    } else {
+        messenger.propagation_direction = PropagationDirection::Parent;
+    }
+    messenger
 }
 
 /// The node should reevaluate itself and answer with Configured and ConfigureChild
@@ -232,12 +246,18 @@ pub const RENDER_UNCLIP: MessengerBehavior = MessengerBehavior {
 /// Send for button and key press or release
 pub const BUTTON_INPUT: MessengerBehavior = MessengerBehavior {
     label: "ButtonInput",
-    default_propagation_direction: PropagationDirection::Parent,
+    default_propagation_direction: PropagationDirection::None,
     get_captured_observable: |messenger| Some(*match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()),
     do_reflect: DO_REFLECT,
     update_at_node_edge: |messenger, _half_extent, _child_node, from_child_to_parent| {
-        if let Some(local_id) = from_child_to_parent {
-            messenger.properties.insert("child_id", Value::NodeOrObservableIdentifier(local_id));
+        if messenger.propagation_direction != PropagationDirection::None {
+            if let Some(local_id) = from_child_to_parent {
+                messenger.properties.insert("origin", Value::NodeOrObservableIdentifier(local_id));
+            } else {
+                messenger
+                    .properties
+                    .insert("origin", Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("parent")));
+            }
         }
         (true, false)
     },
