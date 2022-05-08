@@ -1,7 +1,7 @@
 use crate::{
     hash_map, match_option,
     ui::{
-        message::{self, rendering_default_behavior, Messenger},
+        message::{self, focus_parent_or_child, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation,
@@ -107,6 +107,58 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
         }
         "PointerInput" => {
             vec![messenger.clone()]
+        }
+        "ButtonInput" => {
+            let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
+            let changed_keycode = *match_option!(messenger.get_attribute("changed_keycode"), Value::Character).unwrap();
+            if !input_state.pressed_keycodes.contains(&changed_keycode) {
+                return Vec::new();
+            }
+            match changed_keycode {
+                '⇥' => {
+                    let focus_child_id = if messenger.get_attribute("origin") != &Value::Void {
+                        context.pointer_and_button_input_focus(messenger);
+                        return Vec::new();
+                    } else if input_state.pressed_keycodes.contains(&'⇧') {
+                        None
+                    } else {
+                        Some(NodeOrObservableIdentifier::Indexed(context.get_number_of_children() / 2))
+                    };
+                    vec![focus_parent_or_child(messenger, focus_child_id)]
+                }
+                '←' | '→' | '↑' | '↓' => {
+                    if let Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Indexed(child_index)) = messenger.get_attribute("origin") {
+                        let direction = if context.get_attribute("orientation") == Value::Orientation(Orientation::Horizontal) {
+                            match changed_keycode {
+                                '←' => Some(-1),
+                                '→' => Some(1),
+                                _ => None,
+                            }
+                        } else {
+                            match changed_keycode {
+                                '↑' => Some(1),
+                                '↓' => Some(-1),
+                                _ => None,
+                            }
+                        };
+                        if let Some(direction) = direction {
+                            let focus_child_index = *child_index as isize + direction;
+                            if focus_child_index >= 0 && focus_child_index < context.get_number_of_children() as isize {
+                                return vec![focus_parent_or_child(
+                                    messenger,
+                                    Some(NodeOrObservableIdentifier::Indexed(focus_child_index as usize)),
+                                )];
+                            }
+                        }
+                        Vec::new()
+                    } else {
+                        let mut messenger = messenger.clone();
+                        messenger.propagation_direction = PropagationDirection::Parent;
+                        vec![messenger]
+                    }
+                }
+                _ => Vec::new(),
+            }
         }
         _ => Vec::new(),
     }
