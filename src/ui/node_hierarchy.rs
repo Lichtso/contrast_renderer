@@ -217,15 +217,19 @@ impl<'a> NodeMessengerContext<'a> {
     }
 
     pub fn pointer_and_button_input_focus(&mut self, messenger: &Messenger) {
-        if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
-            let pointer_input = *match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap();
-            let button_input =
-                NodeOrObservableIdentifier::ButtonInput(match_option!(pointer_input, NodeOrObservableIdentifier::PointerInput).unwrap());
-            if *pressed {
-                self.observe(hash_set! {pointer_input, button_input}, true);
-            } else {
-                self.observe(hash_set! {button_input}, true);
-            }
+        let input_source = *match messenger.get_attribute("input_source") {
+            Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::ButtonInput(input_source)) => input_source,
+            Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::AxisInput(input_source)) => input_source,
+            Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::PointerInput(input_source)) => input_source,
+            _ => panic!(),
+        };
+        if messenger.get_attribute("pressed_or_released") == &Value::Boolean(true) {
+            self.observe(
+                hash_set! {NodeOrObservableIdentifier::PointerInput(input_source), NodeOrObservableIdentifier::ButtonInput(input_source)},
+                true,
+            );
+        } else {
+            self.observe(hash_set! {NodeOrObservableIdentifier::ButtonInput(input_source)}, true);
         }
     }
 }

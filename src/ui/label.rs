@@ -3,7 +3,7 @@ use crate::{
     path::Path,
     text::{byte_offset_of_char_index, half_extent_of_text, index_of_char_at, paths_of_text, Layout},
     ui::{
-        message::{rendering_default_behavior, Messenger, PropagationDirection},
+        message::{focus_parent_or_child, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering, TextInteraction,
@@ -153,6 +153,14 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             let mut cursor_b = match_option!(context.get_attribute("cursor_b"), Value::Natural1).unwrap_or(0);
             let range = cursor_a.min(cursor_b)..cursor_a.max(cursor_b);
             match changed_keycode {
+                '⇥' => {
+                    if messenger.get_attribute("origin") != &Value::Void {
+                        context.pointer_and_button_input_focus(messenger);
+                    } else if input_state.pressed_keycodes.contains(&'⇧') {
+                        return vec![focus_parent_or_child(messenger, None)];
+                    }
+                    Vec::new()
+                }
                 '←' | '→' | '↑' | '↓' => {
                     if input_state.pressed_keycodes.contains(&'⇧') {
                         cursor_a = match changed_keycode {

@@ -2,7 +2,7 @@ use crate::{
     match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{rendering_default_behavior, Messenger, PropagationDirection},
+        message::{focus_parent_or_child, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Rendering,
@@ -87,6 +87,34 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                 }
             }
             Vec::new()
+        }
+        "ButtonInput" => {
+            let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
+            let changed_keycode = *match_option!(messenger.get_attribute("changed_keycode"), Value::Character).unwrap();
+            if !input_state.pressed_keycodes.contains(&changed_keycode) {
+                return Vec::new();
+            }
+            match changed_keycode {
+                '⇥' => {
+                    if messenger.get_attribute("origin") != &Value::Void {
+                        context.pointer_and_button_input_focus(messenger);
+                    } else if input_state.pressed_keycodes.contains(&'⇧') {
+                        return vec![focus_parent_or_child(messenger, None)];
+                    }
+                    Vec::new()
+                }
+                '←' | '→' | '↑' | '↓' => {
+                    let mut messenger = messenger.clone();
+                    messenger.propagation_direction = PropagationDirection::Parent;
+                    vec![messenger]
+                }
+                '⏎' => {
+                    let is_checked = !match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
+                    context.set_attribute("is_checked", Value::Boolean(is_checked));
+                    Vec::new()
+                }
+                _ => Vec::new(),
+            }
         }
         _ => Vec::new(),
     }
