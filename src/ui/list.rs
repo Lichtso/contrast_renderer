@@ -29,7 +29,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                     .map(|value| value.unwrap())
                     .unwrap_or(0.0)
                     .max(0.0);
-                let child_half_extent = child.half_extent.unwrap(); // TODO: child_proposed_half_extent ?
+                let child_half_extent = child.get_half_extent().unwrap(); // TODO: child_proposed_half_extent ?
                 half_extent[major_axis] += child_half_extent[major_axis];
                 half_extent[minor_axis] = half_extent[minor_axis].max(child_half_extent[minor_axis]);
                 weight_sum += weight;
@@ -72,7 +72,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                             .map(|value| value.unwrap())
                             .unwrap_or(0.0)
                             .max(0.0);
-                        let mut child_half_extent = node.half_extent.unwrap(); // TODO: child_proposed_half_extent ?
+                        let mut child_half_extent = node.get_half_extent().unwrap(); // TODO: child_proposed_half_extent ?
                         child_half_extent[major_axis] += major_half_extent_to_distribute * weight;
                         let mut translation = [0.0; 2];
                         translation[minor_axis] = match minor_axis_alignment {
@@ -85,7 +85,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                         if reverse {
                             translation[major_axis] *= -1.0;
                         }
-                        node.set_motor(translate2d(translation));
+                        node.set_attribute("motor", Value::Float4(translate2d(translation).into()));
                         let mut proposed_half_extent = [None, None];
                         if weight > 0.0 {
                             proposed_half_extent[major_axis] = Some(child_half_extent[major_axis]);
