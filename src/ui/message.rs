@@ -5,7 +5,7 @@ use crate::{
     hash_map, hash_set, match_option,
     ui::{wrapped_values::Value, InputState, Node, NodeOrObservableIdentifier, Orientation},
 };
-use geometric_algebra::{ppga2d, Dual, Inverse, SquaredMagnitude, Transformation, Zero};
+use geometric_algebra::{ppga2d, Dual, Inverse, One, SquaredMagnitude, Transformation, Zero};
 use std::{collections::HashMap, hash::Hash};
 
 /// How to route a [Messenger].
@@ -240,9 +240,21 @@ pub const PREPARE_RENDERING: MessengerBehavior = MessengerBehavior {
         messenger.properties.insert("motor_in_parent", Value::Float4(motor.into()));
         messenger.properties.insert("scale_in_parent", Value::Float1(scale.into()));
         messenger.properties.insert("opacity_in_parent", Value::Float1(opacity.into()));
-        motor *= node.motor;
-        scale *= node.scale.unwrap();
-        opacity *= node.opacity.unwrap(); // TODO: Group Opacity
+        motor *= node
+            .properties
+            .get("motor")
+            .map(|value| (*match_option!(value, Value::Float4).unwrap()).into())
+            .unwrap_or(ppga2d::Motor::one());
+        scale *= node
+            .properties
+            .get("scale")
+            .map(|value| match_option!(value, Value::Float1).unwrap().into())
+            .unwrap_or(1.0);
+        opacity *= node
+            .properties
+            .get("opacity")
+            .map(|value| match_option!(value, Value::Float1).unwrap().into())
+            .unwrap_or(1.0); // TODO: Group Opacity
         messenger.properties.insert("motor", Value::Float4(motor.into()));
         messenger.properties.insert("scale", Value::Float1(scale.into()));
         messenger.properties.insert("opacity", Value::Float1(opacity.into()));
@@ -330,11 +342,20 @@ pub const POINTER_INPUT: MessengerBehavior = MessengerBehavior {
         true
     },
     update_at_node_edge: |messenger, node, from_child_to_parent| {
-        let (motor, scale) = if from_child_to_parent.is_none() {
-            (node.motor.inverse(), 1.0 / node.scale.unwrap())
-        } else {
-            (node.motor, node.scale.unwrap())
-        };
+        let (mut motor, mut scale) = (
+            node.properties
+                .get("motor")
+                .map(|value| (*match_option!(value, Value::Float4).unwrap()).into())
+                .unwrap_or(ppga2d::Motor::one()),
+            node.properties
+                .get("scale")
+                .map(|value| match_option!(value, Value::Float1).unwrap().into())
+                .unwrap_or(1.0),
+        );
+        if from_child_to_parent.is_none() {
+            motor = motor.inverse();
+            scale = 1.0 / scale;
+        }
         let changed_pointer = match_option!(*messenger.get_attribute("changed_pointer"), Value::InputChannel).unwrap();
         let input_state = match_option!(messenger.get_attribute_mut("input_state"), Value::InputState).unwrap();
         let relative_position = *input_state.relative_positions.get(&changed_pointer).unwrap();
@@ -343,7 +364,7 @@ pub const POINTER_INPUT: MessengerBehavior = MessengerBehavior {
         relative_position.g0[1] *= scale;
         relative_position.g0[2] *= scale;
         relative_position = motor.transformation(relative_position);
-        let half_extent = &node.half_extent.unwrap();
+        let half_extent = &node.get_half_extent().unwrap();
         let is_inside_bounds = relative_position.g0[1].abs() <= half_extent[0] && relative_position.g0[2].abs() <= half_extent[1];
         input_state.is_inside_bounds.insert(changed_pointer, is_inside_bounds);
         if is_inside_bounds {

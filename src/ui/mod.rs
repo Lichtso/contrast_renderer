@@ -4,7 +4,6 @@ use crate::{
     renderer::Shape,
     safe_float::SafeFloat,
 };
-use geometric_algebra::{ppga2d, One};
 use message::Messenger;
 use node_hierarchy::NodeMessengerContext;
 use std::{collections::HashMap, collections::HashSet, hash::Hash};
@@ -238,22 +237,10 @@ pub type MessengerHandler = for<'a> fn(context: &mut NodeMessengerContext, messa
 
 /// Common body of all nodes.
 pub struct Node {
-    /// Node instance properties
-    pub properties: HashMap<&'static str, Value>,
     /// Node trait
     pub messenger_handler: MessengerHandler,
-    /// If `true` the node will be retained but not handle messages.
-    pub dormant: bool,
-    /// Position and rotation relative to parent node.
-    pub motor: ppga2d::Motor,
-    /// Scale relative to parent node.
-    pub scale: SafeFloat<f32, 1>,
-    /// Bounding box for message handling.
-    pub half_extent: SafeFloat<f32, 2>,
-    /// If 1.0 the node will be rendered as is, if 0.0 it will be invisible.
-    pub opacity: SafeFloat<f32, 1>,
-    /// Defines the order among overlapping siblings.
-    pub layer_index: usize,
+    /// Node instance properties
+    pub properties: HashMap<&'static str, Value>,
     /// Ongoing animation frames per property
     pub property_animations: HashMap<&'static str, Vec<AnimationFrame>>,
 
@@ -274,15 +261,7 @@ pub struct Node {
 
 impl std::fmt::Debug for Node {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Node")
-            .field("properties", &self.properties)
-            .field("dormant", &self.dormant)
-            .field("motor", &self.motor)
-            .field("scale", &self.scale)
-            .field("half_extent", &self.half_extent)
-            .field("opacity", &self.opacity)
-            .field("layer_index", &self.layer_index)
-            .finish()
+        f.debug_struct("Node").field("properties", &self.properties).finish()
     }
 }
 
@@ -297,14 +276,8 @@ impl Eq for Node {}
 impl Default for Node {
     fn default() -> Self {
         Self {
-            properties: HashMap::new(),
             messenger_handler: |_context: &mut NodeMessengerContext, _message: &Messenger| panic!(),
-            dormant: false,
-            motor: ppga2d::Motor::one(),
-            scale: 1.0.into(),
-            half_extent: [0.0; 2].into(),
-            opacity: 1.0.into(),
-            layer_index: 0,
+            properties: HashMap::new(),
             property_animations: HashMap::new(),
 
             global_id: 0,
@@ -351,15 +324,6 @@ impl Node {
         result
     }
 
-    pub fn set_attribute(&mut self, attribute: &'static str, value: Value) -> bool {
-        if self.properties.get(attribute) == Some(&value) {
-            return false;
-        }
-        self.properties.insert(attribute, value);
-        self.needs_reconfiguration = true;
-        true
-    }
-
     pub fn set_messenger_handler(&mut self, messenger_handler: MessengerHandler) -> bool {
         if std::ptr::eq(self.messenger_handler as *const u8, messenger_handler as *const u8) {
             return false;
@@ -369,39 +333,23 @@ impl Node {
         true
     }
 
-    pub fn set_dormant(&mut self, dormant: bool) -> bool {
-        if self.dormant == dormant {
+    pub fn set_attribute(&mut self, attribute: &'static str, value: Value) -> bool {
+        if self.properties.get(attribute) == Some(&value) {
             return false;
         }
-        self.dormant = dormant;
-        self.needs_reconfiguration = !dormant;
-        true
-    }
-
-    pub fn set_motor(&mut self, motor: ppga2d::Motor) -> bool {
-        if unsafe { self.motor.g0.f32x4 == motor.g0.f32x4 } {
-            return false;
-        }
-        self.motor = motor;
+        self.properties.insert(attribute, value);
         self.needs_reconfiguration = true;
         true
     }
 
-    pub fn set_scale(&mut self, scale: SafeFloat<f32, 1>) -> bool {
-        if self.scale == scale {
-            return false;
-        }
-        self.scale = scale;
-        self.needs_reconfiguration = true;
-        true
+    pub fn get_attribute(&mut self, attribute: &'static str) -> Option<&Value> {
+        self.properties.get(attribute)
     }
 
-    pub fn set_half_extent(&mut self, half_extent: SafeFloat<f32, 2>) -> bool {
-        if self.half_extent == half_extent {
-            return false;
-        }
-        self.half_extent = half_extent;
-        self.needs_reconfiguration = true;
-        true
+    pub fn get_half_extent(&self) -> SafeFloat<f32, 2> {
+        self.properties
+            .get("half_extent")
+            .map(|value| *match_option!(value, Value::Float2).unwrap())
+            .unwrap_or([0.0; 2].into())
     }
 }

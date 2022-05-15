@@ -104,7 +104,7 @@ impl application_framework::Application for Application {
             "reverse" => Value::Boolean(false),
             "orientation" => Value::Orientation(contrast_renderer::ui::Orientation::Vertical),
         };
-        node.messenger_handler = contrast_renderer::ui::list::list;
+        node.set_messenger_handler(contrast_renderer::ui::list::list);
         let parent_id = ui_node_hierarchy.insert_and_configure_node(None, node);
 
         let mut node = Node::default();
@@ -113,12 +113,17 @@ impl application_framework::Application for Application {
             "is_checked" => Value::Boolean(false),
             "enable_interaction" => Value::Boolean(true),
         };
-        node.half_extent = *contrast_renderer::match_option!(
-            ui_node_hierarchy.theme_properties.get("ckeckbox_half_extent").unwrap(),
-            contrast_renderer::ui::wrapped_values::Value::Float2
-        )
-        .unwrap();
-        node.messenger_handler = contrast_renderer::ui::checkbox::checkbox;
+        node.set_attribute(
+            "half_extent",
+            Value::Float2(
+                *contrast_renderer::match_option!(
+                    ui_node_hierarchy.theme_properties.get("ckeckbox_half_extent").unwrap(),
+                    contrast_renderer::ui::wrapped_values::Value::Float2
+                )
+                .unwrap(),
+            ),
+        );
+        node.set_messenger_handler(contrast_renderer::ui::checkbox::checkbox);
         ui_node_hierarchy.insert_and_configure_node(Some((parent_id, NodeOrObservableIdentifier::Indexed(0))), node);
 
         let mut node = Node::default();
@@ -160,8 +165,8 @@ impl application_framework::Application for Application {
                 },
             ],
         };
-        node.half_extent = [100.0, 40.0].into();
-        node.messenger_handler = contrast_renderer::ui::range::range;
+        node.set_attribute("half_extent", Value::Float2([100.0, 40.0].into()));
+        node.set_messenger_handler(contrast_renderer::ui::range::range);
         ui_node_hierarchy.insert_and_configure_node(Some((parent_id, NodeOrObservableIdentifier::Indexed(1))), node);
 
         let mut node = Node::default();
@@ -170,7 +175,7 @@ impl application_framework::Application for Application {
             "text_interaction" => Value::TextInteraction(contrast_renderer::ui::TextInteraction::None),
             "text_content" => Value::TextString("World".to_string()),
         };
-        node.messenger_handler = contrast_renderer::ui::label::text_label;
+        node.set_messenger_handler(contrast_renderer::ui::label::text_label);
         ui_node_hierarchy.insert_and_configure_node(Some((parent_id, NodeOrObservableIdentifier::Indexed(2))), node);
 
         Self {

@@ -130,7 +130,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
         "Render" => rendering_default_behavior(messenger),
         "ConfigurationRequest" => {
             let content_half_extent = context
-                .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.half_extent)
+                .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.get_half_extent())
                 .unwrap();
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(

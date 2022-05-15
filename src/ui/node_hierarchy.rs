@@ -52,7 +52,12 @@ impl<'a> NodeMessengerContext<'a> {
         messenger: &mut Messenger,
     ) -> bool {
         let node = nodes.get(&global_node_id).unwrap().borrow();
-        if node.dormant {
+        let dormant = node
+            .properties
+            .get("dormant")
+            .map(|value| *match_option!(value, Value::Boolean).unwrap())
+            .unwrap_or(false);
+        if dormant {
             return true;
         }
         let messenger_handler = node.messenger_handler;
@@ -95,7 +100,7 @@ impl<'a> NodeMessengerContext<'a> {
 
     pub fn get_half_extent(&self) -> SafeFloat<f32, 2> {
         let node = self.nodes.get(&self.global_node_id).unwrap().borrow();
-        node.half_extent
+        node.get_half_extent()
     }
 
     pub fn does_observe(&self, observable: &NodeOrObservableIdentifier) -> bool {
@@ -318,8 +323,8 @@ impl NodeHierarchy {
                         node.needs_reconfiguration = false;
                         node.configuration_in_process = false;
                         let half_extent = *match_option!(messenger.get_attribute("half_extent"), Value::Float2).unwrap();
-                        if node.half_extent != half_extent {
-                            node.half_extent = half_extent;
+                        if node.get_half_extent() != half_extent {
+                            node.set_attribute("half_extent", Value::Float2(half_extent));
                             messenger_stack.push((global_node_id, Messenger::new(&message::CHILD_RESIZED, hash_map! {})));
                         }
                         let mut ordered_children = node
@@ -327,7 +332,13 @@ impl NodeHierarchy {
                             .iter()
                             .filter(|(_local_child_id, global_child_id)| **global_child_id != global_node_id)
                             .map(|(_local_child_id, global_child_id)| {
-                                (self.nodes.get(global_child_id).unwrap().borrow().layer_index, *global_child_id)
+                                let child_node = self.nodes.get(global_child_id).unwrap().borrow();
+                                let layer_index = child_node
+                                    .properties
+                                    .get("layer_index")
+                                    .map(|value| *match_option!(value, Value::Natural1).unwrap())
+                                    .unwrap_or(0);
+                                (layer_index, *global_child_id)
                             })
                             .collect::<Vec<(usize, GlobalNodeIdentifier)>>();
                         ordered_children.sort_by_key(|entry| entry.0);

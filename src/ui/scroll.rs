@@ -125,7 +125,9 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         "Render" => rendering_default_behavior(messenger),
         "ConfigurationRequest" => {
             let content_half_extent = context
-                .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.half_extent.unwrap())
+                .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
+                    content.get_half_extent().unwrap()
+                })
                 .unwrap();
             let half_extent = context.get_half_extent().unwrap();
             let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Float4)
@@ -150,8 +152,8 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 &mut result,
                 NodeOrObservableIdentifier::Named("content"),
                 Some(|node: &mut Node| {
-                    node.set_motor(content_motor);
-                    node.set_scale(content_scale.into());
+                    node.set_attribute("motor", Value::Float4(content_motor.into()));
+                    node.set_attribute("scale", Value::Float1(content_scale.into()));
                 }),
             );
             for (orientation, sign, name) in [
@@ -191,13 +193,13 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                         || (scroll_bar_type == ScrollBarType::Overflow && half_extent[axis] < content_half_extent)
                     {
                         Some(|node: &mut Node| {
-                            node.properties.insert("orientation", Value::Orientation(orientation));
-                            node.properties.insert("content_motor", Value::Float4(content_motor.into()));
-                            node.properties.insert("movement_scale", Value::Float1(movement_scale.into()));
-                            node.messenger_handler = scroll_bar;
-                            node.layer_index = 1;
-                            node.motor = translate2d(bar_translation);
-                            node.half_extent = bar_half_extent.into();
+                            node.set_messenger_handler(scroll_bar);
+                            node.set_attribute("orientation", Value::Orientation(orientation));
+                            node.set_attribute("content_motor", Value::Float4(content_motor.into()));
+                            node.set_attribute("movement_scale", Value::Float1(movement_scale.into()));
+                            node.set_attribute("layer_index", Value::Natural1(1));
+                            node.set_attribute("motor", Value::Float4(translate2d(bar_translation).into()));
+                            node.set_attribute("half_extent", Value::Float2(bar_half_extent.into()));
                         })
                     } else {
                         None

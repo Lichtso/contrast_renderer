@@ -94,20 +94,20 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 &mut result,
                 NodeOrObservableIdentifier::Named("empty"),
                 Some(&mut |node: &mut Node| {
-                    node.set_attribute("is_filled", Value::Boolean(false));
                     node.set_messenger_handler(range_bar);
-                    node.set_motor(translate2d(empty_translation));
-                    node.set_half_extent(empty_half_extent.into());
+                    node.set_attribute("is_filled", Value::Boolean(false));
+                    node.set_attribute("motor", Value::Float4(translate2d(empty_translation).into()));
+                    node.set_attribute("half_extent", Value::Float2(empty_half_extent.into()));
                 }),
             );
             context.configure_child(
                 &mut result,
                 NodeOrObservableIdentifier::Named("filled"),
                 Some(&mut |node: &mut Node| {
-                    node.set_attribute("is_filled", Value::Boolean(true));
                     node.set_messenger_handler(range_bar);
-                    node.set_motor(translate2d(filled_translation));
-                    node.set_half_extent(filled_half_extent.into());
+                    node.set_attribute("is_filled", Value::Boolean(true));
+                    node.set_attribute("motor", Value::Float4(translate2d(filled_translation).into()));
+                    node.set_attribute("half_extent", Value::Float2(filled_half_extent.into()));
                 }),
             );
             let text_content = if let Value::TextualProjection(textual_projection) = context.get_attribute("textual_projection") {
@@ -125,10 +125,10 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 NodeOrObservableIdentifier::Named("textual"),
                 text_content.map(|text_content| {
                     |node: &mut Node| {
+                        node.set_messenger_handler(text_label);
                         node.set_attribute("text_content", Value::TextString(text_content));
                         node.set_attribute("text_interaction", Value::TextInteraction(text_interaction));
-                        node.set_messenger_handler(text_label);
-                        node.layer_index = 1;
+                        node.set_attribute("layer_index", Value::Natural1(1));
                     }
                 }),
             );
