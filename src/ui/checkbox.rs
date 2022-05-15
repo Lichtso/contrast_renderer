@@ -2,7 +2,7 @@ use crate::{
     hash_set, match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{self, rendering_default_behavior, Messenger},
+        message::{self, rendering_default_behavior, Message, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         NodeOrObservableIdentifier,
@@ -10,8 +10,8 @@ use crate::{
 };
 
 pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match messenger {
-        Messenger::PrepareRendering(message) => {
+    match &messenger.message {
+        Message::PrepareRendering(message) => {
             println!("checkbox PrepareRendering");
             let (_prepare_rendering, mut update_rendering) = context.prepare_rendering_helper(message);
             if let Some(rendering) = &mut update_rendering.rendering {
@@ -56,36 +56,50 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                     }];
                 }
             }
-            vec![Messenger::UpdateRendering(update_rendering)]
+            vec![Messenger::new(&message::UPDATE_RENDERING, Message::UpdateRendering(update_rendering))]
         }
-        Messenger::Render(message) => rendering_default_behavior(message),
-        Messenger::ConfigurationRequest(_message) => {
+        Message::Render(_message) => rendering_default_behavior(messenger),
+        Message::ConfigurationRequest(_message) => {
             println!("checkbox ConfigurationRequest");
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
-            vec![Messenger::ConfigurationResponse(message::ConfigurationResponse {
-                half_extent: context.get_half_extent(),
-            })]
+            vec![Messenger::new(
+                &message::CONFIGURATION_RESPONSE,
+                Message::ConfigurationResponse(message::ConfigurationResponse {
+                    half_extent: context.get_half_extent(),
+                }),
+            )]
         }
-        Messenger::Pointer(message) => {
+        Message::Pointer(message) => {
             println!("checkbox Pointer");
-            if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false) || !message.bubbling_up {
-                return vec![Messenger::Pointer(message.clone())];
+            if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false)
+                || messenger.propagation_direction != PropagationDirection::Parent
+            {
+                return vec![messenger.clone()];
             }
             if message.changed_button == 2 {
                 if message.pressed_buttons.contains(&2) {
-                    vec![Messenger::Observe(message::Observe {
-                        observes: hash_set! { NodeOrObservableIdentifier::InputDevice(message.device_id) },
-                    })]
+                    vec![Messenger::new(
+                        &message::OBSERVE,
+                        Message::Observe(message::Observe {
+                            observes: hash_set! { NodeOrObservableIdentifier::InputDevice(message.device_id) },
+                        }),
+                    )]
                 } else {
-                    let mut result = vec![Messenger::Observe(message::Observe { observes: hash_set! {} })];
+                    let mut result = vec![Messenger::new(
+                        &message::OBSERVE,
+                        Message::Observe(message::Observe { observes: hash_set! {} }),
+                    )];
                     if message.is_inside_bounds && context.does_observe(&NodeOrObservableIdentifier::InputDevice(message.device_id)) {
                         let is_checked = !match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
                         context.set_attribute("is_checked", Value::Boolean(is_checked));
-                        result.push(Messenger::InputValueChanged(message::InputValueChanged {
-                            child_id: NodeOrObservableIdentifier::Named("uninitialized"),
-                            new_value: Value::Boolean(is_checked),
-                        }));
-                        result.push(Messenger::Reconfigure(message::Reconfigure {}));
+                        result.push(Messenger::new(
+                            &message::INPUT_VALUE_CHANGED,
+                            Message::InputValueChanged(message::InputValueChanged {
+                                child_id: NodeOrObservableIdentifier::Named("uninitialized"),
+                                new_value: Value::Boolean(is_checked),
+                            }),
+                        ));
+                        result.push(Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {})));
                     }
                     result
                 }

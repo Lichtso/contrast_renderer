@@ -2,6 +2,7 @@
 
 use crate::{
     error::Error,
+    match_option,
     safe_float::SafeFloat,
     ui::{wrapped_values::Value, Node, NodeOrObservableIdentifier, Orientation, Rendering},
 };
@@ -60,22 +61,9 @@ macro_rules! define_messages {
         )*
 
         #[derive(Clone)]
-        pub enum Messenger {
+        pub enum Message {
             // UserDefined(&'static str),
             $($message_kind($message_kind $(<$($a,)? $($user_provided_identifier,)?>)?),)*
-        }
-
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub enum MessengerKind {
-            $($message_kind,)*
-        }
-
-        impl Messenger {
-            pub fn get_kind(&self) -> MessengerKind {
-                match self {
-                    $(Self::$message_kind(_) => MessengerKind::$message_kind,)*
-                }
-            }
         }
     };
 }
@@ -119,7 +107,6 @@ define_messages!(
         changed_keycode: Option<char>,
     }
     Pointer {
-        bubbling_up: bool,
         device_id: usize,
         pressed_buttons: HashSet<u32>,
         changed_button: u32,
@@ -149,124 +136,266 @@ define_messages!(
     }
 );
 
-pub fn captured_observable_for_messenger(messenger: &Messenger) -> Option<NodeOrObservableIdentifier> {
-    match messenger {
-        Messenger::Key(message) => Some(NodeOrObservableIdentifier::InputDevice(message.device_id)),
-        Messenger::Pointer(message) => Some(NodeOrObservableIdentifier::InputDevice(message.device_id)),
-        _ => None,
+/// Messenger Trait
+#[derive(Clone, Copy)]
+pub struct MessengerBehavior {
+    /// Label for debugging
+    pub label: &'static str,
+    /// [PropagationDirection] used when creating a new [Messenger]
+    pub default_propagation_direction: PropagationDirection,
+    /// Returns an [NodeOrObservableIdentifier] if this [Messenger] could capture one
+    pub get_captured_observable: fn(&Messenger) -> Option<NodeOrObservableIdentifier>,
+    /// Reflects the propagation direction of this [Messenger] from [PropagationDirection::Children] to [PropagationDirection::Parent]
+    pub do_reflect: fn(&mut Messenger) -> bool,
+    /// Updates the message when this [Messenger] carries it over an edge from one [Node] to an adjacent one
+    pub update_at_node_edge: fn(&mut Messenger, &Node, Option<NodeOrObservableIdentifier>) -> (bool, bool),
+    /// Resets the changes made by update_at_node_edge so that they can be performed again for a different child node
+    pub reset_at_node_edge: fn(&mut Messenger),
+}
+
+/// The [Messenger] carries messages between [Node]s
+#[derive(Clone)]
+pub struct Messenger {
+    /// Messenger instance properties
+    pub message: Message,
+    /// Messenger trait
+    pub behavior: &'static MessengerBehavior,
+    /// Where this Messenger is heading to
+    pub propagation_direction: PropagationDirection,
+}
+
+impl Messenger {
+    pub fn new(behavior: &'static MessengerBehavior, message: Message) -> Self {
+        Self {
+            message,
+            behavior,
+            propagation_direction: behavior.default_propagation_direction,
+        }
     }
 }
 
-pub fn reflect_messenger(messenger: &mut Messenger) -> bool {
-    match messenger {
-        Messenger::Pointer(message) => {
-            if message.bubbling_up {
-                return false;
-            }
-            message.bubbling_up = true;
-            true
-        }
-        _ => false,
-    }
-}
-
-pub fn update_messenger_at_node_edge(
-    node: &Node,
-    messenger: &mut Messenger,
-    from_child_to_parent: Option<NodeOrObservableIdentifier>,
-) -> (bool, bool) {
-    match messenger {
-        Messenger::PrepareRendering(message) => {
-            message.motor *= node.motor;
-            message.scale *= node.scale.unwrap();
-            message.opacity *= node.opacity.unwrap(); // TODO: Group Opacity
-        }
-        Messenger::Pointer(message) => {
-            let (motor, scale) = if from_child_to_parent.is_none() {
-                (node.motor.inverse(), 1.0 / node.scale.unwrap())
-            } else {
-                (node.motor, node.scale.unwrap())
-            };
-            message.relative_position_in_parent = message.relative_position;
-            let mut relative_position = message.relative_position_in_parent;
-            relative_position.g0[1] *= scale;
-            relative_position.g0[2] *= scale;
-            relative_position = motor.transformation(relative_position);
-            let half_extent = &node.half_extent.unwrap();
-            message.is_inside_bounds = relative_position.g0[1].abs() <= half_extent[0] && relative_position.g0[2].abs() <= half_extent[1];
-            if message.is_inside_bounds {
-                message.relative_position = relative_position;
-            }
-            return (message.is_inside_bounds, message.is_inside_bounds);
-        }
-        Messenger::InputValueChanged(message) => {
-            if let Some(local_id) = from_child_to_parent {
-                message.child_id = local_id;
-            }
-        }
-        _ => {}
-    }
-    (true, false)
-}
-
-pub fn reset_messenger_at_node_edge(messenger: &mut Messenger) {
-    match messenger {
-        Messenger::PrepareRendering(message) => {
-            message.motor = message.motor_in_parent;
-            message.scale = message.scale_in_parent;
-            message.opacity = message.opacity_in_parent;
-        }
-        Messenger::Pointer(message) => {
-            message.relative_position = message.relative_position_in_parent;
-        }
-        _ => {}
-    }
-}
-
-pub fn propagation_direction_of_messenger(messenger: &Messenger) -> PropagationDirection {
-    match messenger {
-        Messenger::Reconfigure(_) => PropagationDirection::Return,
-        Messenger::ConfigurationRequest(_) => PropagationDirection::None,
-        Messenger::ConfigurationResponse(_) => PropagationDirection::Return,
-        Messenger::ConfigureChild(_) => PropagationDirection::Return,
-        Messenger::ChildResized(_) => PropagationDirection::Parent,
-        Messenger::Observe(_) => PropagationDirection::Return,
-        Messenger::PrepareRendering(_) => PropagationDirection::Children,
-        Messenger::UpdateRendering(_) => PropagationDirection::Return,
-        Messenger::Render(_) => PropagationDirection::Children,
-        Messenger::RenderAndClip(_) => PropagationDirection::Return,
-        Messenger::RenderUnclip(_) => PropagationDirection::Return,
-        Messenger::Key(_) => PropagationDirection::Children,
-        Messenger::Pointer(message) => {
-            if message.bubbling_up {
-                PropagationDirection::Parent
-            } else {
-                PropagationDirection::Children
-            }
-        }
-        /*Messenger::IsSelected(_) => PropagationDirection::None,
-        Messenger::GetSelection(_) => PropagationDirection::None,
-        Messenger::SetSelected(_) => PropagationDirection::Children,
-        Messenger::InvertSelection(_) => PropagationDirection::Children,
-        Messenger::SetFocus(_) => PropagationDirection::None,
-        Messenger::MoveFocusIntoView(_) => PropagationDirection::None,
-        Messenger::FocusNavigation(_) => PropagationDirection::Children,
-        Messenger::ChangeLayout(_) => PropagationDirection::None,
-        Messenger::BecomeToolbarContext(_) => PropagationDirection::None,
-        Messenger::Close(_) => PropagationDirection::None,
-        Messenger::Action(_) => PropagationDirection::None,*/
-        Messenger::InputValueChanged(_) => PropagationDirection::Parent,
-        Messenger::ScrollTo(_) => PropagationDirection::Parent,
-    }
-}
-
-pub fn rendering_default_behavior(_message: &Render) -> Vec<Messenger> {
+pub fn rendering_default_behavior(_messager: &Messenger) -> Vec<Messenger> {
     vec![
-        Messenger::RenderUnclip(RenderUnclip {}),
-        Messenger::Render(Render {}),
-        Messenger::RenderAndClip(RenderAndClip {}),
+        Messenger::new(&RENDER_UNCLIP, Message::RenderUnclip(RenderUnclip {})),
+        Messenger::new(&RENDER, Message::Render(Render {})),
+        Messenger::new(&RENDER_AND_CLIP, Message::RenderAndClip(RenderAndClip {})),
     ]
 }
+
+const GET_CAPTURED_OBSERVABLE: fn(&Messenger) -> Option<NodeOrObservableIdentifier> = |_messenger| None;
+const DO_REFLECT: fn(&mut Messenger) -> bool = |_messenger| false;
+const UPDATE_AT_NODE_EDGE: fn(&mut Messenger, &Node, Option<NodeOrObservableIdentifier>) -> (bool, bool) =
+    |_messenger, _node, _from_child_to_parent| (true, false);
+const RESET_AT_NODE_EDGE: fn(&mut Messenger) = |_messenger| {};
+
+/// Triggers the framework to send a new ConfigurationRequest
+pub const RECONFIGURE: MessengerBehavior = MessengerBehavior {
+    label: "Reconfigure",
+    default_propagation_direction: PropagationDirection::Return,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// The node should reevaluate itself and answer with ConfigurationResponse and ConfigureChild
+pub const CONFIGURATION_REQUEST: MessengerBehavior = MessengerBehavior {
+    label: "ConfigurationRequest",
+    default_propagation_direction: PropagationDirection::None,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// Lets the framework know the new half extent of the node
+pub const CONFIGURATION_RESPONSE: MessengerBehavior = MessengerBehavior {
+    label: "ConfigurationResponse",
+    default_propagation_direction: PropagationDirection::Return,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// Triggers the framework to send a new ConfigurationRequest to a child
+pub const CONFIGURE_CHILD: MessengerBehavior = MessengerBehavior {
+    label: "ConfigureChild",
+    default_propagation_direction: PropagationDirection::Return,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// Lets the parent know that a child changed its half extent
+pub const CHILD_RESIZED: MessengerBehavior = MessengerBehavior {
+    label: "ChildResized",
+    default_propagation_direction: PropagationDirection::Parent,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// Lets the framework know the new set of observables to be observed by the node
+pub const OBSERVE: MessengerBehavior = MessengerBehavior {
+    label: "Observe",
+    default_propagation_direction: PropagationDirection::Return,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// The node should prepare for the following Render [Messenger], respond with a UpdateRendering [Messenger] and direct this [Messenger] to its children
+pub const PREPARE_RENDERING: MessengerBehavior = MessengerBehavior {
+    label: "PrepareRendering",
+    default_propagation_direction: PropagationDirection::Children,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: |messenger, node, _from_child_to_parent| {
+        let message = match_option!(&mut messenger.message, Message::PrepareRendering).unwrap();
+        let mut motor: ppga2d::Motor = message.motor;
+        let mut scale: f32 = message.scale;
+        let mut opacity: f32 = message.opacity;
+        motor *= node.motor;
+        scale *= node.scale.unwrap();
+        opacity *= node.opacity.unwrap(); // TODO: Group Opacity
+        message.motor = motor;
+        message.scale = scale;
+        message.opacity = opacity;
+        (true, false)
+    },
+    reset_at_node_edge: |messenger| {
+        let message = match_option!(&mut messenger.message, Message::PrepareRendering).unwrap();
+        message.motor = message.motor_in_parent.clone();
+        message.scale = message.scale_in_parent.clone();
+        message.opacity = message.opacity_in_parent.clone();
+    },
+};
+
+/// Lets the framework know the new transform of the node, optionally also a new clip shape and new colored shapes
+pub const UPDATE_RENDERING: MessengerBehavior = MessengerBehavior {
+    label: "UpdateRendering",
+    default_propagation_direction: PropagationDirection::Return,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// The node should render itself and then direct this [Messenger] to its children
+pub const RENDER: MessengerBehavior = MessengerBehavior {
+    label: "Render",
+    default_propagation_direction: PropagationDirection::Children,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// Have the framework render and clip the node
+pub const RENDER_AND_CLIP: MessengerBehavior = MessengerBehavior {
+    label: "RenderAndClip",
+    default_propagation_direction: PropagationDirection::Return,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// Have the framework undo the clipping of the node
+pub const RENDER_UNCLIP: MessengerBehavior = MessengerBehavior {
+    label: "RenderUnclip",
+    default_propagation_direction: PropagationDirection::Return,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// Send for every key press or release on a keyboard
+pub const KEY: MessengerBehavior = MessengerBehavior {
+    label: "Key",
+    default_propagation_direction: PropagationDirection::Children,
+    get_captured_observable: |messenger| {
+        Some(NodeOrObservableIdentifier::InputDevice(
+            match_option!(&messenger.message, Message::Key).unwrap().device_id,
+        ))
+    },
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// Send for pointer move, press, release or scrolling of a mouse, pen, trackpad or touch surface
+pub const POINTER: MessengerBehavior = MessengerBehavior {
+    label: "Pointer",
+    default_propagation_direction: PropagationDirection::Children,
+    get_captured_observable: |messenger| {
+        Some(NodeOrObservableIdentifier::InputDevice(
+            match_option!(&messenger.message, Message::Pointer).unwrap().device_id,
+        ))
+    },
+    do_reflect: |messenger| {
+        if messenger.propagation_direction == PropagationDirection::Parent {
+            return false;
+        }
+        messenger.propagation_direction = PropagationDirection::Parent;
+        true
+    },
+    update_at_node_edge: |messenger, node, from_child_to_parent| {
+        let message = match_option!(&mut messenger.message, Message::Pointer).unwrap();
+        let (motor, scale) = if from_child_to_parent.is_none() {
+            (node.motor.inverse(), 1.0 / node.scale.unwrap())
+        } else {
+            (node.motor, node.scale.unwrap())
+        };
+        let mut relative_position: ppga2d::Point = message.relative_position;
+        message.relative_position_in_parent = relative_position.into();
+        relative_position.g0[1] *= scale;
+        relative_position.g0[2] *= scale;
+        relative_position = motor.transformation(relative_position);
+        let half_extent = &node.half_extent.unwrap();
+        let is_inside_bounds = relative_position.g0[1].abs() <= half_extent[0] && relative_position.g0[2].abs() <= half_extent[1];
+        message.is_inside_bounds = is_inside_bounds;
+        if is_inside_bounds {
+            message.relative_position = relative_position.into();
+        }
+        (is_inside_bounds, is_inside_bounds)
+    },
+    reset_at_node_edge: |messenger| {
+        let message = match_option!(&mut messenger.message, Message::Pointer).unwrap();
+        message.relative_position = message.relative_position_in_parent.clone();
+    },
+};
+
+/// Lets the parent know that the user entered a new input or otherwise interacted with a child node
+pub const INPUT_VALUE_CHANGED: MessengerBehavior = MessengerBehavior {
+    label: "InputValueChanged",
+    default_propagation_direction: PropagationDirection::Parent,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: |messenger, _node, from_child_to_parent| {
+        let message = match_option!(&mut messenger.message, Message::InputValueChanged).unwrap();
+        if let Some(local_id) = from_child_to_parent {
+            message.child_id = local_id;
+        }
+        (true, false)
+    },
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// Sets a scroll nodes content motor
+pub const SCROLL_TO: MessengerBehavior = MessengerBehavior {
+    label: "ScrollTo",
+    default_propagation_direction: PropagationDirection::Parent,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
 
 pub struct KeyboardState {
     pub pressed_scancodes: HashSet<u32>,
@@ -454,13 +583,16 @@ impl WinitEventTranslator {
                     .collect();
                 let changed_keycode = self.translate_keycode(pressed_modifiers, scancode);
                 self.last_scancode = scancode << 8 | pressed_modifiers;
-                vec![Messenger::Key(Key {
-                    device_id,
-                    pressed_scancodes,
-                    changed_scancode: scancode,
-                    pressed_keycodes,
-                    changed_keycode,
-                })]
+                vec![Messenger::new(
+                    &KEY,
+                    Message::Key(Key {
+                        device_id,
+                        pressed_scancodes,
+                        changed_scancode: scancode,
+                        pressed_keycodes,
+                        changed_keycode,
+                    }),
+                )]
             }
             winit::event::WindowEvent::MouseInput {
                 device_id, state, button, ..
@@ -474,17 +606,19 @@ impl WinitEventTranslator {
                         } else {
                             cached_pointer.pressed.remove(&pointer_button(button));
                         }
-                        vec![Messenger::Pointer(Pointer {
-                            bubbling_up: false,
-                            device_id,
-                            pressed_buttons: cached_pointer.pressed.clone(),
-                            changed_button: pointer_button(button),
-                            absolute_position: cached_pointer.current_position,
-                            relative_position: cached_pointer.current_position,
-                            relative_position_in_parent: cached_pointer.current_position,
-                            delta: cached_pointer.current_position - cached_pointer.previous_position,
-                            is_inside_bounds: true,
-                        })]
+                        vec![Messenger::new(
+                            &POINTER,
+                            Message::Pointer(Pointer {
+                                device_id,
+                                pressed_buttons: cached_pointer.pressed.clone(),
+                                changed_button: pointer_button(button),
+                                absolute_position: cached_pointer.current_position,
+                                relative_position: cached_pointer.current_position,
+                                relative_position_in_parent: cached_pointer.current_position,
+                                delta: cached_pointer.current_position - cached_pointer.previous_position,
+                                is_inside_bounds: true,
+                            }),
+                        )]
                     })
                     .unwrap_or_else(Vec::new)
             }
@@ -506,17 +640,19 @@ impl WinitEventTranslator {
                 };
                 let delta = cached_pointer.current_position - cached_pointer.previous_position;
                 if delta.dual().squared_magnitude().g0 > 0.0 {
-                    vec![Messenger::Pointer(Pointer {
-                        bubbling_up: false,
-                        device_id,
-                        pressed_buttons: cached_pointer.pressed.clone(),
-                        changed_button: 0,
-                        absolute_position: cached_pointer.current_position,
-                        relative_position: cached_pointer.current_position,
-                        relative_position_in_parent: cached_pointer.current_position,
-                        delta,
-                        is_inside_bounds: true,
-                    })]
+                    vec![Messenger::new(
+                        &POINTER,
+                        Message::Pointer(Pointer {
+                            device_id,
+                            pressed_buttons: cached_pointer.pressed.clone(),
+                            changed_button: 0,
+                            absolute_position: cached_pointer.current_position,
+                            relative_position: cached_pointer.current_position,
+                            relative_position_in_parent: cached_pointer.current_position,
+                            delta,
+                            is_inside_bounds: true,
+                        }),
+                    )]
                 } else {
                     Vec::new()
                 }
@@ -526,22 +662,24 @@ impl WinitEventTranslator {
                 self.pointers
                     .get(&device_id)
                     .map(|cached_pointer| {
-                        vec![Messenger::Pointer(Pointer {
-                            bubbling_up: false,
-                            device_id,
-                            pressed_buttons: cached_pointer.pressed.clone(),
-                            changed_button: 1,
-                            absolute_position: cached_pointer.current_position,
-                            relative_position: cached_pointer.current_position,
-                            relative_position_in_parent: cached_pointer.current_position,
-                            delta: match delta {
-                                winit::event::MouseScrollDelta::LineDelta(x, y) => ppga2d::Point { g0: [0.0, x, y].into() },
-                                winit::event::MouseScrollDelta::PixelDelta(delta) => ppga2d::Point {
-                                    g0: [0.0, delta.x as f32, delta.y as f32].into(),
+                        vec![Messenger::new(
+                            &POINTER,
+                            Message::Pointer(Pointer {
+                                device_id,
+                                pressed_buttons: cached_pointer.pressed.clone(),
+                                changed_button: 1,
+                                absolute_position: cached_pointer.current_position,
+                                relative_position: cached_pointer.current_position,
+                                relative_position_in_parent: cached_pointer.current_position,
+                                delta: match delta {
+                                    winit::event::MouseScrollDelta::LineDelta(x, y) => ppga2d::Point { g0: [0.0, x, y].into() },
+                                    winit::event::MouseScrollDelta::PixelDelta(delta) => ppga2d::Point {
+                                        g0: [0.0, delta.x as f32, delta.y as f32].into(),
+                                    },
                                 },
-                            },
-                            is_inside_bounds: true,
-                        })]
+                                is_inside_bounds: true,
+                            }),
+                        )]
                     })
                     .unwrap_or_else(Vec::new)
             }

@@ -3,7 +3,7 @@ use crate::{
     path::Path,
     text::{byte_offset_of_char_index, half_extent_of_text, index_of_char_at, paths_of_text, Layout},
     ui::{
-        message::{self, rendering_default_behavior, Messenger},
+        message::{self, rendering_default_behavior, Message, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, TextInteraction,
@@ -12,8 +12,8 @@ use crate::{
 };
 
 fn text_selection(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match messenger {
-        Messenger::PrepareRendering(message) => {
+    match &messenger.message {
+        Message::PrepareRendering(message) => {
             println!("text_label PrepareRendering");
             let (_prepare_rendering, mut update_rendering) = context.prepare_rendering_helper(message);
             if let Some(rendering) = &mut update_rendering.rendering {
@@ -23,15 +23,18 @@ fn text_selection(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     .colored_paths
                     .push((text_selection_color, vec![Path::from_rect([0.0, 0.0], half_extent.unwrap())]));
             }
-            vec![Messenger::UpdateRendering(update_rendering)]
+            vec![Messenger::new(&message::UPDATE_RENDERING, Message::UpdateRendering(update_rendering))]
         }
-        Messenger::Render(message) => rendering_default_behavior(message),
-        Messenger::ConfigurationRequest(_message) => {
+        Message::Render(_message) => rendering_default_behavior(messenger),
+        Message::ConfigurationRequest(_message) => {
             println!("text_label ConfigurationRequest");
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
-            vec![Messenger::ConfigurationResponse(message::ConfigurationResponse {
-                half_extent: context.get_half_extent(),
-            })]
+            vec![Messenger::new(
+                &message::CONFIGURATION_RESPONSE,
+                Message::ConfigurationResponse(message::ConfigurationResponse {
+                    half_extent: context.get_half_extent(),
+                }),
+            )]
         }
         _ => Vec::new(),
     }
@@ -49,8 +52,8 @@ macro_rules! layout {
 }
 
 pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match messenger {
-        Messenger::PrepareRendering(message) => {
+    match &messenger.message {
+        Message::PrepareRendering(message) => {
             println!("text_label PrepareRendering");
             let (prepare_rendering, mut update_rendering) = context.prepare_rendering_helper(message);
             if let Some(rendering) = &mut update_rendering.rendering {
@@ -66,12 +69,12 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 }
             }
             vec![
-                Messenger::PrepareRendering(prepare_rendering),
-                Messenger::UpdateRendering(update_rendering),
+                Messenger::new(&message::PREPARE_RENDERING, Message::PrepareRendering(prepare_rendering)),
+                Messenger::new(&message::UPDATE_RENDERING, Message::UpdateRendering(update_rendering)),
             ]
         }
-        Messenger::Render(message) => rendering_default_behavior(message),
-        Messenger::ConfigurationRequest(_message) => {
+        Message::Render(_message) => rendering_default_behavior(messenger),
+        Message::ConfigurationRequest(_message) => {
             println!("text_label ConfigurationRequest");
             let text_font = match_option!(context.derive_attribute("font_face"), Value::TextFont).unwrap();
             let layout = layout!(context);
@@ -81,7 +84,10 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             let range = cursor_a.min(cursor_b)..cursor_a.max(cursor_b);
             let half_extent = half_extent_of_text(text_font.face(), &layout, &text_content);
             let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
-            let mut result = vec![Messenger::ConfigurationResponse(message::ConfigurationResponse { half_extent })];
+            let mut result = vec![Messenger::new(
+                &message::CONFIGURATION_RESPONSE,
+                Message::ConfigurationResponse(message::ConfigurationResponse { half_extent }),
+            )];
             let selection_start_position =
                 half_extent_of_text(text_font.face(), &layout, &text_content.chars().take(range.start).collect::<String>()).unwrap()[0] * 2.0
                     - half_extent.unwrap()[0];
@@ -112,11 +118,11 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             result
         }
-        Messenger::Pointer(message) => {
+        Message::Pointer(message) => {
             println!("text_label Pointer");
             let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
-            if text_interaction == TextInteraction::None || !message.bubbling_up {
-                return vec![Messenger::Pointer(message.clone())];
+            if text_interaction == TextInteraction::None || messenger.propagation_direction != PropagationDirection::Parent {
+                return vec![messenger.clone()];
             }
             let index = index_of_char_at(
                 match_option!(context.derive_attribute("font_face"), Value::TextFont).unwrap().face(),
@@ -128,7 +134,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 0 => {
                     if context.does_observe(&NodeOrObservableIdentifier::InputDevice(message.device_id)) {
                         context.set_attribute("cursor_b", Value::Natural1(index));
-                        vec![Messenger::Reconfigure(message::Reconfigure {})]
+                        vec![Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {}))]
                     } else {
                         Vec::new()
                     }
@@ -138,23 +144,26 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                         context.set_attribute("cursor_a", Value::Natural1(index));
                         context.set_attribute("cursor_b", Value::Natural1(index));
                         vec![
-                            Messenger::Observe(message::Observe {
-                                observes: hash_set! { NodeOrObservableIdentifier::InputDevice(message.device_id) },
-                            }),
-                            Messenger::Reconfigure(message::Reconfigure {}),
+                            Messenger::new(
+                                &message::OBSERVE,
+                                Message::Observe(message::Observe {
+                                    observes: hash_set! { NodeOrObservableIdentifier::InputDevice(message.device_id) },
+                                }),
+                            ),
+                            Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {})),
                         ]
                     } else {
                         context.set_attribute("cursor_b", Value::Natural1(index));
                         vec![
-                            Messenger::Observe(message::Observe { observes: hash_set! {} }),
-                            Messenger::Reconfigure(message::Reconfigure {}),
+                            Messenger::new(&message::OBSERVE, Message::Observe(message::Observe { observes: hash_set! {} })),
+                            Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {})),
                         ]
                     }
                 }
                 _ => Vec::new(),
             }
         }
-        Messenger::Key(message) => {
+        Message::Key(message) => {
             println!("text_label Key");
             let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
             if text_interaction == TextInteraction::None
@@ -197,17 +206,20 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                         context.set_attribute("cursor_a", Value::Natural1(cursor_a));
                         context.set_attribute("cursor_b", Value::Natural1(cursor_b));
                     }
-                    vec![Messenger::Reconfigure(message::Reconfigure {})]
+                    vec![Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {}))]
                 }
                 '⌥' | '⎈' | '⇧' | '⌘' => Vec::new(),
                 '⏎' => {
                     if text_interaction != TextInteraction::Editing {
                         return Vec::new();
                     }
-                    vec![Messenger::InputValueChanged(message::InputValueChanged {
-                        child_id: NodeOrObservableIdentifier::Named("uninitialized"),
-                        new_value: Value::TextString(text_content),
-                    })]
+                    vec![Messenger::new(
+                        &message::INPUT_VALUE_CHANGED,
+                        Message::InputValueChanged(message::InputValueChanged {
+                            child_id: NodeOrObservableIdentifier::Named("uninitialized"),
+                            new_value: Value::TextString(text_content),
+                        }),
+                    )]
                 }
                 _ => {
                     if text_interaction != TextInteraction::Editing {
@@ -253,7 +265,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     context.set_attribute("text_content", Value::TextString(text_content));
                     context.set_attribute("cursor_a", Value::Natural1(cursor_a));
                     context.set_attribute("cursor_b", Value::Natural1(cursor_b));
-                    vec![Messenger::Reconfigure(message::Reconfigure {})]
+                    vec![Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {}))]
                 }
             }
         }

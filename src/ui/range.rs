@@ -3,7 +3,7 @@ use crate::{
     path::Path,
     ui::{
         label::text_label,
-        message::{self, rendering_default_behavior, Messenger},
+        message::{self, rendering_default_behavior, Message, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation, TextInteraction,
@@ -13,8 +13,8 @@ use crate::{
 use geometric_algebra::ppga2d;
 
 fn range_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match messenger {
-        Messenger::PrepareRendering(message) => {
+    match &messenger.message {
+        Message::PrepareRendering(message) => {
             println!("range_bar PrepareRendering");
             let (_prepare_rendering, mut update_rendering) = context.prepare_rendering_helper(message);
             if let Some(rendering) = &mut update_rendering.rendering {
@@ -29,23 +29,26 @@ fn range_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                     .colored_paths
                     .push((bar_color, vec![Path::from_rect([0.0, 0.0], half_extent.unwrap())]));
             }
-            vec![Messenger::UpdateRendering(update_rendering)]
+            vec![Messenger::new(&message::UPDATE_RENDERING, Message::UpdateRendering(update_rendering))]
         }
-        Messenger::Render(message) => rendering_default_behavior(message),
-        Messenger::ConfigurationRequest(_message) => {
+        Message::Render(_message) => rendering_default_behavior(messenger),
+        Message::ConfigurationRequest(_message) => {
             println!("range_bar ConfigurationRequest");
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
-            vec![Messenger::ConfigurationResponse(message::ConfigurationResponse {
-                half_extent: context.get_half_extent(),
-            })]
+            vec![Messenger::new(
+                &message::CONFIGURATION_RESPONSE,
+                Message::ConfigurationResponse(message::ConfigurationResponse {
+                    half_extent: context.get_half_extent(),
+                }),
+            )]
         }
         _ => Vec::new(),
     }
 }
 
 pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match messenger {
-        Messenger::PrepareRendering(message) => {
+    match &messenger.message {
+        Message::PrepareRendering(message) => {
             println!("range PrepareRendering");
             let (prepare_rendering, mut update_rendering) = context.prepare_rendering_helper(message);
             if let Some(rendering) = &mut update_rendering.rendering {
@@ -59,12 +62,12 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 )];
             }
             vec![
-                Messenger::PrepareRendering(prepare_rendering),
-                Messenger::UpdateRendering(update_rendering),
+                Messenger::new(&message::PREPARE_RENDERING, Message::PrepareRendering(prepare_rendering)),
+                Messenger::new(&message::UPDATE_RENDERING, Message::UpdateRendering(update_rendering)),
             ]
         }
-        Messenger::Render(message) => rendering_default_behavior(message),
-        Messenger::ConfigurationRequest(_message) => {
+        Message::Render(_message) => rendering_default_behavior(messenger),
+        Message::ConfigurationRequest(_message) => {
             println!("range ConfigurationRequest");
             let half_extent = context.get_half_extent().unwrap();
             let axis = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap_or(Orientation::Horizontal) as usize;
@@ -84,9 +87,12 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
             empty_half_extent[axis] = half_extent[axis] - filled_half_extent[axis];
             empty_translation[axis] = (half_extent[axis] - empty_half_extent[axis]) * translation.signum();
             filled_translation[axis] = (filled_half_extent[axis] - half_extent[axis]) * translation.signum();
-            let mut result = vec![Messenger::ConfigurationResponse(message::ConfigurationResponse {
-                half_extent: half_extent.into(),
-            })];
+            let mut result = vec![Messenger::new(
+                &message::CONFIGURATION_RESPONSE,
+                Message::ConfigurationResponse(message::ConfigurationResponse {
+                    half_extent: half_extent.into(),
+                }),
+            )];
             context.configure_child(
                 &mut result,
                 NodeOrObservableIdentifier::Named("empty"),
@@ -132,10 +138,12 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             result
         }
-        Messenger::Pointer(message) => {
+        Message::Pointer(message) => {
             println!("range Pointer");
-            if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false) || !message.bubbling_up {
-                return vec![Messenger::Pointer(message.clone())];
+            if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false)
+                || messenger.propagation_direction != PropagationDirection::Parent
+            {
+                return vec![messenger.clone()];
             }
             match message.changed_button {
                 0 => {
@@ -163,11 +171,14 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                             context.set_attribute("numeric_value", Value::Float1(new_numeric_value.into()));
                             context.set_attribute("rendering_is_dirty", Value::Boolean(true));
                             return vec![
-                                Messenger::InputValueChanged(message::InputValueChanged {
-                                    child_id: NodeOrObservableIdentifier::Named("uninitialized"),
-                                    new_value: Value::Float1(new_numeric_value.into()),
-                                }),
-                                Messenger::Reconfigure(message::Reconfigure {}),
+                                Messenger::new(
+                                    &message::INPUT_VALUE_CHANGED,
+                                    Message::InputValueChanged(message::InputValueChanged {
+                                        child_id: NodeOrObservableIdentifier::Named("uninitialized"),
+                                        new_value: Value::Float1(new_numeric_value.into()),
+                                    }),
+                                ),
+                                Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {})),
                             ];
                         }
                     }
@@ -178,22 +189,28 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                         let numeric_value = context.get_attribute("numeric_value");
                         context.set_attribute("previous_numeric_value", numeric_value);
                         context.set_attribute("pointer_start", Value::Float3(message.absolute_position.into()));
-                        vec![Messenger::Observe(message::Observe {
-                            observes: hash_set! { NodeOrObservableIdentifier::InputDevice(message.device_id) },
-                        })]
+                        vec![Messenger::new(
+                            &message::OBSERVE,
+                            Message::Observe(message::Observe {
+                                observes: hash_set! { NodeOrObservableIdentifier::InputDevice(message.device_id) },
+                            }),
+                        )]
                     } else {
                         context.set_attribute("pointer_start", Value::Void);
-                        vec![Messenger::Observe(message::Observe { observes: hash_set! {} })]
+                        vec![Messenger::new(
+                            &message::OBSERVE,
+                            Message::Observe(message::Observe { observes: hash_set! {} }),
+                        )]
                     }
                 }
                 _ => Vec::new(),
             }
         }
-        Messenger::Key(message) => {
+        Message::Key(_message) => {
             println!("range Key");
-            vec![Messenger::Key(message.clone())]
+            vec![messenger.clone()]
         }
-        Messenger::InputValueChanged(message) => {
+        Message::InputValueChanged(message) => {
             println!("range InputValueChanged");
             if let Value::TextualProjection(textual_projection) = context.get_attribute("textual_projection") {
                 let text_content = match_option!(&message.new_value, Value::TextString).unwrap();
@@ -211,11 +228,14 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                         context.set_attribute("numeric_value", Value::Float1(new_numeric_value.into()));
                         context.set_attribute("rendering_is_dirty", Value::Boolean(true));
                         return vec![
-                            Messenger::InputValueChanged(message::InputValueChanged {
-                                child_id: NodeOrObservableIdentifier::Named("uninitialized"),
-                                new_value: Value::Float1(new_numeric_value.into()),
-                            }),
-                            Messenger::Reconfigure(message::Reconfigure {}),
+                            Messenger::new(
+                                &message::INPUT_VALUE_CHANGED,
+                                Message::InputValueChanged(message::InputValueChanged {
+                                    child_id: NodeOrObservableIdentifier::Named("uninitialized"),
+                                    new_value: Value::Float1(new_numeric_value.into()),
+                                }),
+                            ),
+                            Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {})),
                         ];
                     }
                 }
