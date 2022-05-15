@@ -131,11 +131,33 @@ pub fn weighted_vec_to_point(w: f32, v: [f32; 2]) -> ppga2d::Point {
     }
 }
 
+/// Creates a [ppga2d::Motor] from an angle in radians.
+pub fn rotate2d(mut angle: f32) -> ppga2d::Motor {
+    angle *= 0.5;
+    ppga2d::Motor {
+        g0: [angle.cos(), angle.sin(), 0.0, 0.0].into(),
+    }
+}
+
 /// Creates a [ppga2d::Motor] from a vector.
 pub fn translate2d(v: [f32; 2]) -> ppga2d::Motor {
     ppga2d::Motor {
         g0: [1.0, 0.0, -0.5 * v[1], 0.5 * v[0]].into(),
     }
+}
+
+/// Returns the rotation angle in radians of the given [ppga2d::Motor].
+pub fn rotation2d(motor: ppga2d::Motor) -> f32 {
+    2.0 * motor.g0[1].atan2(motor.g0[0])
+}
+
+/// Returns the translation of the given [ppga2d::Motor].
+pub fn translation2d(mut motor: ppga2d::Motor) -> [f32; 2] {
+    motor = motor
+        / ppga2d::Rotor {
+            g0: [motor.g0[0], motor.g0[1]].into(),
+        };
+    [2.0 * motor.g0[3], -2.0 * motor.g0[2]]
 }
 
 /// Creates a [ppga3d::Rotor] which represents a rotation by `angle` radians around `axis`.
@@ -150,7 +172,7 @@ pub fn rotate_around_axis(angle: f32, axis: &[f32; 3]) -> ppga3d::Rotor {
 pub fn motor2d_to_motor3d(motor: &ppga2d::Motor) -> ppga3d::Motor {
     ppga3d::Motor {
         g0: [motor.g0[0], 0.0, 0.0, motor.g0[1]].into(),
-        g1: [0.0, motor.g0[3], -motor.g0[2], 0.0].into(),
+        g1: [0.0, -motor.g0[3], motor.g0[2], 0.0].into(),
     }
 }
 
