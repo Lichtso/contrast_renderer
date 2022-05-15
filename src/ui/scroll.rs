@@ -1,22 +1,23 @@
 use crate::{
-    hash_set, match_option,
+    hash_map, hash_set, match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{self, rendering_default_behavior, Message, Messenger, PropagationDirection},
+        message::{self, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
-        Node, NodeOrObservableIdentifier, Orientation, ScrollBarType,
+        Node, NodeOrObservableIdentifier, Orientation, Rendering, ScrollBarType,
     },
     utils::translate2d,
 };
 use geometric_algebra::{ppga2d, One};
 
 fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match &messenger.message {
-        Message::PrepareRendering(message) => {
+    match messenger.behavior.label {
+        "PrepareRendering" => {
             println!("scroll_bar PrepareRendering");
-            let (_prepare_rendering, mut update_rendering) = context.prepare_rendering_helper(message);
-            if let Some(rendering) = &mut update_rendering.rendering {
+            let mut update_rendering = context.update_rendering_helper(messenger);
+            if update_rendering.get_attribute("rendering") != &Value::Void {
+                let mut rendering = Rendering::default();
                 let half_extent = context.get_half_extent();
                 let fill_path = Path::from_rounded_rect(
                     [0.0, 0.0],
@@ -49,62 +50,70 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     start: Cap::Butt,
                     end: Cap::Butt,
                 }];
+                update_rendering.set_attribute("rendering", Value::Rendering(rendering));
             }
-            vec![Messenger::new(&message::UPDATE_RENDERING, Message::UpdateRendering(update_rendering))]
+            vec![update_rendering]
         }
-        Message::Render(_message) => rendering_default_behavior(messenger),
-        Message::ConfigurationRequest(_message) => {
+        "Render" => rendering_default_behavior(messenger),
+        "ConfigurationRequest" => {
             println!("scroll_bar ConfigurationRequest");
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(
                 &message::CONFIGURATION_RESPONSE,
-                Message::ConfigurationResponse(message::ConfigurationResponse {
-                    half_extent: context.get_half_extent(),
-                }),
+                hash_map! {
+                    "half_extent" => Value::Float2(context.get_half_extent()),
+                },
             )]
         }
-        Message::Pointer(message) => {
+        "Pointer" => {
             println!("scroll_bar Pointer");
             if messenger.propagation_direction != PropagationDirection::Parent {
                 return vec![messenger.clone()];
             }
-            match message.changed_button {
+            match match_option!(messenger.get_attribute("changed_button"), Value::ButtonOrKey).unwrap() {
                 0 => {
-                    if context.does_observe(&NodeOrObservableIdentifier::InputDevice(message.device_id)) {
-                        let absolute_position: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
+                    if context.does_observe(match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()) {
+                        let absolute_position: ppga2d::Point =
+                            (*match_option!(messenger.get_attribute("absolute_position"), Value::Float3).unwrap()).into();
+                        let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
                         let orientation = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap();
                         let movement_scale = match_option!(context.get_attribute("movement_scale"), Value::Float1).unwrap().unwrap();
                         let mut content_motor: ppga2d::Motor = match_option!(context.get_attribute("previous_content_motor"), Value::Float4)
                             .unwrap()
                             .into();
                         content_motor.g0[3 - orientation as usize] += if orientation == Orientation::Horizontal { -0.5 } else { 0.5 }
-                            * (message.absolute_position - absolute_position).g0[1 + orientation as usize]
+                            * (absolute_position - pointer_start).g0[1 + orientation as usize]
                             * movement_scale;
                         context.set_attribute("content_motor", Value::Float4(content_motor.into()));
                         return vec![Messenger::new(
                             &message::INPUT_VALUE_CHANGED,
-                            Message::InputValueChanged(message::InputValueChanged {
-                                child_id: NodeOrObservableIdentifier::Named("uninitialized"),
-                                new_value: Value::Float4(content_motor.into()),
-                            }),
+                            hash_map! {
+                                "child_id" => Value::Void,
+                                "new_value" => Value::Float4(content_motor.into()),
+                            },
                         )];
                     }
                 }
                 2 => {
-                    if message.pressed_buttons.contains(&2) {
+                    let pressed_buttons = match_option!(messenger.get_attribute("pressed_buttons"), Value::ButtonsOrKeys).unwrap();
+                    if pressed_buttons.contains(&2) {
                         context.set_attribute("previous_content_motor", context.get_attribute("content_motor"));
-                        context.set_attribute("pointer_start", Value::Float3(message.absolute_position.into()));
+                        context.set_attribute("pointer_start", messenger.get_attribute("absolute_position").clone());
                         return vec![Messenger::new(
                             &message::OBSERVE,
-                            Message::Observe(message::Observe {
-                                observes: hash_set! { NodeOrObservableIdentifier::InputDevice(message.device_id) },
-                            }),
+                            hash_map! {
+                                "observes" => Value::NodeOrObservableIdentifiers(hash_set!{
+                                    *match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()
+                                }),
+                            },
                         )];
                     } else {
                         context.set_attribute("pointer_start", Value::Void);
                         return vec![Messenger::new(
                             &message::OBSERVE,
-                            Message::Observe(message::Observe { observes: hash_set! {} }),
+                            hash_map! {
+                                "observes" => Value::NodeOrObservableIdentifiers(hash_set!{}),
+                            },
                         )];
                     }
                 }
@@ -117,11 +126,12 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
 }
 
 pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match &messenger.message {
-        Message::PrepareRendering(message) => {
+    match messenger.behavior.label {
+        "PrepareRendering" => {
             println!("scroll PrepareRendering");
-            let (prepare_rendering, mut update_rendering) = context.prepare_rendering_helper(message);
-            if let Some(rendering) = &mut update_rendering.rendering {
+            let mut update_rendering = context.update_rendering_helper(messenger);
+            if update_rendering.get_attribute("rendering") != &Value::Void {
+                let mut rendering = Rendering::default();
                 let half_extent = context.get_half_extent();
                 rendering.clip_paths = vec![Path::from_rounded_rect(
                     [0.0, 0.0],
@@ -130,14 +140,12 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                         .unwrap()
                         .unwrap(),
                 )];
+                update_rendering.set_attribute("rendering", Value::Rendering(rendering));
             }
-            vec![
-                Messenger::new(&message::PREPARE_RENDERING, Message::PrepareRendering(prepare_rendering)),
-                Messenger::new(&message::UPDATE_RENDERING, Message::UpdateRendering(update_rendering)),
-            ]
+            vec![messenger.clone(), update_rendering]
         }
-        Message::Render(_message) => rendering_default_behavior(messenger),
-        Message::ConfigurationRequest(_message) => {
+        "Render" => rendering_default_behavior(messenger),
+        "ConfigurationRequest" => {
             println!("scroll ConfigurationRequest");
             let content_half_extent = context
                 .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.half_extent.unwrap())
@@ -157,9 +165,9 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 .unwrap();
             let mut result = vec![Messenger::new(
                 &message::CONFIGURATION_RESPONSE,
-                Message::ConfigurationResponse(message::ConfigurationResponse {
-                    half_extent: half_extent.into(),
-                }),
+                hash_map! {
+                    "half_extent" => Value::Float2(half_extent.into()),
+                },
             )];
             context.configure_child(
                 &mut result,
@@ -222,57 +230,65 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             result
         }
-        Message::ChildResized(_message) => {
+        "ChildResized" => {
             println!("scroll ChildResized");
-            vec![Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {}))]
+            vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
         }
-        Message::Pointer(message) => {
+        "Pointer" => {
             println!("scroll Pointer");
-            match message.changed_button {
+            match match_option!(messenger.get_attribute("changed_button"), Value::ButtonOrKey).unwrap() {
                 0 if match_option!(context.get_attribute("enable_dragging_scroll"), Value::Boolean).unwrap_or(false) => {
-                    if context.does_observe(&NodeOrObservableIdentifier::InputDevice(message.device_id)) {
-                        let absolute_position: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
-                        let delta = message.absolute_position - absolute_position;
+                    if context.does_observe(match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()) {
+                        let absolute_position: ppga2d::Point =
+                            (*match_option!(messenger.get_attribute("absolute_position"), Value::Float3).unwrap()).into();
+                        let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
                         let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Float4)
                             .map(|value| value.into())
                             .unwrap_or_else(ppga2d::Motor::one);
                         let scale = match_option!(context.get_attribute("content_scale"), Value::Float1)
                             .map(|value| 1.0 / value.unwrap())
                             .unwrap_or(1.0);
+                        let delta = absolute_position - pointer_start;
                         content_motor = translate2d([delta.g0[1] * scale, delta.g0[2] * scale]) * content_motor;
                         context.set_attribute("content_motor", Value::Float4(content_motor.into()));
-                        return vec![Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {}))];
+                        return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
                     }
                 }
                 1 if match_option!(context.get_attribute("enable_stationary_scroll"), Value::Boolean).unwrap_or(false) => {
-                    if !context.does_observe(&NodeOrObservableIdentifier::InputDevice(message.device_id)) {
+                    if !context.does_observe(match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()) {
                         let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Float4)
                             .map(|value| value.into())
                             .unwrap_or_else(ppga2d::Motor::one);
                         let scale = match_option!(context.get_attribute("content_scale"), Value::Float1)
-                            .map(|value| 1.0 / value.unwrap())
-                            .unwrap_or(1.0);
-                        content_motor = translate2d([-message.delta.g0[1] * scale, -message.delta.g0[2] * scale]) * content_motor;
+                            .map(|value| -1.0 / value.unwrap())
+                            .unwrap_or(-1.0);
+                        let delta: ppga2d::Point = match_option!(context.get_attribute("delta"), Value::Float3).unwrap().into();
+                        content_motor = translate2d([delta.g0[1] * scale, delta.g0[2] * scale]) * content_motor;
                         context.set_attribute("content_motor", Value::Float4(content_motor.into()));
-                        return vec![Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {}))];
+                        return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
                     }
                 }
                 2 if messenger.propagation_direction == PropagationDirection::Parent => {
-                    if message.pressed_buttons.contains(&2) {
+                    let pressed_buttons = match_option!(messenger.get_attribute("pressed_buttons"), Value::ButtonsOrKeys).unwrap();
+                    if pressed_buttons.contains(&2) {
                         context.set_attribute("previous_content_motor", context.get_attribute("content_motor"));
-                        context.set_attribute("pointer_start", Value::Float3(message.absolute_position.into()));
+                        context.set_attribute("pointer_start", messenger.get_attribute("absolute_position").clone());
                         return vec![Messenger::new(
                             &message::OBSERVE,
-                            Message::Observe(message::Observe {
-                                observes: hash_set! { NodeOrObservableIdentifier::InputDevice(message.device_id) },
-                            }),
+                            hash_map! {
+                                "observes" => Value::NodeOrObservableIdentifiers(hash_set!{
+                                    *match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()
+                                }),
+                            },
                         )];
                     } else {
-                        // else if context.does_observe(&NodeOrObservableIdentifier::InputDevice(message.device_id))
+                        // else if context.does_observe(match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap())
                         context.set_attribute("pointer_start", Value::Void);
                         return vec![Messenger::new(
                             &message::OBSERVE,
-                            Message::Observe(message::Observe { observes: hash_set! {} }),
+                            hash_map! {
+                                "observes" => Value::NodeOrObservableIdentifiers(hash_set!{}),
+                            },
                         )];
                     }
                 }
@@ -280,14 +296,14 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             }
             vec![messenger.clone()]
         }
-        Message::Key(_message) => {
+        "Key" => {
             println!("scroll Key");
             vec![messenger.clone()]
         }
-        Message::InputValueChanged(message) => {
+        "InputValueChanged" => {
             println!("scroll InputValueChanged");
-            context.set_attribute("content_motor", message.new_value.clone());
-            return vec![Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {}))];
+            context.set_attribute("content_motor", messenger.get_attribute("new_value").clone());
+            return vec![Messenger::new(&message::RECONFIGURE, hash_map! {})];
         }
         _ => Vec::new(),
     }
