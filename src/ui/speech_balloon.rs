@@ -2,7 +2,7 @@ use crate::{
     match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, LineSegment, Path, StrokeOptions},
     ui::{
-        message::{self, rendering_default_behavior, Messenger},
+        message::{self, rendering_default_behavior, Message, Messenger},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         NodeOrObservableIdentifier, Side,
@@ -10,8 +10,8 @@ use crate::{
 };
 
 pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match messenger {
-        Messenger::PrepareRendering(message) => {
+    match &messenger.message {
+        Message::PrepareRendering(message) => {
             println!("speech_balloon PrepareRendering");
             let (prepare_rendering, mut update_rendering) = context.prepare_rendering_helper(message);
             if let Some(rendering) = &mut update_rendering.rendering {
@@ -125,32 +125,35 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 }];
             }
             vec![
-                Messenger::PrepareRendering(prepare_rendering),
-                Messenger::UpdateRendering(update_rendering),
+                Messenger::new(&message::PREPARE_RENDERING, Message::PrepareRendering(prepare_rendering)),
+                Messenger::new(&message::UPDATE_RENDERING, Message::UpdateRendering(update_rendering)),
             ]
         }
-        Messenger::Render(message) => rendering_default_behavior(message),
-        Messenger::ConfigurationRequest(_message) => {
+        Message::Render(_message) => rendering_default_behavior(messenger),
+        Message::ConfigurationRequest(_message) => {
             println!("speech_balloon ConfigurationRequest");
             let content_half_extent = context
                 .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.half_extent)
                 .unwrap();
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
-            vec![Messenger::ConfigurationResponse(message::ConfigurationResponse {
-                half_extent: content_half_extent,
-            })]
+            vec![Messenger::new(
+                &message::CONFIGURATION_RESPONSE,
+                Message::ConfigurationResponse(message::ConfigurationResponse {
+                    half_extent: content_half_extent,
+                }),
+            )]
         }
-        Messenger::ChildResized(_message) => {
+        Message::ChildResized(_message) => {
             println!("speech_balloon ChildResized");
-            vec![Messenger::Reconfigure(message::Reconfigure {})]
+            vec![Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {}))]
         }
-        Messenger::Pointer(message) => {
+        Message::Pointer(_message) => {
             println!("speech_balloon Pointer");
-            vec![Messenger::Pointer(message.clone())]
+            vec![messenger.clone()]
         }
-        Messenger::Key(message) => {
+        Message::Key(_message) => {
             println!("speech_balloon Key");
-            vec![Messenger::Key(message.clone())]
+            vec![messenger.clone()]
         }
         _ => Vec::new(),
     }

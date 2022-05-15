@@ -1,10 +1,7 @@
 use crate::{
     safe_float::SafeFloat,
     ui::{
-        message::{
-            self, captured_observable_for_messenger, propagation_direction_of_messenger, reflect_messenger, reset_messenger_at_node_edge,
-            update_messenger_at_node_edge, Messenger, PropagationDirection,
-        },
+        message::{self, Message, Messenger, PropagationDirection},
         renderer::Renderer,
         wrapped_values::Value,
         GlobalNodeIdentifier, Node, NodeOrObservableIdentifier, Rendering,
@@ -147,10 +144,13 @@ impl<'a, 'b> NodeMessengerContext<'a, 'b> {
                     return;
                 }
             } else {
-                messengers.push(Messenger::ConfigureChild(message::ConfigureChild {
-                    id: local_child_id,
-                    node: None,
-                }));
+                messengers.push(Messenger::new(
+                    &message::CONFIGURE_CHILD,
+                    Message::ConfigureChild(message::ConfigureChild {
+                        id: local_child_id,
+                        node: None,
+                    }),
+                ));
                 return;
             }
         } else if let Some(callback) = callback {
@@ -160,10 +160,13 @@ impl<'a, 'b> NodeMessengerContext<'a, 'b> {
         } else {
             return;
         };
-        messengers.push(Messenger::ConfigureChild(message::ConfigureChild {
-            id: local_child_id,
-            node: Some(child_node),
-        }));
+        messengers.push(Messenger::new(
+            &message::CONFIGURE_CHILD,
+            Message::ConfigureChild(message::ConfigureChild {
+                id: local_child_id,
+                node: Some(child_node),
+            }),
+        ));
     }
 
     pub fn prepare_rendering_helper(
@@ -243,7 +246,14 @@ impl NodeHierarchy {
         node: Node,
     ) -> GlobalNodeIdentifier {
         let global_node_id = self.insert_node(parent_link, Rc::new(RefCell::new(node)));
-        self.process_messengers(vec![(global_node_id, Messenger::Reconfigure(message::Reconfigure {}))], None, None);
+        self.process_messengers(
+            vec![(
+                global_node_id,
+                Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {})),
+            )],
+            None,
+            None,
+        );
         global_node_id
     }
 
@@ -272,14 +282,14 @@ impl NodeHierarchy {
         mut messenger: Messenger,
     ) {
         let mut messenger_stack = Vec::new();
-        let captured_observable = captured_observable_for_messenger(&messenger);
-        println!("notify_observers {:?} {:?} {:?}", captured_observable, observable, messenger.get_kind());
+        let captured_observable = (messenger.behavior.get_captured_observable)(&messenger);
+        println!("notify_observers {:?} {:?} {}", captured_observable, observable, messenger.behavior.label);
         let global_node_ids = if let Some((is_captured_observable, observers)) = captured_observable
             .and_then(|captured_observable| self.observer_channels.get(&captured_observable).map(|observers| (true, observers)))
             .or_else(|| self.observer_channels.get(&observable).map(|observers| (false, observers)))
         {
             if is_captured_observable {
-                reflect_messenger(&mut messenger);
+                (messenger.behavior.do_reflect)(&mut messenger);
             }
             observers.iter().cloned().collect::<Vec<_>>()
         } else {
@@ -295,7 +305,7 @@ impl NodeHierarchy {
                 }
                 for global_node_id in parents_path.iter().rev() {
                     let node = self.nodes.get(global_node_id).unwrap().borrow();
-                    update_messenger_at_node_edge(&node, &mut messenger, None);
+                    (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
                 }
             }
             NodeMessengerContext::invoke_handler(
@@ -317,16 +327,19 @@ impl NodeHierarchy {
         mut encoder: Option<&mut wgpu::CommandEncoder>,
     ) {
         while let Some((global_node_id, mut messenger)) = messenger_stack.pop() {
-            match propagation_direction_of_messenger(&messenger) {
+            match messenger.propagation_direction {
                 PropagationDirection::None => panic!(),
-                PropagationDirection::Return => match messenger {
-                    Messenger::Reconfigure(_message) => {
+                PropagationDirection::Return => match &messenger.message {
+                    Message::Reconfigure(_message) => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
                         if node.configuration_in_process {
                             continue;
                         }
                         node.configuration_in_process = true;
-                        let mut messenger = Messenger::ConfigurationRequest(message::ConfigurationRequest {});
+                        let mut messenger = Messenger::new(
+                            &message::CONFIGURATION_REQUEST,
+                            Message::ConfigurationRequest(message::ConfigurationRequest {}),
+                        );
                         drop(node);
                         NodeMessengerContext::invoke_handler(
                             global_node_id,
@@ -337,13 +350,16 @@ impl NodeHierarchy {
                             &mut messenger,
                         );
                     }
-                    Messenger::ConfigurationResponse(message) => {
+                    Message::ConfigurationResponse(message) => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
                         node.needs_reconfiguration = false;
                         node.configuration_in_process = false;
                         if node.half_extent != message.half_extent {
                             node.half_extent = message.half_extent;
-                            messenger_stack.push((global_node_id, Messenger::ChildResized(message::ChildResized {})));
+                            messenger_stack.push((
+                                global_node_id,
+                                Messenger::new(&message::CHILD_RESIZED, Message::ChildResized(message::ChildResized {})),
+                            ));
                         }
                         let mut ordered_children = node
                             .children
@@ -359,34 +375,41 @@ impl NodeHierarchy {
                             .map(|(_layer_index, global_child_id)| global_child_id)
                             .collect();
                     }
-                    Messenger::ConfigureChild(message) => {
+                    Message::ConfigureChild(message) => {
                         let node = self.nodes.get(&global_node_id).unwrap().borrow();
                         let global_child_id = node.children.get(&message.id).cloned();
                         drop(node);
                         if let Some(mut global_child_id) = global_child_id {
-                            if let Some(new_child_node) = message.node {
+                            if let Some(new_child_node) = &message.node {
                                 if !Rc::ptr_eq(&new_child_node, self.nodes.get(&global_child_id).unwrap()) {
                                     self.delete_node(global_child_id);
-                                    global_child_id = self.insert_node(Some((global_node_id, message.id)), new_child_node);
+                                    global_child_id = self.insert_node(Some((global_node_id, message.id)), new_child_node.clone());
                                 }
-                                messenger_stack.push((global_child_id, Messenger::Reconfigure(message::Reconfigure {})));
+                                messenger_stack.push((
+                                    global_child_id,
+                                    Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {})),
+                                ));
                             } else {
                                 self.delete_node(global_child_id);
                             }
-                        } else if let Some(new_child_node) = message.node {
-                            let global_child_id = self.insert_node(Some((global_node_id, message.id)), new_child_node);
-                            messenger_stack.push((global_child_id, Messenger::Reconfigure(message::Reconfigure {})));
+                        } else if let Some(new_child_node) = &message.node {
+                            let global_child_id = self.insert_node(Some((global_node_id, message.id)), new_child_node.clone());
+                            messenger_stack.push((
+                                global_child_id,
+                                Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {})),
+                            ));
                         } else {
                             panic!("Can not delete what does not exist");
                         }
                     }
-                    Messenger::Observe(mut message) => {
+                    Message::Observe(message) => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
+                        let mut observes = message.observes.clone();
                         if node.parent.is_none() {
-                            message.observes.insert(NodeOrObservableIdentifier::Named("root"));
+                            observes.insert(NodeOrObservableIdentifier::Named("root"));
                         }
                         for observable_topic in node.observes.iter() {
-                            if !message.observes.contains(observable_topic) {
+                            if !observes.contains(observable_topic) {
                                 match self.observer_channels.entry(*observable_topic) {
                                     hash_map::Entry::Occupied(mut entry) => {
                                         entry.get_mut().remove(&global_node_id);
@@ -398,15 +421,15 @@ impl NodeHierarchy {
                                 }
                             }
                         }
-                        for observable_topic in message.observes.iter() {
+                        for observable_topic in observes.iter() {
                             self.observer_channels
                                 .entry(*observable_topic)
                                 .or_insert_with(HashSet::new)
                                 .insert(global_node_id);
                         }
-                        node.observes = message.observes;
+                        node.observes = observes;
                     }
-                    Messenger::UpdateRendering(message) => {
+                    Message::UpdateRendering(message) => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
                         if let Some(rendering) = &message.rendering {
                             renderer.as_ref().unwrap().set_node_rendering(&mut node, rendering).unwrap();
@@ -414,12 +437,12 @@ impl NodeHierarchy {
                         let model_projection_matrix = matrix_multiplication(&renderer.as_ref().unwrap().projection_matrix, &message.model_matrix);
                         renderer.as_mut().unwrap().instanciate_node(&mut node, &model_projection_matrix);
                     }
-                    Messenger::RenderAndClip(_message) => {
+                    Message::RenderAndClip(_message) => {
                         let node = self.nodes.get(&global_node_id).unwrap().borrow();
                         renderer.as_mut().unwrap().render_node(encoder.as_mut().unwrap(), &node);
                         renderer.as_mut().unwrap().push_clipping_of_node(encoder.as_mut().unwrap(), &node);
                     }
-                    Messenger::RenderUnclip(_message) => {
+                    Message::RenderUnclip(_message) => {
                         let node = self.nodes.get(&global_node_id).unwrap().borrow();
                         renderer.as_mut().unwrap().pop_clipping_of_node(encoder.as_mut().unwrap(), &node);
                     }
@@ -434,7 +457,7 @@ impl NodeHierarchy {
                     drop(node);
                     if let Some(global_parent_id) = global_parent_id {
                         let node = self.nodes.get(&global_parent_id).unwrap().borrow();
-                        let (invoke, _stop) = update_messenger_at_node_edge(&node, &mut messenger, Some(local_child_id));
+                        let (invoke, _stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, &node, Some(local_child_id));
                         drop(node);
                         if invoke {
                             NodeMessengerContext::invoke_handler(
@@ -455,7 +478,7 @@ impl NodeHierarchy {
                     drop(node);
                     if let Some(global_parent_id) = global_parent_id {
                         let node = self.nodes.get(&global_parent_id).unwrap().borrow();
-                        update_messenger_at_node_edge(&node, &mut messenger, Some(local_child_id));
+                        (messenger.behavior.update_at_node_edge)(&mut messenger, &node, Some(local_child_id));
                         let ordered_children = node.ordered_children.clone(); // TODO: Efficency
                         drop(node);
                         for global_child_id in ordered_children.iter() {
@@ -463,7 +486,7 @@ impl NodeHierarchy {
                                 continue;
                             }
                             let node = self.nodes.get(global_child_id).unwrap().borrow();
-                            let (invoke, stop) = update_messenger_at_node_edge(&node, &mut messenger, None);
+                            let (invoke, stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
                             drop(node);
                             if invoke {
                                 NodeMessengerContext::invoke_handler(
@@ -474,7 +497,7 @@ impl NodeHierarchy {
                                     &mut messenger_stack,
                                     &mut messenger,
                                 );
-                                reset_messenger_at_node_edge(&mut messenger);
+                                (messenger.behavior.reset_at_node_edge)(&mut messenger);
                             }
                             if stop {
                                 break;
@@ -489,7 +512,7 @@ impl NodeHierarchy {
                     let mut reflect = true;
                     for global_child_id in ordered_children.iter().rev() {
                         let node = self.nodes.get(global_child_id).unwrap().borrow();
-                        let (invoke, stop) = update_messenger_at_node_edge(&node, &mut messenger, None);
+                        let (invoke, stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
                         drop(node);
                         if invoke {
                             reflect &= NodeMessengerContext::invoke_handler(
@@ -500,13 +523,13 @@ impl NodeHierarchy {
                                 &mut messenger_stack,
                                 &mut messenger,
                             );
-                            reset_messenger_at_node_edge(&mut messenger);
+                            (messenger.behavior.reset_at_node_edge)(&mut messenger);
                         }
                         if stop {
                             break;
                         }
                     }
-                    if reflect && reflect_messenger(&mut messenger) {
+                    if reflect && (messenger.behavior.do_reflect)(&mut messenger) {
                         NodeMessengerContext::invoke_handler(
                             global_node_id,
                             &mut self.nodes,
@@ -526,21 +549,24 @@ impl NodeHierarchy {
 
     /// Preparation step to be called before [render].
     pub fn prepare_rendering(&mut self, renderer: &mut Renderer) {
-        let message = Messenger::PrepareRendering(message::PrepareRendering {
-            motor: ppga2d::Motor::one(),
-            scale: 1.0,
-            opacity: 1.0,
-            motor_in_parent: ppga2d::Motor::one(),
-            scale_in_parent: 1.0,
-            opacity_in_parent: 1.0,
-        });
+        let message = Messenger::new(
+            &message::PREPARE_RENDERING,
+            Message::PrepareRendering(message::PrepareRendering {
+                motor: ppga2d::Motor::one(),
+                scale: 1.0,
+                opacity: 1.0,
+                motor_in_parent: ppga2d::Motor::one(),
+                scale_in_parent: 1.0,
+                opacity_in_parent: 1.0,
+            }),
+        );
         self.notify_observers(Some(renderer), None, NodeOrObservableIdentifier::Named("root"), message);
     }
 
     /// Renders UI nodes.
     pub fn render(&mut self, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, renderer: &mut Renderer) {
         renderer.prepare_rendering(queue);
-        let message = Messenger::Render(message::Render {});
+        let message = Messenger::new(&message::RENDER, Message::Render(message::Render {}));
         self.notify_observers(Some(renderer), Some(encoder), NodeOrObservableIdentifier::Named("root"), message);
     }
 }
