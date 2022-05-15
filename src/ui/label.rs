@@ -1,39 +1,41 @@
 use crate::{
-    hash_set, match_option,
+    hash_map, hash_set, match_option,
     path::Path,
     text::{byte_offset_of_char_index, half_extent_of_text, index_of_char_at, paths_of_text, Layout},
     ui::{
-        message::{self, rendering_default_behavior, Message, Messenger, PropagationDirection},
+        message::{self, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
-        Node, NodeOrObservableIdentifier, TextInteraction,
+        Node, NodeOrObservableIdentifier, Rendering, TextInteraction,
     },
     utils::translate2d,
 };
 
 fn text_selection(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match &messenger.message {
-        Message::PrepareRendering(message) => {
+    match messenger.behavior.label {
+        "PrepareRendering" => {
             println!("text_label PrepareRendering");
-            let (_prepare_rendering, mut update_rendering) = context.prepare_rendering_helper(message);
-            if let Some(rendering) = &mut update_rendering.rendering {
+            let mut update_rendering = context.update_rendering_helper(messenger);
+            if update_rendering.get_attribute("rendering") != &Value::Void {
+                let mut rendering = Rendering::default();
                 let half_extent = context.get_half_extent();
                 let text_selection_color = match_option!(context.derive_attribute("text_selection_color"), Value::Float4).unwrap();
                 rendering
                     .colored_paths
                     .push((text_selection_color, vec![Path::from_rect([0.0, 0.0], half_extent.unwrap())]));
+                update_rendering.set_attribute("rendering", Value::Rendering(rendering));
             }
-            vec![Messenger::new(&message::UPDATE_RENDERING, Message::UpdateRendering(update_rendering))]
+            vec![update_rendering]
         }
-        Message::Render(_message) => rendering_default_behavior(messenger),
-        Message::ConfigurationRequest(_message) => {
+        "Render" => rendering_default_behavior(messenger),
+        "ConfigurationRequest" => {
             println!("text_label ConfigurationRequest");
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(
                 &message::CONFIGURATION_RESPONSE,
-                Message::ConfigurationResponse(message::ConfigurationResponse {
-                    half_extent: context.get_half_extent(),
-                }),
+                hash_map! {
+                    "half_extent" => Value::Float2(context.get_half_extent()),
+                },
             )]
         }
         _ => Vec::new(),
@@ -52,11 +54,12 @@ macro_rules! layout {
 }
 
 pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match &messenger.message {
-        Message::PrepareRendering(message) => {
+    match messenger.behavior.label {
+        "PrepareRendering" => {
             println!("text_label PrepareRendering");
-            let (prepare_rendering, mut update_rendering) = context.prepare_rendering_helper(message);
-            if let Some(rendering) = &mut update_rendering.rendering {
+            let mut update_rendering = context.update_rendering_helper(messenger);
+            if update_rendering.get_attribute("rendering") != &Value::Void {
+                let mut rendering = Rendering::default();
                 let text_color = match_option!(context.derive_attribute("text_color"), Value::Float4).unwrap();
                 let paths = paths_of_text(
                     match_option!(context.derive_attribute("font_face"), Value::TextFont).unwrap().face(),
@@ -67,14 +70,12 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 if !paths.is_empty() {
                     rendering.colored_paths.push((text_color, paths));
                 }
+                update_rendering.set_attribute("rendering", Value::Rendering(rendering));
             }
-            vec![
-                Messenger::new(&message::PREPARE_RENDERING, Message::PrepareRendering(prepare_rendering)),
-                Messenger::new(&message::UPDATE_RENDERING, Message::UpdateRendering(update_rendering)),
-            ]
+            vec![messenger.clone(), update_rendering]
         }
-        Message::Render(_message) => rendering_default_behavior(messenger),
-        Message::ConfigurationRequest(_message) => {
+        "Render" => rendering_default_behavior(messenger),
+        "ConfigurationRequest" => {
             println!("text_label ConfigurationRequest");
             let text_font = match_option!(context.derive_attribute("font_face"), Value::TextFont).unwrap();
             let layout = layout!(context);
@@ -86,7 +87,9 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
             let mut result = vec![Messenger::new(
                 &message::CONFIGURATION_RESPONSE,
-                Message::ConfigurationResponse(message::ConfigurationResponse { half_extent }),
+                hash_map! {
+                    "half_extent" => Value::Float2(half_extent),
+                },
             )];
             let selection_start_position =
                 half_extent_of_text(text_font.face(), &layout, &text_content.chars().take(range.start).collect::<String>()).unwrap()[0] * 2.0
@@ -118,7 +121,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             result
         }
-        Message::Pointer(message) => {
+        "Pointer" => {
             println!("text_label Pointer");
             let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
             if text_interaction == TextInteraction::None || messenger.propagation_direction != PropagationDirection::Parent {
@@ -128,59 +131,68 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 match_option!(context.derive_attribute("font_face"), Value::TextFont).unwrap().face(),
                 &layout!(context),
                 &match_option!(context.get_attribute("text_content"), Value::TextString).unwrap_or_else(String::default),
-                message.relative_position,
+                (*match_option!(messenger.get_attribute("relative_position"), Value::Float3).unwrap()).into(),
             );
-            match message.changed_button {
+            match match_option!(messenger.get_attribute("changed_button"), Value::ButtonOrKey).unwrap() {
                 0 => {
-                    if context.does_observe(&NodeOrObservableIdentifier::InputDevice(message.device_id)) {
+                    if context.does_observe(match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()) {
                         context.set_attribute("cursor_b", Value::Natural1(index));
-                        vec![Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {}))]
+                        vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
                     } else {
                         Vec::new()
                     }
                 }
                 2 => {
-                    if message.pressed_buttons.contains(&2) {
+                    let pressed_buttons = match_option!(messenger.get_attribute("pressed_buttons"), Value::ButtonsOrKeys).unwrap();
+                    if pressed_buttons.contains(&2) {
                         context.set_attribute("cursor_a", Value::Natural1(index));
                         context.set_attribute("cursor_b", Value::Natural1(index));
                         vec![
                             Messenger::new(
                                 &message::OBSERVE,
-                                Message::Observe(message::Observe {
-                                    observes: hash_set! { NodeOrObservableIdentifier::InputDevice(message.device_id) },
-                                }),
+                                hash_map! {
+                                    "observes" => Value::NodeOrObservableIdentifiers(hash_set!{
+                                        *match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()
+                                    }),
+                                },
                             ),
-                            Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {})),
+                            Messenger::new(&message::RECONFIGURE, hash_map! {}),
                         ]
                     } else {
                         context.set_attribute("cursor_b", Value::Natural1(index));
                         vec![
-                            Messenger::new(&message::OBSERVE, Message::Observe(message::Observe { observes: hash_set! {} })),
-                            Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {})),
+                            Messenger::new(
+                                &message::OBSERVE,
+                                hash_map! {
+                                    "observes" => Value::NodeOrObservableIdentifiers(hash_set!{}),
+                                },
+                            ),
+                            Messenger::new(&message::RECONFIGURE, hash_map! {}),
                         ]
                     }
                 }
                 _ => Vec::new(),
             }
         }
-        Message::Key(message) => {
+        "Key" => {
             println!("text_label Key");
             let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
-            if text_interaction == TextInteraction::None
-                || message.changed_keycode.is_none()
-                || !message.pressed_keycodes.contains(&message.changed_keycode.unwrap())
-            {
+            if text_interaction == TextInteraction::None || messenger.get_attribute("changed_keycode") == &Value::Void {
+                return Vec::new();
+            }
+            let pressed_keycodes = match_option!(messenger.get_attribute("pressed_keycodes"), Value::Characters).unwrap();
+            let changed_keycode = *match_option!(messenger.get_attribute("changed_keycode"), Value::Character).unwrap();
+            if !pressed_keycodes.contains(&changed_keycode) {
                 return Vec::new();
             }
             let mut text_content = match_option!(context.get_attribute("text_content"), Value::TextString).unwrap_or_else(String::default);
             let mut cursor_a = match_option!(context.get_attribute("cursor_a"), Value::Natural1).unwrap_or(0);
             let mut cursor_b = match_option!(context.get_attribute("cursor_b"), Value::Natural1).unwrap_or(0);
             let range = cursor_a.min(cursor_b)..cursor_a.max(cursor_b);
-            let keycode = message.changed_keycode.unwrap();
-            match keycode {
+            match changed_keycode {
                 '←' | '→' | '↑' | '↓' => {
-                    if message.pressed_keycodes.contains(&'⇧') {
-                        cursor_a = match keycode {
+                    if pressed_keycodes.contains(&'⇧') {
+                        cursor_a = match changed_keycode {
                             '←' if cursor_a > 0 => cursor_a - 1,
                             '→' if cursor_a < text_content.chars().count() => cursor_a + 1,
                             '↑' => 0,
@@ -191,7 +203,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                         };
                         context.set_attribute("cursor_a", Value::Natural1(cursor_a));
                     } else {
-                        cursor_a = match keycode {
+                        cursor_a = match changed_keycode {
                             '←' if range.start > 0 && range.start == range.end => range.start - 1,
                             '←' if range.end > range.start && range.start != range.end => range.start,
                             '→' if range.end < text_content.chars().count() && range.start == range.end => range.end + 1,
@@ -206,7 +218,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                         context.set_attribute("cursor_a", Value::Natural1(cursor_a));
                         context.set_attribute("cursor_b", Value::Natural1(cursor_b));
                     }
-                    vec![Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {}))]
+                    vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
                 }
                 '⌥' | '⎈' | '⇧' | '⌘' => Vec::new(),
                 '⏎' => {
@@ -215,17 +227,17 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     }
                     vec![Messenger::new(
                         &message::INPUT_VALUE_CHANGED,
-                        Message::InputValueChanged(message::InputValueChanged {
-                            child_id: NodeOrObservableIdentifier::Named("uninitialized"),
-                            new_value: Value::TextString(text_content),
-                        }),
+                        hash_map! {
+                            "child_id" => Value::Void,
+                            "new_value" => Value::TextString(text_content),
+                        },
                     )]
                 }
                 _ => {
                     if text_interaction != TextInteraction::Editing {
                         return Vec::new();
                     }
-                    if keycode == '⌫' {
+                    if changed_keycode == '⌫' {
                         if range.start == range.end && range.start > 0 {
                             cursor_a = range.start - 1;
                             cursor_b = cursor_a;
@@ -241,22 +253,22 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                             return Vec::new();
                         }
                     } else {
-                        let keycode = match keycode {
+                        let changed_keycode = match changed_keycode {
                             '␣' => ' ',
                             '⇥' => '\t',
                             '⏎' => '\n',
-                            _ => keycode,
+                            _ => changed_keycode,
                         };
                         if range.start == range.end {
                             cursor_a = range.start + 1;
                             cursor_b = cursor_a;
-                            text_content.insert(byte_offset_of_char_index(&text_content, range.start), keycode);
+                            text_content.insert(byte_offset_of_char_index(&text_content, range.start), changed_keycode);
                         } else if range.start < range.end {
                             cursor_a = range.start + 1;
                             cursor_b = cursor_a;
                             text_content.replace_range(
                                 byte_offset_of_char_index(&text_content, range.start)..byte_offset_of_char_index(&text_content, range.end),
-                                &keycode.to_string(),
+                                &changed_keycode.to_string(),
                             );
                         } else {
                             return Vec::new();
@@ -265,7 +277,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     context.set_attribute("text_content", Value::TextString(text_content));
                     context.set_attribute("cursor_a", Value::Natural1(cursor_a));
                     context.set_attribute("cursor_b", Value::Natural1(cursor_b));
-                    vec![Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {}))]
+                    vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
                 }
             }
         }

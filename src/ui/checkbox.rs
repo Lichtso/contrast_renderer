@@ -1,20 +1,21 @@
 use crate::{
-    hash_set, match_option,
+    hash_map, hash_set, match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{self, rendering_default_behavior, Message, Messenger, PropagationDirection},
+        message::{self, rendering_default_behavior, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
-        NodeOrObservableIdentifier,
+        Rendering,
     },
 };
 
 pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match &messenger.message {
-        Message::PrepareRendering(message) => {
+    match messenger.behavior.label {
+        "PrepareRendering" => {
             println!("checkbox PrepareRendering");
-            let (_prepare_rendering, mut update_rendering) = context.prepare_rendering_helper(message);
-            if let Some(rendering) = &mut update_rendering.rendering {
+            let mut update_rendering = context.update_rendering_helper(messenger);
+            if update_rendering.get_attribute("rendering") != &Value::Void {
+                let mut rendering = Rendering::default();
                 let half_extent = context.get_half_extent().unwrap();
                 let is_checked = match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
                 let fill_color_attribute = if is_checked {
@@ -55,51 +56,59 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                         end: Cap::Butt,
                     }];
                 }
+                update_rendering.set_attribute("rendering", Value::Rendering(rendering));
             }
-            vec![Messenger::new(&message::UPDATE_RENDERING, Message::UpdateRendering(update_rendering))]
+            vec![update_rendering]
         }
-        Message::Render(_message) => rendering_default_behavior(messenger),
-        Message::ConfigurationRequest(_message) => {
+        "Render" => rendering_default_behavior(messenger),
+        "ConfigurationRequest" => {
             println!("checkbox ConfigurationRequest");
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(
                 &message::CONFIGURATION_RESPONSE,
-                Message::ConfigurationResponse(message::ConfigurationResponse {
-                    half_extent: context.get_half_extent(),
-                }),
+                hash_map! {
+                    "half_extent" => Value::Float2(context.get_half_extent()),
+                },
             )]
         }
-        Message::Pointer(message) => {
+        "Pointer" => {
             println!("checkbox Pointer");
             if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false)
                 || messenger.propagation_direction != PropagationDirection::Parent
             {
                 return vec![messenger.clone()];
             }
-            if message.changed_button == 2 {
-                if message.pressed_buttons.contains(&2) {
+            let pressed_buttons = match_option!(messenger.get_attribute("pressed_buttons"), Value::ButtonsOrKeys).unwrap();
+            if messenger.get_attribute("changed_button") == &Value::ButtonOrKey(2) {
+                if pressed_buttons.contains(&2) {
                     vec![Messenger::new(
                         &message::OBSERVE,
-                        Message::Observe(message::Observe {
-                            observes: hash_set! { NodeOrObservableIdentifier::InputDevice(message.device_id) },
-                        }),
+                        hash_map! {
+                            "observes" => Value::NodeOrObservableIdentifiers(hash_set!{
+                                *match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()
+                            }),
+                        },
                     )]
                 } else {
                     let mut result = vec![Messenger::new(
                         &message::OBSERVE,
-                        Message::Observe(message::Observe { observes: hash_set! {} }),
+                        hash_map! {
+                            "observes" => Value::NodeOrObservableIdentifiers(hash_set!{}),
+                        },
                     )];
-                    if message.is_inside_bounds && context.does_observe(&NodeOrObservableIdentifier::InputDevice(message.device_id)) {
+                    if messenger.get_attribute("is_inside_bounds") == &Value::Boolean(true)
+                        && context.does_observe(match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap())
+                    {
                         let is_checked = !match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
                         context.set_attribute("is_checked", Value::Boolean(is_checked));
                         result.push(Messenger::new(
                             &message::INPUT_VALUE_CHANGED,
-                            Message::InputValueChanged(message::InputValueChanged {
-                                child_id: NodeOrObservableIdentifier::Named("uninitialized"),
-                                new_value: Value::Boolean(is_checked),
-                            }),
+                            hash_map! {
+                                "child_id" => Value::Void,
+                                "new_value" => Value::Boolean(is_checked),
+                            },
                         ));
-                        result.push(Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {})));
+                        result.push(Messenger::new(&message::RECONFIGURE, hash_map! {}));
                     }
                     result
                 }

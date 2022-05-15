@@ -1,7 +1,7 @@
 use crate::{
-    match_option,
+    hash_map, match_option,
     ui::{
-        message::{self, rendering_default_behavior, Message, Messenger},
+        message::{self, rendering_default_behavior, Messenger},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation,
@@ -10,14 +10,13 @@ use crate::{
 };
 
 pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match &messenger.message {
-        Message::PrepareRendering(message) => {
+    match messenger.behavior.label {
+        "PrepareRendering" => {
             println!("list PrepareRendering");
-            let (prepare_rendering, _update_rendering) = context.prepare_rendering_helper(message);
-            vec![Messenger::new(&message::PREPARE_RENDERING, Message::PrepareRendering(prepare_rendering))]
+            vec![messenger.clone()]
         }
-        Message::Render(_message) => rendering_default_behavior(messenger),
-        Message::ConfigurationRequest(_message) => {
+        "Render" => rendering_default_behavior(messenger),
+        "ConfigurationRequest" => {
             println!("list ConfigurationRequest");
             let margin = match_option!(context.derive_attribute("list_margin"), Value::Float1).unwrap().unwrap();
             let padding = match_option!(context.derive_attribute("list_padding"), Value::Float2).unwrap().unwrap();
@@ -61,9 +60,9 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
             half_extent[1] += padding[1];
             let mut result = vec![Messenger::new(
                 &message::CONFIGURATION_RESPONSE,
-                Message::ConfigurationResponse(message::ConfigurationResponse {
-                    half_extent: half_extent.into(),
-                }),
+                hash_map! {
+                    "half_extent" => Value::Float2(half_extent.into()),
+                },
             )];
             for child_index in 0..context.get_number_of_children() {
                 let local_child_id = NodeOrObservableIdentifier::Indexed(child_index);
@@ -112,15 +111,15 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
             }
             result
         }
-        Message::ChildResized(_message) => {
+        "ChildResized" => {
             println!("list ChildResized");
-            vec![Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {}))]
+            vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
         }
-        Message::Pointer(_message) => {
+        "Pointer" => {
             println!("list Pointer");
             vec![messenger.clone()]
         }
-        Message::Key(_message) => {
+        "Key" => {
             println!("list Key");
             vec![messenger.clone()]
         }

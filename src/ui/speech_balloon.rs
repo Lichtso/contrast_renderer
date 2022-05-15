@@ -1,20 +1,21 @@
 use crate::{
-    match_option,
+    hash_map, match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, LineSegment, Path, StrokeOptions},
     ui::{
-        message::{self, rendering_default_behavior, Message, Messenger},
+        message::{self, rendering_default_behavior, Messenger},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
-        NodeOrObservableIdentifier, Side,
+        NodeOrObservableIdentifier, Rendering, Side,
     },
 };
 
 pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match &messenger.message {
-        Message::PrepareRendering(message) => {
+    match messenger.behavior.label {
+        "PrepareRendering" => {
             println!("speech_balloon PrepareRendering");
-            let (prepare_rendering, mut update_rendering) = context.prepare_rendering_helper(message);
-            if let Some(rendering) = &mut update_rendering.rendering {
+            let mut update_rendering = context.update_rendering_helper(messenger);
+            if update_rendering.get_attribute("rendering") != &Value::Void {
+                let mut rendering = Rendering::default();
                 let half_extent = context.get_half_extent().unwrap();
                 let corner_radius = match_option!(context.derive_attribute("speech_balloon_corner_radius"), Value::Float1)
                     .unwrap()
@@ -123,14 +124,12 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                     start: Cap::Butt,
                     end: Cap::Butt,
                 }];
+                update_rendering.set_attribute("rendering", Value::Rendering(rendering));
             }
-            vec![
-                Messenger::new(&message::PREPARE_RENDERING, Message::PrepareRendering(prepare_rendering)),
-                Messenger::new(&message::UPDATE_RENDERING, Message::UpdateRendering(update_rendering)),
-            ]
+            vec![messenger.clone(), update_rendering]
         }
-        Message::Render(_message) => rendering_default_behavior(messenger),
-        Message::ConfigurationRequest(_message) => {
+        "Render" => rendering_default_behavior(messenger),
+        "ConfigurationRequest" => {
             println!("speech_balloon ConfigurationRequest");
             let content_half_extent = context
                 .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.half_extent)
@@ -138,20 +137,20 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             context.set_attribute("is_rendering_dirty", Value::Boolean(true));
             vec![Messenger::new(
                 &message::CONFIGURATION_RESPONSE,
-                Message::ConfigurationResponse(message::ConfigurationResponse {
-                    half_extent: content_half_extent,
-                }),
+                hash_map! {
+                    "half_extent" => Value::Float2(content_half_extent),
+                },
             )]
         }
-        Message::ChildResized(_message) => {
+        "ChildResized" => {
             println!("speech_balloon ChildResized");
-            vec![Messenger::new(&message::RECONFIGURE, Message::Reconfigure(message::Reconfigure {}))]
+            vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
         }
-        Message::Pointer(_message) => {
+        "Pointer" => {
             println!("speech_balloon Pointer");
             vec![messenger.clone()]
         }
-        Message::Key(_message) => {
+        "Key" => {
             println!("speech_balloon Key");
             vec![messenger.clone()]
         }

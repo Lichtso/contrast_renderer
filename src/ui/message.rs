@@ -2,16 +2,13 @@
 
 use crate::{
     error::Error,
-    match_option,
-    safe_float::SafeFloat,
-    ui::{wrapped_values::Value, Node, NodeOrObservableIdentifier, Orientation, Rendering},
+    hash_map, match_option,
+    ui::{wrapped_values::Value, Node, NodeOrObservableIdentifier, Orientation},
 };
-use geometric_algebra::{ppga2d, ppga3d, Dual, Inverse, SquaredMagnitude, Transformation, Zero};
+use geometric_algebra::{ppga2d, Dual, Inverse, SquaredMagnitude, Transformation, Zero};
 use std::{
-    cell::RefCell,
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
-    rc::Rc,
 };
 
 /// How to route a [Messenger].
@@ -51,91 +48,6 @@ pub enum ChangeLayoutDirection {
     Merge,
 }
 
-macro_rules! define_messages {
-    ($($message_kind:ident $(<$($a:lifetime)? $(,)? $($user_provided_identifier:ident)?>)? { $($name:ident : $type:ty),* $(,)? })*) => {
-        $(
-        #[derive(Clone)]
-        pub struct $message_kind $(<$($a,)? $($user_provided_identifier:)?>)? {
-            $(pub $name : $type),*
-        }
-        )*
-
-        #[derive(Clone)]
-        pub enum Message {
-            // UserDefined(&'static str),
-            $($message_kind($message_kind $(<$($a,)? $($user_provided_identifier,)?>)?),)*
-        }
-    };
-}
-
-define_messages!(
-    Reconfigure {}
-    ConfigurationRequest {
-        // TODO: clipping_rect: Option<[SafeFloat<f32, 2>; 2]>,
-    }
-    ConfigurationResponse {
-        half_extent: SafeFloat<f32, 2>,
-    }
-    ConfigureChild {
-        id: NodeOrObservableIdentifier,
-        node: Option<Rc<RefCell<Node>>>,
-    }
-    ChildResized {}
-    Observe {
-        observes: HashSet<NodeOrObservableIdentifier>,
-    }
-    PrepareRendering {
-        motor: ppga2d::Motor,
-        scale: f32,
-        opacity: f32,
-        motor_in_parent: ppga2d::Motor,
-        scale_in_parent: f32,
-        opacity_in_parent: f32,
-    }
-    UpdateRendering {
-        model_matrix: [ppga3d::Point; 4],
-        rendering: Option<Rendering>,
-    }
-    Render {}
-    RenderAndClip {}
-    RenderUnclip {}
-    Key {
-        device_id: usize,
-        pressed_scancodes: HashSet<u32>,
-        changed_scancode: u32,
-        pressed_keycodes: HashSet<char>,
-        changed_keycode: Option<char>,
-    }
-    Pointer {
-        device_id: usize,
-        pressed_buttons: HashSet<u32>,
-        changed_button: u32,
-        absolute_position: ppga2d::Point,
-        relative_position: ppga2d::Point,
-        relative_position_in_parent: ppga2d::Point,
-        delta: ppga2d::Point,
-        is_inside_bounds: bool,
-    }
-    /*IsSelected { selected: bool }
-    GetSelection { result: Vec<Rc<RefCell<Node>>> }
-    SetSelected { selected: bool }
-    InvertSelection { selected: bool }
-    SetFocus { focused: bool }
-    MoveFocusIntoView {}
-    FocusNavigation { direction: FocusNavigationDirection }
-    ChangeLayout { direction: ChangeLayoutDirection }
-    BecomeToolbarContext {}
-    Close {}
-    Action {}*/
-    InputValueChanged {
-        child_id: NodeOrObservableIdentifier,
-        new_value: Value,
-    }
-    ScrollTo {
-        content_motor: ppga2d::Motor,
-    }
-);
-
 /// Messenger Trait
 #[derive(Clone, Copy)]
 pub struct MessengerBehavior {
@@ -157,28 +69,46 @@ pub struct MessengerBehavior {
 #[derive(Clone)]
 pub struct Messenger {
     /// Messenger instance properties
-    pub message: Message,
+    pub properties: HashMap<&'static str, Value>,
     /// Messenger trait
     pub behavior: &'static MessengerBehavior,
     /// Where this Messenger is heading to
     pub propagation_direction: PropagationDirection,
 }
 
+/*impl std::fmt::Debug for Messenger {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let debug_struct = f.debug_struct(self.behavior.label);
+        for (attribute, value) in self.properties.iter() {
+            debug_struct.field(attribute, value);
+        }
+        debug_struct.finish()
+    }
+}*/
+
 impl Messenger {
-    pub fn new(behavior: &'static MessengerBehavior, message: Message) -> Self {
+    pub fn new(behavior: &'static MessengerBehavior, properties: HashMap<&'static str, Value>) -> Self {
         Self {
-            message,
+            properties,
             behavior,
             propagation_direction: behavior.default_propagation_direction,
         }
+    }
+
+    pub fn get_attribute(&self, attribute: &'static str) -> &Value {
+        self.properties.get(attribute).unwrap_or(&Value::Void)
+    }
+
+    pub fn set_attribute(&mut self, attribute: &'static str, value: Value) {
+        self.properties.insert(attribute, value);
     }
 }
 
 pub fn rendering_default_behavior(_messager: &Messenger) -> Vec<Messenger> {
     vec![
-        Messenger::new(&RENDER_UNCLIP, Message::RenderUnclip(RenderUnclip {})),
-        Messenger::new(&RENDER, Message::Render(Render {})),
-        Messenger::new(&RENDER_AND_CLIP, Message::RenderAndClip(RenderAndClip {})),
+        Messenger::new(&RENDER_UNCLIP, HashMap::new()),
+        Messenger::new(&RENDER, HashMap::new()),
+        Messenger::new(&RENDER_AND_CLIP, HashMap::new()),
     ]
 }
 
@@ -255,23 +185,26 @@ pub const PREPARE_RENDERING: MessengerBehavior = MessengerBehavior {
     get_captured_observable: GET_CAPTURED_OBSERVABLE,
     do_reflect: DO_REFLECT,
     update_at_node_edge: |messenger, node, _from_child_to_parent| {
-        let message = match_option!(&mut messenger.message, Message::PrepareRendering).unwrap();
-        let mut motor: ppga2d::Motor = message.motor;
-        let mut scale: f32 = message.scale;
-        let mut opacity: f32 = message.opacity;
+        let mut motor: ppga2d::Motor = match_option!(*messenger.get_attribute("motor"), Value::Float4).unwrap().into();
+        let mut scale: f32 = match_option!(*messenger.get_attribute("scale"), Value::Float1).unwrap().into();
+        let mut opacity: f32 = match_option!(*messenger.get_attribute("opacity"), Value::Float1).unwrap().into();
+        messenger.properties.insert("motor_in_parent", Value::Float4(motor.into()));
+        messenger.properties.insert("scale_in_parent", Value::Float1(scale.into()));
+        messenger.properties.insert("opacity_in_parent", Value::Float1(opacity.into()));
         motor *= node.motor;
         scale *= node.scale.unwrap();
         opacity *= node.opacity.unwrap(); // TODO: Group Opacity
-        message.motor = motor;
-        message.scale = scale;
-        message.opacity = opacity;
+        messenger.properties.insert("motor", Value::Float4(motor.into()));
+        messenger.properties.insert("scale", Value::Float1(scale.into()));
+        messenger.properties.insert("opacity", Value::Float1(opacity.into()));
         (true, false)
     },
     reset_at_node_edge: |messenger| {
-        let message = match_option!(&mut messenger.message, Message::PrepareRendering).unwrap();
-        message.motor = message.motor_in_parent.clone();
-        message.scale = message.scale_in_parent.clone();
-        message.opacity = message.opacity_in_parent.clone();
+        messenger.properties.insert("motor", messenger.get_attribute("motor_in_parent").clone());
+        messenger.properties.insert("scale", messenger.get_attribute("scale_in_parent").clone());
+        messenger
+            .properties
+            .insert("opacity", messenger.get_attribute("opacity_in_parent").clone());
     },
 };
 
@@ -319,11 +252,7 @@ pub const RENDER_UNCLIP: MessengerBehavior = MessengerBehavior {
 pub const KEY: MessengerBehavior = MessengerBehavior {
     label: "Key",
     default_propagation_direction: PropagationDirection::Children,
-    get_captured_observable: |messenger| {
-        Some(NodeOrObservableIdentifier::InputDevice(
-            match_option!(&messenger.message, Message::Key).unwrap().device_id,
-        ))
-    },
+    get_captured_observable: |messenger| Some(*match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()),
     do_reflect: DO_REFLECT,
     update_at_node_edge: UPDATE_AT_NODE_EDGE,
     reset_at_node_edge: RESET_AT_NODE_EDGE,
@@ -333,11 +262,7 @@ pub const KEY: MessengerBehavior = MessengerBehavior {
 pub const POINTER: MessengerBehavior = MessengerBehavior {
     label: "Pointer",
     default_propagation_direction: PropagationDirection::Children,
-    get_captured_observable: |messenger| {
-        Some(NodeOrObservableIdentifier::InputDevice(
-            match_option!(&messenger.message, Message::Pointer).unwrap().device_id,
-        ))
-    },
+    get_captured_observable: |messenger| Some(*match_option!(messenger.get_attribute("device"), Value::NodeOrObservableIdentifier).unwrap()),
     do_reflect: |messenger| {
         if messenger.propagation_direction == PropagationDirection::Parent {
             return false;
@@ -346,28 +271,32 @@ pub const POINTER: MessengerBehavior = MessengerBehavior {
         true
     },
     update_at_node_edge: |messenger, node, from_child_to_parent| {
-        let message = match_option!(&mut messenger.message, Message::Pointer).unwrap();
         let (motor, scale) = if from_child_to_parent.is_none() {
             (node.motor.inverse(), 1.0 / node.scale.unwrap())
         } else {
             (node.motor, node.scale.unwrap())
         };
-        let mut relative_position: ppga2d::Point = message.relative_position;
-        message.relative_position_in_parent = relative_position.into();
+        let mut relative_position: ppga2d::Point = match_option!(*messenger.get_attribute("relative_position"), Value::Float3)
+            .unwrap()
+            .into();
+        messenger
+            .properties
+            .insert("relative_position_in_parent", Value::Float3(relative_position.into()));
         relative_position.g0[1] *= scale;
         relative_position.g0[2] *= scale;
         relative_position = motor.transformation(relative_position);
         let half_extent = &node.half_extent.unwrap();
         let is_inside_bounds = relative_position.g0[1].abs() <= half_extent[0] && relative_position.g0[2].abs() <= half_extent[1];
-        message.is_inside_bounds = is_inside_bounds;
+        messenger.properties.insert("is_inside_bounds", Value::Boolean(is_inside_bounds));
         if is_inside_bounds {
-            message.relative_position = relative_position.into();
+            messenger.properties.insert("relative_position", Value::Float3(relative_position.into()));
         }
         (is_inside_bounds, is_inside_bounds)
     },
     reset_at_node_edge: |messenger| {
-        let message = match_option!(&mut messenger.message, Message::Pointer).unwrap();
-        message.relative_position = message.relative_position_in_parent.clone();
+        messenger
+            .properties
+            .insert("relative_position", messenger.get_attribute("relative_position_in_parent").clone());
     },
 };
 
@@ -378,9 +307,8 @@ pub const INPUT_VALUE_CHANGED: MessengerBehavior = MessengerBehavior {
     get_captured_observable: GET_CAPTURED_OBSERVABLE,
     do_reflect: DO_REFLECT,
     update_at_node_edge: |messenger, _node, from_child_to_parent| {
-        let message = match_option!(&mut messenger.message, Message::InputValueChanged).unwrap();
         if let Some(local_id) = from_child_to_parent {
-            message.child_id = local_id;
+            messenger.properties.insert("child_id", Value::NodeOrObservableIdentifier(local_id));
         }
         (true, false)
     },
@@ -581,17 +509,20 @@ impl WinitEventTranslator {
                     .iter()
                     .filter_map(|scancode| self.translate_keycode(pressed_modifiers, *scancode))
                     .collect();
-                let changed_keycode = self.translate_keycode(pressed_modifiers, scancode);
                 self.last_scancode = scancode << 8 | pressed_modifiers;
                 vec![Messenger::new(
                     &KEY,
-                    Message::Key(Key {
-                        device_id,
-                        pressed_scancodes,
-                        changed_scancode: scancode,
-                        pressed_keycodes,
-                        changed_keycode,
-                    }),
+                    hash_map! {
+                        "device" => Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::InputDevice(device_id)),
+                        "pressed_scancodes" => Value::ButtonsOrKeys(pressed_scancodes),
+                        "changed_scancode" => Value::ButtonOrKey(scancode),
+                        "pressed_keycodes" => Value::Characters(pressed_keycodes),
+                        "changed_keycode" => if let Some(changed_keycode) = self.translate_keycode(pressed_modifiers, scancode) {
+                            Value::Character(changed_keycode)
+                        } else {
+                            Value::Void
+                        },
+                    },
                 )]
             }
             winit::event::WindowEvent::MouseInput {
@@ -608,16 +539,16 @@ impl WinitEventTranslator {
                         }
                         vec![Messenger::new(
                             &POINTER,
-                            Message::Pointer(Pointer {
-                                device_id,
-                                pressed_buttons: cached_pointer.pressed.clone(),
-                                changed_button: pointer_button(button),
-                                absolute_position: cached_pointer.current_position,
-                                relative_position: cached_pointer.current_position,
-                                relative_position_in_parent: cached_pointer.current_position,
-                                delta: cached_pointer.current_position - cached_pointer.previous_position,
-                                is_inside_bounds: true,
-                            }),
+                            hash_map! {
+                                "device" => Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::InputDevice(device_id)),
+                                "pressed_buttons" => Value::ButtonsOrKeys(cached_pointer.pressed.clone()),
+                                "changed_button" => Value::ButtonOrKey(pointer_button(button)),
+                                "absolute_position" => Value::Float3(cached_pointer.current_position.into()),
+                                "relative_position" => Value::Float3(cached_pointer.current_position.into()),
+                                "relative_position_in_parent" => Value::Float3(cached_pointer.current_position.into()),
+                                "delta" => Value::Float3((cached_pointer.current_position - cached_pointer.previous_position).into()),
+                                "is_inside_bounds" => Value::Boolean(true),
+                            },
                         )]
                     })
                     .unwrap_or_else(Vec::new)
@@ -642,16 +573,16 @@ impl WinitEventTranslator {
                 if delta.dual().squared_magnitude().g0 > 0.0 {
                     vec![Messenger::new(
                         &POINTER,
-                        Message::Pointer(Pointer {
-                            device_id,
-                            pressed_buttons: cached_pointer.pressed.clone(),
-                            changed_button: 0,
-                            absolute_position: cached_pointer.current_position,
-                            relative_position: cached_pointer.current_position,
-                            relative_position_in_parent: cached_pointer.current_position,
-                            delta,
-                            is_inside_bounds: true,
-                        }),
+                        hash_map! {
+                            "device" => Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::InputDevice(device_id)),
+                            "pressed_buttons" => Value::ButtonsOrKeys(cached_pointer.pressed.clone()),
+                            "changed_button" => Value::ButtonOrKey(0),
+                            "absolute_position" => Value::Float3(cached_pointer.current_position.into()),
+                            "relative_position" => Value::Float3(cached_pointer.current_position.into()),
+                            "relative_position_in_parent" => Value::Float3(cached_pointer.current_position.into()),
+                            "delta" => Value::Float3(delta.into()),
+                            "is_inside_bounds" => Value::Boolean(true),
+                        },
                     )]
                 } else {
                     Vec::new()
@@ -659,26 +590,27 @@ impl WinitEventTranslator {
             }
             winit::event::WindowEvent::MouseWheel { device_id, delta, .. } => {
                 let device_id = hash_device_id(device_id);
+                let delta = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(x, y) => ppga2d::Point { g0: [0.0, x, y].into() },
+                    winit::event::MouseScrollDelta::PixelDelta(delta) => ppga2d::Point {
+                        g0: [0.0, delta.x as f32, delta.y as f32].into(),
+                    },
+                };
                 self.pointers
                     .get(&device_id)
                     .map(|cached_pointer| {
                         vec![Messenger::new(
                             &POINTER,
-                            Message::Pointer(Pointer {
-                                device_id,
-                                pressed_buttons: cached_pointer.pressed.clone(),
-                                changed_button: 1,
-                                absolute_position: cached_pointer.current_position,
-                                relative_position: cached_pointer.current_position,
-                                relative_position_in_parent: cached_pointer.current_position,
-                                delta: match delta {
-                                    winit::event::MouseScrollDelta::LineDelta(x, y) => ppga2d::Point { g0: [0.0, x, y].into() },
-                                    winit::event::MouseScrollDelta::PixelDelta(delta) => ppga2d::Point {
-                                        g0: [0.0, delta.x as f32, delta.y as f32].into(),
-                                    },
-                                },
-                                is_inside_bounds: true,
-                            }),
+                            hash_map! {
+                                "device" => Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::InputDevice(device_id)),
+                                "pressed_buttons" => Value::ButtonsOrKeys(cached_pointer.pressed.clone()),
+                                "changed_button" => Value::ButtonOrKey(1),
+                                "absolute_position" => Value::Float3(cached_pointer.current_position.into()),
+                                "relative_position" => Value::Float3(cached_pointer.current_position.into()),
+                                "relative_position_in_parent" => Value::Float3(cached_pointer.current_position.into()),
+                                "delta" => Value::Float3(delta.into()),
+                                "is_inside_bounds" => Value::Boolean(true),
+                            },
                         )]
                     })
                     .unwrap_or_else(Vec::new)
