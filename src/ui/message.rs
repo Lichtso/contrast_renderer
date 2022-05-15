@@ -3,6 +3,7 @@
 use crate::{
     error::Error,
     hash_map, match_option,
+    safe_float::SafeFloat,
     ui::{wrapped_values::Value, InputState, Node, NodeOrObservableIdentifier, Orientation},
 };
 use geometric_algebra::{ppga2d, Dual, Inverse, One, SquaredMagnitude, Transformation, Zero};
@@ -47,6 +48,16 @@ pub enum ChangeLayoutDirection {
     Merge,
 }
 
+pub type GetCapturedObservable = fn(&Messenger) -> Option<NodeOrObservableIdentifier>;
+pub type DoReflect = fn(&mut Messenger) -> bool;
+pub type UpdateAtNodeEdge = fn(&mut Messenger, SafeFloat<f32, 2>, &Node, Option<NodeOrObservableIdentifier>) -> (bool, bool);
+pub type ResetAtNodeEdge = fn(&mut Messenger, bool);
+
+const GET_CAPTURED_OBSERVABLE: GetCapturedObservable = |_messenger| None;
+const DO_REFLECT: DoReflect = |_messenger| false;
+const UPDATE_AT_NODE_EDGE: UpdateAtNodeEdge = |_messenger, _half_extent, _node, _from_child_to_parent| (true, false);
+const RESET_AT_NODE_EDGE: ResetAtNodeEdge = |_messenger, _to_absolute_position| {};
+
 /// Messenger Trait
 #[derive(Clone, Copy)]
 pub struct MessengerBehavior {
@@ -55,13 +66,13 @@ pub struct MessengerBehavior {
     /// [PropagationDirection] used when creating a new [Messenger]
     pub default_propagation_direction: PropagationDirection,
     /// Returns an [NodeOrObservableIdentifier] if this [Messenger] could capture one
-    pub get_captured_observable: fn(&Messenger) -> Option<NodeOrObservableIdentifier>,
+    pub get_captured_observable: GetCapturedObservable,
     /// Reflects the propagation direction of this [Messenger] from [PropagationDirection::Children] to [PropagationDirection::Parent]
-    pub do_reflect: fn(&mut Messenger) -> bool,
+    pub do_reflect: DoReflect,
     /// Updates the message when this [Messenger] carries it over an edge from one [Node] to an adjacent one
-    pub update_at_node_edge: fn(&mut Messenger, &Node, Option<NodeOrObservableIdentifier>) -> (bool, bool),
+    pub update_at_node_edge: UpdateAtNodeEdge,
     /// Resets the changes made by update_at_node_edge so that they can be performed again for a different child node
-    pub reset_at_node_edge: fn(&mut Messenger, bool),
+    pub reset_at_node_edge: ResetAtNodeEdge,
 }
 
 /// The [Messenger] carries messages between [Node]s
@@ -116,12 +127,6 @@ pub fn rendering_default_behavior(_messenger: &Messenger) -> Vec<Messenger> {
     ]
 }
 
-const GET_CAPTURED_OBSERVABLE: fn(&Messenger) -> Option<NodeOrObservableIdentifier> = |_messenger| None;
-const DO_REFLECT: fn(&mut Messenger) -> bool = |_messenger| false;
-const UPDATE_AT_NODE_EDGE: fn(&mut Messenger, &Node, Option<NodeOrObservableIdentifier>) -> (bool, bool) =
-    |_messenger, _node, _from_child_to_parent| (true, false);
-const RESET_AT_NODE_EDGE: fn(&mut Messenger, bool) = |_messenger, _to_absolute_position| {};
-
 /// The node should reevaluate itself and answer with Configured and ConfigureChild
 pub const RECONFIGURE: MessengerBehavior = MessengerBehavior {
     label: "Reconfigure",
@@ -148,24 +153,24 @@ pub const PREPARE_RENDERING: MessengerBehavior = MessengerBehavior {
     default_propagation_direction: PropagationDirection::Children,
     get_captured_observable: GET_CAPTURED_OBSERVABLE,
     do_reflect: DO_REFLECT,
-    update_at_node_edge: |messenger, node, _from_child_to_parent| {
+    update_at_node_edge: |messenger, _half_extent, child_node, _from_child_to_parent| {
         let mut motor: ppga2d::Motor = match_option!(*messenger.get_attribute("motor"), Value::Float4).unwrap().into();
         let mut scale: f32 = match_option!(*messenger.get_attribute("scale"), Value::Float1).unwrap().into();
         let mut opacity: f32 = match_option!(*messenger.get_attribute("opacity"), Value::Float1).unwrap().into();
         messenger.properties.insert("motor_in_parent", Value::Float4(motor.into()));
         messenger.properties.insert("scale_in_parent", Value::Float1(scale.into()));
         messenger.properties.insert("opacity_in_parent", Value::Float1(opacity.into()));
-        motor *= node
+        motor *= child_node
             .properties
             .get("motor")
             .map(|value| (*match_option!(value, Value::Float4).unwrap()).into())
             .unwrap_or_else(ppga2d::Motor::one);
-        scale *= node
+        scale *= child_node
             .properties
             .get("scale")
             .map(|value| match_option!(value, Value::Float1).unwrap().into())
             .unwrap_or(1.0);
-        opacity *= node
+        opacity *= child_node
             .properties
             .get("opacity")
             .map(|value| match_option!(value, Value::Float1).unwrap().into())
@@ -230,7 +235,7 @@ pub const BUTTON_INPUT: MessengerBehavior = MessengerBehavior {
     default_propagation_direction: PropagationDirection::Parent,
     get_captured_observable: |messenger| Some(*match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()),
     do_reflect: DO_REFLECT,
-    update_at_node_edge: |messenger, _node, from_child_to_parent| {
+    update_at_node_edge: |messenger, _half_extent, _child_node, from_child_to_parent| {
         if let Some(local_id) = from_child_to_parent {
             messenger.properties.insert("child_id", Value::NodeOrObservableIdentifier(local_id));
         }
@@ -261,13 +266,15 @@ pub const POINTER_INPUT: MessengerBehavior = MessengerBehavior {
         messenger.propagation_direction = PropagationDirection::Parent;
         true
     },
-    update_at_node_edge: |messenger, node, from_child_to_parent| {
+    update_at_node_edge: |messenger, half_extent, child_node, from_child_to_parent| {
         let (mut motor, mut scale) = (
-            node.properties
+            child_node
+                .properties
                 .get("motor")
                 .map(|value| (*match_option!(value, Value::Float4).unwrap()).into())
                 .unwrap_or_else(ppga2d::Motor::one),
-            node.properties
+            child_node
+                .properties
                 .get("scale")
                 .map(|value| match_option!(value, Value::Float1).unwrap().into())
                 .unwrap_or(1.0),
@@ -284,12 +291,10 @@ pub const POINTER_INPUT: MessengerBehavior = MessengerBehavior {
         relative_position.g0[1] *= scale;
         relative_position.g0[2] *= scale;
         relative_position = motor.transformation(relative_position);
-        let half_extent = &node.get_half_extent(false).unwrap();
+        let half_extent = half_extent.unwrap();
         let is_inside_bounds = relative_position.g0[1].abs() <= half_extent[0] && relative_position.g0[2].abs() <= half_extent[1];
         input_state.is_inside_bounds.insert(changed_pointer, is_inside_bounds);
-        if is_inside_bounds {
-            input_state.relative_positions.insert(changed_pointer, relative_position.into());
-        }
+        input_state.relative_positions.insert(changed_pointer, relative_position.into());
         (is_inside_bounds, is_inside_bounds)
     },
     reset_at_node_edge: |messenger, to_absolute_position| {
