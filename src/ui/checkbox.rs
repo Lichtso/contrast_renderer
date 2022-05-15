@@ -16,7 +16,10 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
                 let half_extent = context.get_half_extent(false).unwrap();
-                let corner_radius = match_option!(context.derive_attribute("checkbox_corner_radius"), Value::Float1).unwrap();
+                let corner_radius = match_option!(context.derive_attribute("checkbox_corner_radius"), Value::Float1)
+                    .unwrap()
+                    .unwrap()
+                    .min(half_extent[0].min(half_extent[1]));
                 let is_checked = match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
                 let fill_color_attribute = if is_checked {
                     "checkbox_checked_color"
@@ -24,7 +27,7 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                     "checkbox_unchecked_color"
                 };
                 let fill_color = match_option!(context.derive_attribute(fill_color_attribute), Value::Float4).unwrap();
-                let fill_path = Path::from_rounded_rect([0.0, 0.0], half_extent, corner_radius.unwrap());
+                let fill_path = Path::from_rounded_rect([0.0, 0.0], half_extent, corner_radius);
                 rendering.colored_paths.push((fill_color, vec![fill_path]));
                 if is_checked {
                     let shorter_edge = half_extent[0].min(half_extent[1]);
