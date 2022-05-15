@@ -17,14 +17,12 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
-                let half_extent = context.get_half_extent(false);
-                let fill_path = Path::from_rounded_rect(
-                    [0.0, 0.0],
-                    half_extent.unwrap(),
-                    match_option!(context.derive_attribute("scroll_bar_corner_radius"), Value::Float1)
-                        .unwrap()
-                        .unwrap(),
-                );
+                let half_extent = context.get_half_extent(false).unwrap();
+                let corner_radius = match_option!(context.derive_attribute("scroll_bar_corner_radius"), Value::Float1)
+                    .unwrap()
+                    .unwrap()
+                    .min(half_extent[0].min(half_extent[1]));
+                let fill_path = Path::from_rounded_rect([0.0, 0.0], half_extent, corner_radius);
                 let stroke_width = match_option!(context.derive_attribute("scroll_bar_stroke_width"), Value::Float1).unwrap();
                 let fill_color_attribute = if matches!(context.derive_attribute("pointer_start"), Value::Float3(_)) {
                     "scroll_bar_active_fill_color"
@@ -101,14 +99,12 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
-                let half_extent = context.get_half_extent(false);
-                rendering.clip_paths = vec![Path::from_rounded_rect(
-                    [0.0, 0.0],
-                    half_extent.unwrap(),
-                    match_option!(context.derive_attribute("scroll_corner_radius"), Value::Float1)
-                        .unwrap()
-                        .unwrap(),
-                )];
+                let half_extent = context.get_half_extent(false).unwrap();
+                let corner_radius = match_option!(context.derive_attribute("scroll_corner_radius"), Value::Float1)
+                    .unwrap()
+                    .unwrap()
+                    .min(half_extent[0].min(half_extent[1]));
+                rendering.clip_paths = vec![Path::from_rounded_rect([0.0, 0.0], half_extent, corner_radius)];
                 update_rendering.set_attribute("rendering", Value::Rendering(Box::new(rendering)));
             }
             vec![messenger.clone(), update_rendering]

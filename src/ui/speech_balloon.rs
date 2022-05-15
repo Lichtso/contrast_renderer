@@ -18,7 +18,8 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 let half_extent = context.get_half_extent(false).unwrap();
                 let corner_radius = match_option!(context.derive_attribute("speech_balloon_corner_radius"), Value::Float1)
                     .unwrap()
-                    .unwrap();
+                    .unwrap()
+                    .min(half_extent[0].min(half_extent[1]));
                 let arrow_extent = match_option!(context.derive_attribute("speech_balloon_arrow_extent"), Value::Float1)
                     .unwrap()
                     .unwrap();
