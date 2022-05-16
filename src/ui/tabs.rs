@@ -267,7 +267,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                         } else {
                             translation[major_axis] -= margin * 0.5;
                         }
-                        node.set_attribute_privately("motor", Value::Float4(translate2d(translation).into()));
+                        node.set_attribute("motor", Value::Float4(translate2d(translation).into()));
                     }),
                 );
                 context.configure_child(
@@ -281,7 +281,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                         if major_axis == 0 {
                             translation[minor_axis] = -translation[minor_axis];
                         }
-                        node.set_attribute_privately("motor", Value::Float4(translate2d(translation).into()));
+                        node.set_attribute("motor", Value::Float4(translate2d(translation).into()));
                     }),
                 );
             }
