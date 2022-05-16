@@ -189,9 +189,13 @@ impl<'a> NodeMessengerContext<'a> {
         node.observes = observables;
     }
 
-    pub fn update_rendering_helper(&mut self, prepare_rendering: &Messenger) -> Messenger {
-        let motor: ppga2d::Motor = (*match_option!(prepare_rendering.get_attribute("motor"), Value::Float4).unwrap()).into();
-        let scale: f32 = match_option!(prepare_rendering.get_attribute("scale"), Value::Float1).unwrap().unwrap();
+    pub fn update_rendering_helper(&mut self, _prepare_rendering: &Messenger) -> Messenger {
+        let motor: ppga2d::Motor = match_option!(self.get_attribute("absolute_motor"), Value::Float4)
+            .map(|value| value.into())
+            .unwrap_or_else(ppga2d::Motor::one);
+        let scale: f32 = match_option!(self.get_attribute("absolute_scale"), Value::Float1)
+            .map(|value| value.into())
+            .unwrap_or(1.0);
         let change_rendering = self.get_attribute("is_rendering_dirty") == Value::Boolean(true);
         self.set_attribute_privately("is_rendering_dirty", Value::Boolean(false));
         let motor3d = motor2d_to_motor3d(&motor);
@@ -422,9 +426,39 @@ impl NodeHierarchy {
                         let mut messenger = Messenger::new(&message::RECONFIGURE, hash_map! {});
                         self.invoke_handler(&mut messenger_stack, global_node_id, &mut messenger);
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
+                        let absolute_motor_changed = node.was_attribute_touched(&["absolute_motor"]);
+                        let absolute_motor: ppga2d::Motor = match_option!(node.get_attribute("absolute_motor"), Value::Float4)
+                            .map(|value| value.into())
+                            .unwrap_or_else(ppga2d::Motor::one);
+                        let absolute_scale_changed = node.was_attribute_touched(&["absolute_scale"]);
+                        let absolute_scale: f32 = match_option!(node.get_attribute("absolute_scale"), Value::Float1)
+                            .map(|value| value.into())
+                            .unwrap_or(1.0);
+                        let absolute_opacity_changed = node.was_attribute_touched(&["absolute_opacity"]);
+                        let absolute_opacity: f32 = match_option!(node.get_attribute("absolute_opacity"), Value::Float1)
+                            .map(|value| value.into())
+                            .unwrap_or(1.0);
                         let mut children_order_changed = node.was_attribute_touched(&["child_count"]);
                         for global_child_id in node.children.values() {
-                            let child_node = self.nodes.get(global_child_id).unwrap().borrow();
+                            let mut child_node = self.nodes.get(global_child_id).unwrap().borrow_mut();
+                            if absolute_motor_changed || child_node.was_attribute_touched(&["motor", "parent"]) {
+                                let child_motor = match_option!(child_node.get_attribute("motor"), Value::Float4)
+                                    .map(|value| value.into())
+                                    .unwrap_or_else(ppga2d::Motor::one);
+                                child_node.set_attribute("absolute_motor", Value::Float4((absolute_motor * child_motor).into()));
+                            }
+                            if absolute_scale_changed || child_node.was_attribute_touched(&["scale", "parent"]) {
+                                let child_scale = match_option!(child_node.get_attribute("scale"), Value::Float1)
+                                    .map(|value| value.into())
+                                    .unwrap_or(1.0);
+                                child_node.set_attribute("absolute_scale", Value::Float1((absolute_scale * child_scale).into()));
+                            }
+                            if absolute_opacity_changed || child_node.was_attribute_touched(&["opacity", "parent"]) {
+                                let child_opacity = match_option!(child_node.get_attribute("opacity"), Value::Float1)
+                                    .map(|value| value.into())
+                                    .unwrap_or(1.0);
+                                child_node.set_attribute("absolute_opacity", Value::Float1((absolute_opacity * child_opacity).into()));
+                            }
                             if child_node.was_attribute_touched(&["layer_index"]) {
                                 children_order_changed = true;
                             }
