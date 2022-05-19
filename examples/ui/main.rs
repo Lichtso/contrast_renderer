@@ -182,25 +182,6 @@ impl application_framework::Application for Application {
             Some((list_node_id, NodeOrObservableIdentifier::Indexed(0))),
         );
 
-        /*node.property_animations = hash_map! {
-            "numeric_value" => vec![
-                contrast_renderer::ui::AnimationFrame {
-                    timestamp: 0.0.into(),
-                    interpolation_control_points: [0.0, 0.0, 0.0, 0.0].into(),
-                    value: Value::Float1(0.0.into()),
-                },
-                contrast_renderer::ui::AnimationFrame {
-                    timestamp: 3.0.into(),
-                    interpolation_control_points: [0.0, 0.0, 3.0, 1.0].into(),
-                    value: Value::Float1(1.0.into()),
-                },
-                contrast_renderer::ui::AnimationFrame {
-                    timestamp: 5.0.into(),
-                    interpolation_control_points: [0.0, 3.0, 0.0, 1.0].into(),
-                    value: Value::Float1(0.0.into()),
-                },
-            ],
-        };*/
         ui_node_hierarchy.create_node(
             contrast_renderer::ui::range::range,
             hash_map! {
@@ -357,14 +338,8 @@ impl application_framework::Application for Application {
 
     fn window_event(&mut self, event: winit::event::WindowEvent) {
         for message in self.ui_event_translator.translate(event) {
-            self.ui_node_hierarchy.notify_observers(
-                None,
-                None,
-                None,
-                None,
-                contrast_renderer::ui::NodeOrObservableIdentifier::Named("root"),
-                message,
-            );
+            self.ui_node_hierarchy
+                .notify_observers(contrast_renderer::ui::NodeOrObservableIdentifier::Named("root"), message);
         }
     }
 }
