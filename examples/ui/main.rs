@@ -87,7 +87,7 @@ impl application_framework::Application for Application {
             "speech_balloon_round_bottom_right" => Value::Boolean(true),
             "speech_balloon_arrow_extent" => Value::Float1(20.0.into()),
             "speech_balloon_arrow_origin" => Value::Float1(0.0.into()),
-            "speech_balloon_arrow_side" => Value::Side(contrast_renderer::ui::Side::Bottom),
+            "speech_balloon_arrow_side" => Value::Side(contrast_renderer::ui::Side::Top),
 
             "scroll_bar_fill_color" => Value::Float4([0.7, 0.7, 0.7, 1.0].into()),
             "scroll_bar_active_fill_color" => Value::Float4([0.9, 0.9, 0.9, 1.0].into()),
@@ -116,11 +116,15 @@ impl application_framework::Application for Application {
         let mut ui_event_translator = contrast_renderer::ui::message::WinitEventTranslator::default();
         ui_event_translator.load_keymap(KEYMAP).unwrap();
 
-        /*let speech_balloon_node_id = ui_node_hierarchy.create_node(
-            contrast_renderer::ui::speech_balloon::speech_balloon,
-            hash_map! {},
-            None,
-        );*/
+        let speech_balloon_node_id = ui_node_hierarchy.create_node(contrast_renderer::ui::speech_balloon::speech_balloon, hash_map! {}, None);
+
+        ui_node_hierarchy.create_node(
+            contrast_renderer::ui::label::text_label,
+            hash_map! {
+                "text_content" => Value::TextString(" I am in a speech balloon ".to_string()),
+            },
+            Some((speech_balloon_node_id, NodeOrObservableIdentifier::Named("content"))),
+        );
 
         let tab_container_node_id = ui_node_hierarchy.create_node(
             contrast_renderer::ui::tabs::tab_container,
