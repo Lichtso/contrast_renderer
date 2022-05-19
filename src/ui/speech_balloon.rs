@@ -7,6 +7,7 @@ use crate::{
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering, Side,
     },
+    utils::translate2d,
 };
 
 pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
@@ -137,7 +138,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let mut unaffected = !context.was_attribute_touched(&["child_count"]);
+            let mut unaffected = !context.was_attribute_touched(&["child_count", "track_node"]);
             context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
                 if node.was_attribute_touched(&["proposed_half_extent"]) {
                     unaffected = false;
@@ -158,6 +159,22 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 half_extent[1] += padding;
                 context.set_half_extent(half_extent.into());
             }
+            let half_extent = context.get_half_extent(false).unwrap();
+            let arrow_extent = match_option!(context.derive_attribute("speech_balloon_arrow_extent"), Value::Float1)
+                .unwrap()
+                .unwrap();
+            let arrow_origin = match_option!(context.derive_attribute("speech_balloon_arrow_origin"), Value::Float1)
+                .unwrap()
+                .unwrap();
+            let arrow_side = match_option!(context.derive_attribute("speech_balloon_arrow_side"), Value::Side).unwrap();
+            let translation = match arrow_side {
+                Side::Bottom => [arrow_origin, half_extent[1] + arrow_extent],
+                Side::Left => [half_extent[0] + arrow_extent, arrow_origin],
+                Side::Top => [arrow_origin, -half_extent[1] - arrow_extent],
+                Side::Right => [-half_extent[0] - arrow_extent, arrow_origin],
+                _ => panic!(),
+            };
+            context.set_attribute("absolute_motor", Value::Float4(translate2d(translation).into()));
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }
