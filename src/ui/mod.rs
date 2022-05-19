@@ -245,7 +245,8 @@ pub struct Node {
     messenger_handler: MessengerHandler,
     properties: HashMap<&'static str, Value>,
     property_animations: HashMap<&'static str, Vec<AnimationFrame>>,
-    touched_attributes: HashSet<&'static str>,
+    in_touched_attributes: HashSet<&'static str>,
+    out_touched_attributes: HashSet<&'static str>,
 
     global_id: GlobalNodeIdentifier,
     local_id: NodeOrObservableIdentifier,
@@ -253,8 +254,9 @@ pub struct Node {
     children: HashMap<NodeOrObservableIdentifier, GlobalNodeIdentifier>,
     parent: Option<GlobalNodeIdentifier>,
 
+    nesting_depth: usize,
     ordered_children: Vec<GlobalNodeIdentifier>,
-    configuration_in_process: bool,
+    in_reconfigure_queue: bool,
     colored_shapes: Vec<(SafeFloat<f32, 4>, Shape)>,
     clip_shape: Option<Box<Shape>>,
     colored_shapes_instance: u32,
@@ -281,7 +283,8 @@ impl Default for Node {
             messenger_handler: |_context: &mut NodeMessengerContext, _message: &Messenger| panic!(),
             properties: HashMap::new(),
             property_animations: HashMap::new(),
-            touched_attributes: HashSet::new(),
+            in_touched_attributes: HashSet::new(),
+            out_touched_attributes: HashSet::new(),
 
             global_id: 0,
             local_id: NodeOrObservableIdentifier::Named("uninitialized"),
@@ -289,8 +292,9 @@ impl Default for Node {
             children: HashMap::new(),
             parent: None,
 
+            nesting_depth: 0,
             ordered_children: Vec::new(),
-            configuration_in_process: false,
+            in_reconfigure_queue: false,
             colored_shapes: Vec::new(),
             clip_shape: None,
             colored_shapes_instance: 0,
@@ -302,7 +306,7 @@ impl Default for Node {
 impl Node {
     pub(crate) fn advance_property_animations(&mut self, current_time: f64) -> bool {
         let properties = &mut self.properties;
-        let touched_attributes = &mut self.touched_attributes;
+        let in_touched_attributes = &mut self.in_touched_attributes;
         let mut result = false;
         self.property_animations.retain(|attribute, key_frames| {
             let retain_from_index = key_frames
@@ -317,12 +321,12 @@ impl Node {
             } else if key_frames.len() == 1 {
                 result |= true;
                 properties.insert(attribute, key_frames[0].value.clone());
-                touched_attributes.insert(attribute);
+                in_touched_attributes.insert(attribute);
                 false
             } else {
                 result |= true;
                 properties.insert(attribute, key_frames[1].interpolate(&key_frames[0], current_time));
-                touched_attributes.insert(attribute);
+                in_touched_attributes.insert(attribute);
                 true
             }
         });
@@ -334,13 +338,13 @@ impl Node {
             return false;
         }
         self.messenger_handler = messenger_handler;
-        self.touched_attributes.insert("messenger_handler");
+        self.in_touched_attributes.insert("messenger_handler");
         true
     }
 
     pub fn was_attribute_touched(&self, attributes: &[&'static str]) -> bool {
         for attribute in attributes {
-            if self.touched_attributes.contains(attribute) {
+            if self.out_touched_attributes.contains(attribute) {
                 return true;
             }
         }
@@ -348,7 +352,7 @@ impl Node {
     }
 
     pub fn touch_attribute(&mut self, attribute: &'static str) {
-        self.touched_attributes.insert(attribute);
+        self.in_touched_attributes.insert(attribute);
     }
 
     pub fn get_attribute(&self, attribute: &'static str) -> Value {
@@ -364,7 +368,7 @@ impl Node {
             return false;
         }
         self.properties.insert(attribute, value);
-        self.touched_attributes.insert(attribute);
+        self.in_touched_attributes.insert(attribute);
         true
     }
 
