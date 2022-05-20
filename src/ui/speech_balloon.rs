@@ -1,5 +1,5 @@
 use crate::{
-    match_option,
+    hash_set, match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, LineSegment, Path, StrokeOptions},
     ui::{
         message::{focus_parent_or_child, rendering_default_behavior, Messenger, PropagationDirection},
@@ -9,6 +9,7 @@ use crate::{
     },
     utils::translate2d,
 };
+use geometric_algebra::{ppga2d, One};
 
 pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
@@ -138,7 +139,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
         }
         "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
-            let mut unaffected = !context.was_attribute_touched(&["child_count", "track_node"]);
+            let mut unaffected = !context.was_attribute_touched(&["child_count", "track_node", "track_motor"]);
             context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
                 if node.was_attribute_touched(&["proposed_half_extent"]) {
                     unaffected = false;
@@ -174,8 +175,27 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 Side::Right => [-half_extent[0] - arrow_extent, arrow_origin],
                 _ => panic!(),
             };
-            context.set_attribute("absolute_motor", Value::Float4(translate2d(translation).into()));
+            let mut absolute_motor: ppga2d::Motor = if let Value::Natural1(global_node_id) = context.get_attribute("track_node") {
+                context.observe(
+                    hash_set! {NodeOrObservableIdentifier::NodeAttribute(global_node_id, "absolute_motor")},
+                    false,
+                );
+                match_option!(context.get_attribute("track_motor"), Value::Float4)
+                    .map(|value| value.into())
+                    .unwrap_or_else(ppga2d::Motor::one)
+            } else {
+                ppga2d::Motor::one()
+            };
+            absolute_motor.g0[0] = 1.0;
+            absolute_motor.g0[1] = 0.0;
+            context.set_attribute("motor", Value::Float4((absolute_motor * translate2d(translation)).into()));
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
+            Vec::new()
+        }
+        "PropertyChanged" => {
+            if messenger.get_attribute("attribute") == &Value::Attribute("absolute_motor") {
+                context.set_attribute("track_motor", messenger.get_attribute("value").clone());
+            }
             Vec::new()
         }
         "PointerInput" => {

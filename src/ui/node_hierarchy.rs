@@ -115,6 +115,20 @@ impl<'a> NodeMessengerContext<'a> {
                     .collect();
             }
             node.in_touched_attributes.clear();
+            for attribute in node.out_touched_attributes.iter() {
+                let observable = NodeOrObservableIdentifier::NodeAttribute(self.global_node_id, attribute);
+                if self.node_hierarchy.observer_channels.contains_key(&observable) {
+                    let mut messenger = Messenger::new(
+                        &message::PROPERTY_CHANGED,
+                        hash_map! {
+                            "attribute" => Value::Attribute(attribute),
+                            "value" => node.get_attribute(attribute),
+                        },
+                    );
+                    messenger.propagation_direction = PropagationDirection::Observers(observable);
+                    self.node_hierarchy.messenger_stack.push((0, messenger));
+                }
+            }
         } else if !node.out_touched_attributes.is_empty() {
             // print!("self touched_attributes={:?} ", node.out_touched_attributes);
             reconfigure_node!(self.node_hierarchy, node);
