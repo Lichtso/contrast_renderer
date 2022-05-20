@@ -116,7 +116,13 @@ impl application_framework::Application for Application {
         let mut ui_event_translator = contrast_renderer::ui::message::WinitEventTranslator::default();
         ui_event_translator.load_keymap(KEYMAP).unwrap();
 
-        let speech_balloon_node_id = ui_node_hierarchy.create_node(contrast_renderer::ui::speech_balloon::speech_balloon, hash_map! {}, None);
+        let speech_balloon_node_id = ui_node_hierarchy.create_node(
+            contrast_renderer::ui::speech_balloon::speech_balloon,
+            hash_map! {
+                "track_node" => Value::Natural1(11),
+            },
+            None,
+        );
 
         ui_node_hierarchy.create_node(
             contrast_renderer::ui::label::text_label,

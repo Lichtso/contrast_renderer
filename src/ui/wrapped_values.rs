@@ -36,6 +36,7 @@ pub enum Value {
     Rendering(Box<Rendering>),
     NodeOrObservableIdentifier(NodeOrObservableIdentifier),
     Node(Rc<RefCell<Node>>),
+    Attribute(&'static str),
     Map(HashMap<&'static str, Value>),
     Vec(Vec<Value>),
 }
