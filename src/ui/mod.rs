@@ -42,6 +42,8 @@ pub enum NodeOrObservableIdentifier {
     AxisInput(usize),
     /// Captured pointer input source
     PointerInput(usize),
+    /// Property of a specific node
+    NodeAttribute(GlobalNodeIdentifier, &'static str),
 }
 
 /// Geometric orientation.
