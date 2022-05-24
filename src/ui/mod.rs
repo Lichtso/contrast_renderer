@@ -6,7 +6,12 @@ use crate::{
 };
 use message::Messenger;
 use node_hierarchy::NodeMessengerContext;
-use std::{collections::HashMap, collections::HashSet, hash::Hash};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    hash::Hash,
+    rc::Rc,
+};
 use wrapped_values::Value;
 
 pub mod checkbox;
@@ -306,6 +311,16 @@ impl Default for Node {
 }
 
 impl Node {
+    pub fn new(messenger_handler: MessengerHandler, properties: HashMap<&'static str, Value>) -> Rc<RefCell<Self>> {
+        let in_touched_attributes = properties.keys().cloned().collect();
+        Rc::new(RefCell::new(Self {
+            messenger_handler,
+            properties,
+            in_touched_attributes,
+            ..Node::default()
+        }))
+    }
+
     pub(crate) fn advance_property_animations(&mut self, current_time: f64) -> bool {
         let properties = &mut self.properties;
         let in_touched_attributes = &mut self.in_touched_attributes;
