@@ -5,7 +5,7 @@ use crate::{
         message::{self, Messenger, PropagationDirection},
         renderer::{FrameContext, Renderer},
         wrapped_values::Value,
-        GlobalNodeIdentifier, MessengerHandler, Node, NodeOrObservableIdentifier,
+        GlobalNodeIdentifier, Node, NodeOrObservableIdentifier,
     },
     utils::{matrix_multiplication, motor2d_to_motor3d, motor3d_to_mat4},
 };
@@ -373,7 +373,7 @@ pub struct NodeHierarchy {
 }
 
 impl NodeHierarchy {
-    fn insert_node(
+    pub fn insert_node(
         &mut self,
         node: Rc<RefCell<Node>>,
         parent_link: Option<(GlobalNodeIdentifier, NodeOrObservableIdentifier)>,
@@ -400,22 +400,6 @@ impl NodeHierarchy {
         drop(borrowed_node);
         self.nodes.insert(global_node_id, node);
         global_node_id
-    }
-
-    pub fn create_node(
-        &mut self,
-        messenger_handler: MessengerHandler,
-        properties: HashMap<&'static str, Value>,
-        parent_link: Option<(GlobalNodeIdentifier, NodeOrObservableIdentifier)>,
-    ) -> GlobalNodeIdentifier {
-        let in_touched_attributes = properties.keys().cloned().collect();
-        let node = Node {
-            messenger_handler,
-            properties,
-            in_touched_attributes,
-            ..Node::default()
-        };
-        self.insert_node(Rc::new(RefCell::new(node)), parent_link)
     }
 
     pub fn delete_node(&mut self, global_node_id: GlobalNodeIdentifier) -> Rc<RefCell<Node>> {
