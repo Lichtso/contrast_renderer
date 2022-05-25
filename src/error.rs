@@ -5,10 +5,8 @@
 pub enum Error {
     /// The choice of the parameters `clip_nesting_counter_bits` or `winding_counter_bits` is not supported.
     NumberOfStencilBitsIsUnsupported,
-    /// Pushed more than 2 to the power of `clip_nesting_counter_bits` [Shape](crate::renderer::Shape)s onto the [ClipStack](crate::renderer::ClipStack).
+    /// Trying to render with more than 2 to the power of `clip_nesting_counter_bits` nested clip [Shape](crate::renderer::Shape)s.
     ClipStackOverflow,
-    /// Popped from an empty [ClipStack](crate::renderer::ClipStack).
-    ClipStackUnderflow,
     /// Exceeded the maximum number of [DashInterval](crate::path::DashInterval)s in [DynamicStrokeOptions](crate::path::DynamicStrokeOptions).
     TooManyDashIntervals,
     /// The passed [DynamicStrokeOptions](crate::path::DynamicStrokeOptions) index is invalid.

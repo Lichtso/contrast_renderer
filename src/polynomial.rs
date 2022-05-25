@@ -16,6 +16,7 @@ pub struct Root {
 }
 
 impl Root {
+    /// Creates a new [Root]
     pub fn new(numerator_real: f32, numerator_imag: f32, denominator: f32) -> Self {
         Self {
             numerator_real,

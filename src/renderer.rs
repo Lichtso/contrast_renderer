@@ -12,7 +12,7 @@ use crate::{
 use std::ops::Range;
 use wgpu::{include_wgsl, util::DeviceExt, vertex_attr_array};
 
-/// Color used in [Renderer::set_solid_color]
+/// Color used in [RenderOperation::Color]
 pub type Color = SafeFloat<f32, 4>;
 
 #[derive(Default, Clone)]
@@ -72,7 +72,7 @@ pub struct Buffer {
 impl Buffer {
     /// Creates a new [Buffer]
     ///
-    /// Note: `usage` must include `wgpu::BufferUsages::COPY_DST` so that [update] can be used.
+    /// Note: `usage` must include `wgpu::BufferUsages::COPY_DST` so that [Buffer::update] can be used.
     pub fn new(device: &wgpu::Device, usage: wgpu::BufferUsages, data: &[u8]) -> Self {
         Self {
             length: data.len(),
@@ -94,7 +94,7 @@ impl Buffer {
         }
     }
 
-    // Returns a [wgpu::BufferBinding] for a slice of this buffer
+    /// Returns a [wgpu::BufferBinding] for a slice of this buffer
     pub fn get_binding<R: std::ops::RangeBounds<u64>>(&self, range: R) -> wgpu::BufferBinding {
         let offset = match range.start_bound() {
             std::ops::Bound::<&u64>::Included(index) => *index,
@@ -116,6 +116,7 @@ impl Buffer {
     }
 }
 
+/// Concats the given sequence of [Buffer]s and serializes them into a `Vec<u8>`
 #[macro_export]
 macro_rules! concat_buffers {
     (count: $buffer:expr $(,)?) => {
@@ -137,6 +138,19 @@ macro_rules! concat_buffers {
         let buffer_data = buffers.concat();
         (end_offsets, buffer_data)
     }};
+}
+
+/// Which shader to use for rendering a shape
+#[derive(Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Debug)]
+pub enum RenderOperation {
+    /// Prepare rendering the [Shape]
+    Stencil,
+    /// Render the [Shape] as a solid color
+    Color,
+    /// Start using the rendered [Shape] as stencil for other [Shape]s
+    Clip,
+    /// Stop using the rendered [Shape] as stencil for other [Shape]s
+    UnClip,
 }
 
 /// A set of [Path]s which is always rendered together
@@ -228,96 +242,101 @@ impl Shape {
         })
     }
 
-    /// Renderes the [Shape] into the stencil buffer.
-    pub fn render_stencil<'a>(
-        &'a self,
-        renderer: &'a Renderer,
-        render_pass: &mut wgpu::RenderPass<'a>,
-        clip_stack_height: usize,
-        instance_indices: Range<u32>,
-    ) {
-        render_pass.set_stencil_reference((clip_stack_height << renderer.winding_counter_bits) as u32);
-        if let Some(stroke_bind_group) = &self.stroke_bind_group {
-            render_pass.set_bind_group(0, stroke_bind_group, &[]);
-            if self.vertex_offsets[0] > 0 {
-                render_pass.set_pipeline(&renderer.stroke_line_pipeline);
-                render_pass.set_vertex_buffer(1, self.vertex_buffer.buffer.slice(0..self.vertex_offsets[0] as u64));
-                render_pass.set_index_buffer(self.index_buffer.buffer.slice(0..self.index_offsets[0] as u64), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(
-                    0..(self.index_offsets[0] / std::mem::size_of::<u16>()) as u32,
-                    0,
-                    instance_indices.clone(),
-                );
-            }
-            let begin_offset = self.vertex_offsets[0];
-            let end_offset = self.vertex_offsets[1];
-            if begin_offset < end_offset {
-                render_pass.set_pipeline(&renderer.stroke_joint_pipeline);
-                render_pass.set_vertex_buffer(1, self.vertex_buffer.buffer.slice(begin_offset as u64..end_offset as u64));
-                render_pass.set_index_buffer(
-                    self.index_buffer.buffer.slice(self.index_offsets[0] as u64..self.index_offsets[1] as u64),
-                    wgpu::IndexFormat::Uint16,
-                );
-                render_pass.draw_indexed(
-                    0..((self.index_offsets[1] - self.index_offsets[0]) / std::mem::size_of::<u16>()) as u32,
-                    0,
-                    instance_indices.clone(),
-                );
-            }
-        }
-        let begin_offset = self.vertex_offsets[1];
-        let end_offset = self.vertex_offsets[2];
-        if begin_offset < end_offset {
-            render_pass.set_pipeline(&renderer.fill_solid_pipeline);
-            render_pass.set_vertex_buffer(1, self.vertex_buffer.buffer.slice(begin_offset as u64..end_offset as u64));
-            render_pass.set_index_buffer(
-                self.index_buffer.buffer.slice(self.index_offsets[1] as u64..self.index_offsets[2] as u64),
-                wgpu::IndexFormat::Uint16,
-            );
-            render_pass.draw_indexed(
-                0..((self.index_offsets[2] - self.index_offsets[1]) / std::mem::size_of::<u16>()) as u32,
-                0,
-                instance_indices.clone(),
-            );
-        }
-        for (i, (pipeline, vertex_size)) in [
-            (&renderer.fill_integral_quadratic_curve_pipeline, std::mem::size_of::<Vertex2f>()),
-            (&renderer.fill_integral_cubic_curve_pipeline, std::mem::size_of::<Vertex3f>()),
-            (&renderer.fill_rational_quadratic_curve_pipeline, std::mem::size_of::<Vertex3f>()),
-            (&renderer.fill_rational_cubic_curve_pipeline, std::mem::size_of::<Vertex4f>()),
-        ]
-        .iter()
-        .enumerate()
-        {
-            let begin_offset = self.vertex_offsets[i + 2];
-            let end_offset = self.vertex_offsets[i + 3];
-            if begin_offset < end_offset {
-                render_pass.set_pipeline(pipeline);
-                render_pass.set_vertex_buffer(1, self.vertex_buffer.buffer.slice(begin_offset as u64..end_offset as u64));
-                render_pass.draw(0..((end_offset - begin_offset) / vertex_size) as u32, instance_indices.clone());
-            }
-        }
-    }
-
-    /// Renderes the [Shape] using a user provided [wgpu::RenderPipeline] or the [Renderer::color_solid_pipeline].
+    /// Renderes instances of the [Shape] using the provided `operation` into the given `render_pass`.
     ///
-    /// Requires the [Shape] to be stenciled and [render_pass.set_pipeline()] to be called first if `color_solid` is `false`.
-    pub fn render_cover<'a>(
+    /// To simply render this [Shape] do:
+    /// ```
+    ///   shape.render(&renderer, &mut render_pass, instance_indices, RenderOperation::Stencil);
+    ///   shape.render(&renderer, &mut render_pass, instance_indices, RenderOperation::Color);
+    /// ```
+    /// To clip other [Shape]s with this one do:
+    /// ```
+    ///   shape.render(&renderer, &mut render_pass, instance_indices, RenderOperation::Stencil);
+    ///   clip_depth += 1; renderer.set_clip_depth(&mut render_pass, clip_depth);
+    ///   shape.render(&renderer, &mut render_pass, instance_indices, RenderOperation::Clip);
+    ///   // render what should be clipped
+    ///   clip_depth -= 1; renderer.set_clip_depth(&mut render_pass, clip_depth);
+    ///   shape.render(&renderer, &mut render_pass, instance_indices, RenderOperation::UnClip);
+    /// ```
+    pub fn render<'a>(
         &'a self,
         renderer: &'a Renderer,
         render_pass: &mut wgpu::RenderPass<'a>,
-        clip_stack_height: usize,
         instance_indices: Range<u32>,
-        color_solid: bool,
+        render_operation: RenderOperation,
     ) {
+        match render_operation {
+            RenderOperation::Stencil => {
+                if let Some(stroke_bind_group) = &self.stroke_bind_group {
+                    render_pass.set_bind_group(0, stroke_bind_group, &[]);
+                    if self.vertex_offsets[0] > 0 {
+                        render_pass.set_pipeline(&renderer.stroke_line_pipeline);
+                        render_pass.set_vertex_buffer(1, self.vertex_buffer.buffer.slice(0..self.vertex_offsets[0] as u64));
+                        render_pass.set_index_buffer(self.index_buffer.buffer.slice(0..self.index_offsets[0] as u64), wgpu::IndexFormat::Uint16);
+                        render_pass.draw_indexed(
+                            0..(self.index_offsets[0] / std::mem::size_of::<u16>()) as u32,
+                            0,
+                            instance_indices.clone(),
+                        );
+                    }
+                    let begin_offset = self.vertex_offsets[0];
+                    let end_offset = self.vertex_offsets[1];
+                    if begin_offset < end_offset {
+                        render_pass.set_pipeline(&renderer.stroke_joint_pipeline);
+                        render_pass.set_vertex_buffer(1, self.vertex_buffer.buffer.slice(begin_offset as u64..end_offset as u64));
+                        render_pass.set_index_buffer(
+                            self.index_buffer.buffer.slice(self.index_offsets[0] as u64..self.index_offsets[1] as u64),
+                            wgpu::IndexFormat::Uint16,
+                        );
+                        render_pass.draw_indexed(
+                            0..((self.index_offsets[1] - self.index_offsets[0]) / std::mem::size_of::<u16>()) as u32,
+                            0,
+                            instance_indices.clone(),
+                        );
+                    }
+                }
+                let begin_offset = self.vertex_offsets[1];
+                let end_offset = self.vertex_offsets[2];
+                if begin_offset < end_offset {
+                    render_pass.set_pipeline(&renderer.fill_solid_pipeline);
+                    render_pass.set_vertex_buffer(1, self.vertex_buffer.buffer.slice(begin_offset as u64..end_offset as u64));
+                    render_pass.set_index_buffer(
+                        self.index_buffer.buffer.slice(self.index_offsets[1] as u64..self.index_offsets[2] as u64),
+                        wgpu::IndexFormat::Uint16,
+                    );
+                    render_pass.draw_indexed(
+                        0..((self.index_offsets[2] - self.index_offsets[1]) / std::mem::size_of::<u16>()) as u32,
+                        0,
+                        instance_indices.clone(),
+                    );
+                }
+                for (i, (pipeline, vertex_size)) in [
+                    (&renderer.fill_integral_quadratic_curve_pipeline, std::mem::size_of::<Vertex2f>()),
+                    (&renderer.fill_integral_cubic_curve_pipeline, std::mem::size_of::<Vertex3f>()),
+                    (&renderer.fill_rational_quadratic_curve_pipeline, std::mem::size_of::<Vertex3f>()),
+                    (&renderer.fill_rational_cubic_curve_pipeline, std::mem::size_of::<Vertex4f>()),
+                ]
+                .iter()
+                .enumerate()
+                {
+                    let begin_offset = self.vertex_offsets[i + 2];
+                    let end_offset = self.vertex_offsets[i + 3];
+                    if begin_offset < end_offset {
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.set_vertex_buffer(1, self.vertex_buffer.buffer.slice(begin_offset as u64..end_offset as u64));
+                        render_pass.draw(0..((end_offset - begin_offset) / vertex_size) as u32, instance_indices.clone());
+                    }
+                }
+                return;
+            }
+            RenderOperation::Color => render_pass.set_pipeline(&renderer.color_solid_pipeline),
+            RenderOperation::Clip => render_pass.set_pipeline(&renderer.increment_clip_nesting_counter_pipeline),
+            RenderOperation::UnClip => render_pass.set_pipeline(&renderer.decrement_clip_nesting_counter_pipeline),
+        }
         let begin_offset = self.vertex_offsets[6];
         let end_offset = self.vertex_offsets[7];
-        if color_solid {
-            render_pass.set_pipeline(&renderer.color_solid_pipeline);
-        }
-        render_pass.set_stencil_reference((clip_stack_height << renderer.winding_counter_bits) as u32);
         render_pass.set_vertex_buffer(
-            if color_solid { 2 } else { 1 },
+            if render_operation == RenderOperation::Color { 2 } else { 1 },
             self.vertex_buffer.buffer.slice(begin_offset as u64..end_offset as u64),
         );
         render_pass.draw(0..((end_offset - begin_offset) / std::mem::size_of::<Vertex0>()) as u32, instance_indices);
@@ -342,54 +361,6 @@ impl Shape {
             transmute_slice(&data),
         );
         Ok(())
-    }
-}
-
-/// Use [Shape]s as stencil for other [Shape]s
-///
-/// When using a [ClipStack], color is only rendered inside the logical AND (CSG intersection)
-/// of all the [Shape]s on the stack with the [Shape] to be rendered.
-#[derive(Default)]
-pub struct ClipStack {
-    stack: Vec<Range<u32>>,
-}
-
-impl ClipStack {
-    /// The number of clip [Shape]s on the stack.
-    pub fn height(&self) -> usize {
-        self.stack.len()
-    }
-
-    /// Adds a clip [Shape] on top of the stack.
-    pub fn push<'b, 'a: 'b>(
-        &mut self,
-        renderer: &'b Renderer,
-        render_pass: &mut wgpu::RenderPass<'b>,
-        shape: &'a Shape,
-        instance_indices: Range<u32>,
-    ) -> Result<(), Error> {
-        if self.height() >= (1 << renderer.clip_nesting_counter_bits) {
-            return Err(Error::ClipStackOverflow);
-        }
-        shape.render_stencil(renderer, render_pass, self.height(), instance_indices.clone());
-        self.stack.push(instance_indices.clone());
-        render_pass.set_pipeline(&renderer.increment_clip_nesting_counter_pipeline);
-        shape.render_cover(renderer, render_pass, self.height(), instance_indices, false);
-        Ok(())
-    }
-
-    /// Removes the clip [Shape] at the top of the stack.
-    ///
-    /// A reference to the same [Shape] as used in [push] must be provided again.
-    pub fn pop<'b, 'a: 'b>(&mut self, renderer: &'b Renderer, render_pass: &mut wgpu::RenderPass<'b>, shape: &'a Shape) -> Result<(), Error> {
-        match self.stack.pop() {
-            Some(instance_indices) => {
-                render_pass.set_pipeline(&renderer.decrement_clip_nesting_counter_pipeline);
-                shape.render_cover(renderer, render_pass, self.height(), instance_indices, false);
-                Ok(())
-            }
-            None => Err(Error::ClipStackUnderflow),
-        }
     }
 }
 
@@ -473,7 +444,7 @@ pub struct Renderer {
 impl Renderer {
     /// Constructs a new [Renderer].
     ///
-    /// A [ClipStack] used with this [Renderer] can contain up to 2 to the power of `clip_nesting_counter_bits` [Shape]s.
+    /// Up to 2 to the power of `clip_nesting_counter_bits` nested clip [Shape]s are possible.
     /// The winding rule is: Non zero modulo 2 to the power of `winding_counter_bits`.
     /// Thus, setting `winding_counter_bits` to 1 will result in the even-odd winding rule.
     /// Wgpu only supports 8 stencil bits so the sum of `clip_nesting_counter_bits` and `winding_counter_bits` can be 8 at most.
@@ -722,5 +693,16 @@ impl Renderer {
             decrement_clip_nesting_counter_pipeline,
             color_solid_pipeline,
         })
+    }
+
+    /// Adjusts the `clip_depth` in the given `render_pass`.
+    ///
+    /// Increment before [RenderOperation::Clip] and decrement again before [RenderOperation::UnClip].
+    pub fn set_clip_depth(&self, render_pass: &mut wgpu::RenderPass, clip_depth: usize) -> Result<(), Error> {
+        if clip_depth >= (1 << self.clip_nesting_counter_bits) {
+            return Err(Error::ClipStackOverflow);
+        }
+        render_pass.set_stencil_reference((clip_depth << self.winding_counter_bits) as u32);
+        Ok(())
     }
 }

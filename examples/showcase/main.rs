@@ -1,6 +1,7 @@
 #[path = "../application_framework.rs"]
 mod application_framework;
 
+use contrast_renderer::renderer::RenderOperation;
 use geometric_algebra::{
     ppga3d::{Rotor, Translator},
     One,
@@ -175,7 +176,7 @@ impl application_framework::Application for Application {
                 }),
             });
             render_pass.set_vertex_buffer(0, self.instance_buffers[0].buffer.slice(..));
-            self.shape.render_stencil(&self.renderer, &mut render_pass, 0, 0..1);
+            self.shape.render(&self.renderer, &mut render_pass, 0..1, RenderOperation::Stencil);
         }
         {
             let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -207,7 +208,7 @@ impl application_framework::Application for Application {
             });
             render_pass.set_vertex_buffer(0, self.instance_buffers[0].buffer.slice(..));
             render_pass.set_vertex_buffer(1, self.instance_buffers[1].buffer.slice(..));
-            self.shape.render_cover(&self.renderer, &mut render_pass, 0, 0..1, true);
+            self.shape.render(&self.renderer, &mut render_pass, 0..1, RenderOperation::Color);
         }
         queue.submit(Some(encoder.finish()));
     }

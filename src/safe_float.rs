@@ -2,9 +2,10 @@
 
 use geometric_algebra::{ppga2d, ppga3d};
 
+/// Unlike `f32` and `f64` this guarantees that `x == x` so it can be used to sort and hash
 #[derive(Clone, Copy)]
 pub struct SafeFloat<DataType, const N: usize> {
-    pub values: [DataType; N],
+    values: [DataType; N],
 }
 
 macro_rules! implement {
@@ -22,6 +23,7 @@ macro_rules! implement {
         }
 
         impl SafeFloat<$f_type, 1> {
+            /// Returns the unpacked value
             pub fn unwrap(self) -> $f_type {
                 self.values[0]
             }
@@ -119,6 +121,7 @@ macro_rules! implement {
         }
 
         impl SafeFloat<$f_type, $n> {
+            /// Returns the unpacked values
             pub fn unwrap(self) -> [$f_type; $n] {
                 self.values
             }

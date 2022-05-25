@@ -119,13 +119,13 @@ pub enum Orientation {
 /// Defines where the origin of the text is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Alignment {
-    /// Origin is to the bottom left of the text (assuming [Orientation] is [LeftToRight]).
+    /// Origin is to the bottom left of the text (when [Orientation::LeftToRight]).
     Begin,
     /// Origin is on the baseline of the text.
     Baseline,
     /// Origin is at the center of the text.
     Center,
-    /// Origin is to the top right of the text (assuming [Orientation] is [LeftToRight]).
+    /// Origin is to the top right of the text (when [Orientation::LeftToRight]).
     End,
 }
 
