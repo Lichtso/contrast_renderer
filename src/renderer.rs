@@ -21,7 +21,7 @@ struct DynamicStrokeDescriptor {
     gap_start: [f32; MAX_DASH_INTERVALS],
     gap_end: [f32; MAX_DASH_INTERVALS],
     caps: u32,
-    meta: u32,
+    count_dashed_join: u32,
     phase: f32,
     _padding: u32,
 }
@@ -36,7 +36,7 @@ fn convert_dynamic_stroke_options(dynamic_stroke_options: &DynamicStrokeOptions)
                 gap_start: [0.0; MAX_DASH_INTERVALS],
                 gap_end: [0.0; MAX_DASH_INTERVALS],
                 caps: 0,
-                meta: ((pattern.len() as u32 - 1) << 3) | 4 | *join as u32,
+                count_dashed_join: ((pattern.len() as u32 - 1) << 3) | 4 | *join as u32,
                 phase: phase.unwrap(),
                 _padding: 0,
             };
@@ -52,7 +52,7 @@ fn convert_dynamic_stroke_options(dynamic_stroke_options: &DynamicStrokeOptions)
             gap_start: [0.0; MAX_DASH_INTERVALS],
             gap_end: [0.0; MAX_DASH_INTERVALS],
             caps: *start as u32 | ((*end as u32) << 4),
-            meta: *join as u32,
+            count_dashed_join: *join as u32,
             phase: 0.0,
             _padding: 0,
         }),

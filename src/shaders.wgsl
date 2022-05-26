@@ -4,7 +4,7 @@ struct DynamicStrokeDescriptor {
     gap_start: array<f32, MAX_DASH_INTERVALS>;
     gap_end: array<f32, MAX_DASH_INTERVALS>;
     caps: u32;
-    meta: u32;
+    count_dashed_join: u32;
     phase: f32;
 };
 struct DynamicStrokeDescriptors {
@@ -43,7 +43,7 @@ struct Fragment2f {
 struct Fragment2f1u {
     [[builtin(position)]] gl_Position: vec4<f32>;
     [[location(0), interpolate(perspective, sample)]] texcoord: vec2<f32>;
-    [[location(1), interpolate(flat)]] meta: u32;
+    [[location(1), interpolate(flat)]] bevel_path_index: u32;
     [[location(2), interpolate(flat)]] end_texcoord_y: f32;
 };
 
@@ -55,7 +55,7 @@ struct Fragment3f {
 struct Fragment3f1u {
     [[builtin(position)]] gl_Position: vec4<f32>;
     [[location(0), interpolate(perspective, sample)]] texcoord: vec3<f32>;
-    [[location(1), interpolate(flat)]] meta: u32;
+    [[location(1), interpolate(flat)]] bevel_path_index: u32;
 };
 
 struct Fragment4f {
@@ -73,9 +73,9 @@ fn vertex0(
     instance: Instance,
     [[location(4)]] position: vec2<f32>,
 ) -> Fragment0 {
-    var out: Fragment0;
-    out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
-    return out;
+    var stage_out: Fragment0;
+    stage_out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
+    return stage_out;
 }
 
 [[stage(vertex)]]
@@ -84,10 +84,10 @@ fn vertex2f(
     [[location(4)]] position: vec2<f32>,
     [[location(5)]] weights: vec2<f32>,
 ) -> Fragment2f {
-    var out: Fragment2f;
-    out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
-    out.weights = weights;
-    return out;
+    var stage_out: Fragment2f;
+    stage_out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
+    stage_out.weights = weights;
+    return stage_out;
 }
 
 [[stage(vertex)]]
@@ -95,14 +95,14 @@ fn vertex2f1u(
     instance: Instance,
     [[location(4)]] position: vec2<f32>,
     [[location(5)]] texcoord: vec2<f32>,
-    [[location(6)]] meta: u32,
+    [[location(6)]] bevel_path_index: u32,
 ) -> Fragment2f1u {
-    var out: Fragment2f1u;
-    out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
-    out.texcoord = texcoord;
-    out.meta = meta;
-    out.end_texcoord_y = texcoord.y;
-    return out;
+    var stage_out: Fragment2f1u;
+    stage_out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
+    stage_out.texcoord = texcoord;
+    stage_out.bevel_path_index = bevel_path_index;
+    stage_out.end_texcoord_y = texcoord.y;
+    return stage_out;
 }
 
 [[stage(vertex)]]
@@ -111,10 +111,10 @@ fn vertex3f(
     [[location(4)]] position: vec2<f32>,
     [[location(5)]] weights: vec3<f32>,
 ) -> Fragment3f {
-    var out: Fragment3f;
-    out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
-    out.weights = weights;
-    return out;
+    var stage_out: Fragment3f;
+    stage_out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
+    stage_out.weights = weights;
+    return stage_out;
 }
 
 [[stage(vertex)]]
@@ -122,13 +122,13 @@ fn vertex3f1u(
     instance: Instance,
     [[location(4)]] position: vec2<f32>,
     [[location(5)]] texcoord: vec3<f32>,
-    [[location(6)]] meta: u32,
+    [[location(6)]] bevel_path_index: u32,
 ) -> Fragment3f1u {
-    var out: Fragment3f1u;
-    out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
-    out.texcoord = texcoord;
-    out.meta = meta;
-    return out;
+    var stage_out: Fragment3f1u;
+    stage_out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
+    stage_out.texcoord = texcoord;
+    stage_out.bevel_path_index = bevel_path_index;
+    return stage_out;
 }
 
 [[stage(vertex)]]
@@ -137,10 +137,10 @@ fn vertex4f(
     [[location(4)]] position: vec2<f32>,
     [[location(5)]] weights: vec4<f32>,
 ) -> Fragment4f {
-    var out: Fragment4f;
-    out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
-    out.weights = weights;
-    return out;
+    var stage_out: Fragment4f;
+    stage_out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
+    stage_out.weights = weights;
+    return stage_out;
 }
 
 [[stage(vertex)]]
@@ -149,22 +149,22 @@ fn vertex_color(
     [[location(4)]] position: vec2<f32>,
     [[location(5)]] color: vec4<f32>,
 ) -> FragmentColor {
-    var out: FragmentColor;
-    out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
-    out.color = color;
-    return out;
+    var stage_out: FragmentColor;
+    stage_out.gl_Position = instance_transform(instance) * vec4<f32>(position, 0.0, 1.0);
+    stage_out.color = color;
+    return stage_out;
 }
 
 
 
 struct Coverage {
-    [[builtin(sample_mask)]] mask_out: u32;
+    [[builtin(sample_mask)]] mask: u32;
 };
 
 fn coverage(gl_SampleID: u32, keep: bool) -> Coverage {
-    var out: Coverage;
-    out.mask_out = select(0u, 1u << (gl_SampleID & 31u), keep);
-    return out;
+    var stage_out: Coverage;
+    stage_out.mask = select(0u, 1u << (gl_SampleID & 31u), keep);
+    return stage_out;
 }
 
 fn cap(texcoord: vec2<f32>, cap_type: u32) -> bool {
@@ -193,13 +193,13 @@ fn cap(texcoord: vec2<f32>, cap_type: u32) -> bool {
     }
 }
 
-fn joint(radius: f32, meta: u32, joint_type: u32) -> bool {
-    switch(i32(joint_type & 3u)) {
+fn joint(radius: f32, bevel: bool, count_dashed_join: u32) -> bool {
+    switch(i32(count_dashed_join)) {
         default: { // Miter
             return true;
         }
         case 1: { // Bevel
-            return (meta & 65536u) != 0u;
+            return bevel;
         }
         case 2: { // Round
             return radius <= 0.5;
@@ -208,7 +208,7 @@ fn joint(radius: f32, meta: u32, joint_type: u32) -> bool {
 }
 
 fn stroke_dashed(path_index: u32, texcoord: vec2<f32>) -> bool {
-    let last_interval_index: u32 = u_stroke.groups[path_index].meta >> 3u;
+    let last_interval_index: u32 = u_stroke.groups[path_index].count_dashed_join >> 3u;
     let pattern_length: f32 = u_stroke.groups[path_index].gap_end[last_interval_index];
     var interval_index: u32 = 0u;
     var gap_start: f32;
@@ -240,49 +240,49 @@ fn stencil_solid() {}
 
 [[stage(fragment)]]
 fn stencil_integral_quadratic_curve(
-    in: Fragment2f,
+    stage_in: Fragment2f,
     [[builtin(sample_index)]] gl_SampleID: u32,
 ) -> Coverage {
-    return coverage(gl_SampleID, in.weights.x * in.weights.x - in.weights.y <= 0.0);
+    return coverage(gl_SampleID, stage_in.weights.x * stage_in.weights.x - stage_in.weights.y <= 0.0);
 }
 
 [[stage(fragment)]]
 fn stencil_integral_cubic_curve(
-    in: Fragment3f,
+    stage_in: Fragment3f,
     [[builtin(sample_index)]] gl_SampleID: u32,
 ) -> Coverage {
-    return coverage(gl_SampleID, in.weights.x * in.weights.x * in.weights.x - in.weights.y * in.weights.z <= 0.0);
+    return coverage(gl_SampleID, stage_in.weights.x * stage_in.weights.x * stage_in.weights.x - stage_in.weights.y * stage_in.weights.z <= 0.0);
 }
 
 [[stage(fragment)]]
 fn stencil_rational_quadratic_curve(
-    in: Fragment3f,
+    stage_in: Fragment3f,
     [[builtin(sample_index)]] gl_SampleID: u32,
 ) -> Coverage {
-    return coverage(gl_SampleID, in.weights.x * in.weights.x - in.weights.y * in.weights.z <= 0.0);
+    return coverage(gl_SampleID, stage_in.weights.x * stage_in.weights.x - stage_in.weights.y * stage_in.weights.z <= 0.0);
 }
 
 [[stage(fragment)]]
 fn stencil_rational_cubic_curve(
-    in: Fragment4f,
+    stage_in: Fragment4f,
     [[builtin(sample_index)]] gl_SampleID: u32,
 ) -> Coverage {
-    return coverage(gl_SampleID, in.weights.x * in.weights.x * in.weights.x - in.weights.y * in.weights.z * in.weights.w <= 0.0);
+    return coverage(gl_SampleID, stage_in.weights.x * stage_in.weights.x * stage_in.weights.x - stage_in.weights.y * stage_in.weights.z * stage_in.weights.w <= 0.0);
 }
 
 [[stage(fragment)]]
 fn stencil_stroke_line(
-    in: Fragment2f1u,
+    stage_in: Fragment2f1u,
     [[builtin(sample_index)]] gl_SampleID: u32,
 ) -> Coverage {
-    let path_index = in.meta & 65535u;
+    let path_index = stage_in.bevel_path_index & 65535u;
     var fill: bool;
-    if((u_stroke.groups[path_index].meta & 4u) != 0u) {
-        fill = stroke_dashed(path_index, in.texcoord);
-    } else if((in.meta & 65536u) != 0u) {
-        fill = cap(vec2<f32>(in.texcoord.x, in.texcoord.y - in.end_texcoord_y), u_stroke.groups[path_index].caps >> 4u);
-    } else if(in.texcoord.y < 0.0) {
-        fill = cap(vec2<f32>(in.texcoord.x, -in.texcoord.y), u_stroke.groups[path_index].caps);
+    if((u_stroke.groups[path_index].count_dashed_join & 4u) != 0u) {
+        fill = stroke_dashed(path_index, stage_in.texcoord);
+    } else if((stage_in.bevel_path_index & 65536u) != 0u) {
+        fill = cap(vec2<f32>(stage_in.texcoord.x, stage_in.texcoord.y - stage_in.end_texcoord_y), u_stroke.groups[path_index].caps >> 4u);
+    } else if(stage_in.texcoord.y < 0.0) {
+        fill = cap(vec2<f32>(stage_in.texcoord.x, -stage_in.texcoord.y), u_stroke.groups[path_index].caps);
     } else {
         fill = true;
     }
@@ -291,15 +291,15 @@ fn stencil_stroke_line(
 
 [[stage(fragment)]]
 fn stencil_stroke_joint(
-    in: Fragment3f1u,
+    stage_in: Fragment3f1u,
     [[builtin(sample_index)]] gl_SampleID: u32,
 ) -> Coverage {
-    let radius = length(in.texcoord.xy);
-    let path_index = in.meta & 65535u;
-    var fill: bool = joint(radius, in.meta, u_stroke.groups[path_index].meta);
+    let radius = length(stage_in.texcoord.xy);
+    let path_index = stage_in.bevel_path_index & 65535u;
+    var fill: bool = joint(radius, (stage_in.bevel_path_index & 65536u) != 0u, u_stroke.groups[path_index].count_dashed_join & 3u);
     let TAU: f32 = acos(-1.0) * 2.0;
-    if(fill && (u_stroke.groups[path_index].meta & 4u) != 0u) {
-        fill = stroke_dashed(path_index, vec2<f32>(radius, in.texcoord.z + atan2(in.texcoord.y, in.texcoord.x) / TAU));
+    if(fill && (u_stroke.groups[path_index].count_dashed_join & 4u) != 0u) {
+        fill = stroke_dashed(path_index, vec2<f32>(radius, stage_in.texcoord.z + atan2(stage_in.texcoord.y, stage_in.texcoord.x) / TAU));
     }
     return coverage(gl_SampleID, fill);
 }
@@ -308,7 +308,7 @@ fn stencil_stroke_joint(
 
 [[stage(fragment)]]
 fn fill_solid(
-    in: FragmentColor,
+    stage_in: FragmentColor,
 ) -> [[location(0)]] vec4<f32> {
-    return in.color;
+    return stage_in.color;
 }
