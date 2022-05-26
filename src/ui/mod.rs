@@ -21,10 +21,10 @@ pub mod label;
 pub mod list;
 pub mod message;
 pub mod node_hierarchy;
+pub mod overlay;
 pub mod range;
 pub mod renderer;
 pub mod scroll;
-pub mod speech_balloon;
 pub mod tabs;
 pub mod wrapped_values;
 

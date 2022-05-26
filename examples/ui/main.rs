@@ -116,25 +116,8 @@ impl application_framework::Application for Application {
         let mut ui_event_translator = contrast_renderer::ui::message::WinitEventTranslator::default();
         ui_event_translator.load_keymap(KEYMAP).unwrap();
 
-        let speech_balloon_node_id = ui_node_hierarchy.insert_node(
-            Node::new(
-                contrast_renderer::ui::speech_balloon::speech_balloon,
-                hash_map! {
-                    "track_node" => Value::Natural1(11),
-                },
-            ),
-            None,
-        );
-
-        ui_node_hierarchy.insert_node(
-            Node::new(
-                contrast_renderer::ui::label::text_label,
-                hash_map! {
-                    "text_content" => Value::TextString(" I am in a speech balloon ".to_string()),
-                },
-            ),
-            Some((speech_balloon_node_id, NodeOrObservableIdentifier::Named("content"))),
-        );
+        let overlay_container_node_id =
+            ui_node_hierarchy.insert_node(Node::new(contrast_renderer::ui::overlay::overlay_container, hash_map! {}), None);
 
         let tab_container_node_id = ui_node_hierarchy.insert_node(
             Node::new(
@@ -144,7 +127,7 @@ impl application_framework::Application for Application {
                     "half_extent" => Value::Float2([500.0, 300.0].into()),
                 },
             ),
-            None,
+            Some((overlay_container_node_id, NodeOrObservableIdentifier::Named("content"))),
         );
 
         let weights = [0.1, 0.3, 0.6];
