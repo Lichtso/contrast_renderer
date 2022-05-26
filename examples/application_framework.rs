@@ -193,6 +193,10 @@ impl ApplicationManager {
             let start_time = clock.now();
             (clock, start_time)
         };
+        let mut prev_frame = start_time;
+        let mut rolling_average = 0u32;
+        let mut average_window = [0u32; 64];
+        let mut average_window_slot = 0;
 
         let spawner = Spawner::new();
         event_loop.run(move |event, _, control_flow| {
@@ -230,11 +234,33 @@ impl ApplicationManager {
                     }
                 },
                 winit::event::Event::RedrawRequested(_) => {
-                    let frame = self.surface.get_current_texture().unwrap();
                     #[cfg(not(target_arch = "wasm32"))]
-                    let animation_time = start_time.elapsed().as_secs_f64();
+                    let (animation_time, frame_time) = {
+                        let now = std::time::Instant::now();
+                        let animation_time = (now - start_time).as_secs_f64();
+                        let frame_time = (now - prev_frame).subsec_micros();
+                        prev_frame = now;
+                        (animation_time, frame_time)
+                    };
                     #[cfg(target_arch = "wasm32")]
-                    let animation_time = (clock.now() - start_time) * 0.001;
+                    let (animation_time, frame_time) = {
+                        let now = clock.now();
+                        let animation_time = (now - start_time) * 0.001;
+                        let frame_time = ((now - prev_frame) * 1000.0) as u32;
+                        prev_frame = now;
+                        (animation_time, frame_time)
+                    };
+                    rolling_average -= average_window[average_window_slot];
+                    average_window[average_window_slot] = frame_time;
+                    rolling_average += average_window[average_window_slot];
+                    average_window_slot = (average_window_slot + 1) % average_window.len();
+                    log::info!(
+                        "rolling_average={} frame_time={}",
+                        rolling_average / average_window.len() as u32,
+                        frame_time
+                    );
+
+                    let frame = self.surface.get_current_texture().unwrap();
                     application.render(&self.device, &mut self.queue, &frame, animation_time);
                     frame.present();
                 }
