@@ -4,7 +4,7 @@ use crate::{
     error::Error,
     hash_map, match_option,
     safe_float::SafeFloat,
-    ui::{wrapped_values::Value, InputState, Node, NodeOrObservableIdentifier},
+    ui::{wrapped_values::Value, GlobalNodeIdentifier, InputState, Node, NodeOrObservableIdentifier},
 };
 use geometric_algebra::{ppga2d, Dual, Inverse, One, SquaredMagnitude, Transformation, Zero};
 use std::{collections::HashMap, hash::Hash};
@@ -63,10 +63,12 @@ pub struct MessengerBehavior {
 #[derive(Clone)]
 pub struct Messenger {
     /// Messenger instance properties
-    pub properties: HashMap<&'static str, Value>,
+    properties: HashMap<&'static str, Value>,
     /// Messenger trait
-    pub behavior: &'static MessengerBehavior,
-    /// Where this Messenger is heading to
+    pub(super) behavior: &'static MessengerBehavior,
+    /// Where this [Messenger] starts from
+    pub(super) source_node_id: GlobalNodeIdentifier,
+    /// Where this [Messenger] is heading to
     pub propagation_direction: PropagationDirection,
 }
 
@@ -87,8 +89,19 @@ impl Messenger {
         Self {
             properties,
             behavior,
+            source_node_id: 0,
             propagation_direction: behavior.default_propagation_direction,
         }
+    }
+
+    /// Returns the label of this [Messenger]s behavior
+    pub fn get_kind(&self) -> &'static str {
+        self.behavior.label
+    }
+
+    /// Returns the GlobalNodeIdentifier of the [Node] this [Messenger] came from
+    pub fn get_source_node_id(&self) -> GlobalNodeIdentifier {
+        self.source_node_id
     }
 
     /// Gets a reference to the [Value] of the given `attribute`
@@ -262,6 +275,26 @@ pub const SCROLL_TO: MessengerBehavior = MessengerBehavior {
 pub const PROPERTY_CHANGED: MessengerBehavior = MessengerBehavior {
     label: "PropertyChanged",
     default_propagation_direction: PropagationDirection::None,
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// Send the attached overlay node to an overlay container
+pub const OPEN_OVERLAY: MessengerBehavior = MessengerBehavior {
+    label: "OpenOverlay",
+    default_propagation_direction: PropagationDirection::Observers(NodeOrObservableIdentifier::Named("root")),
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+    reset_at_node_edge: RESET_AT_NODE_EDGE,
+};
+
+/// Send to close an overlay node in an overlay container
+pub const CLOSE_OVERLAY: MessengerBehavior = MessengerBehavior {
+    label: "CloseOverlay",
+    default_propagation_direction: PropagationDirection::Observers(NodeOrObservableIdentifier::Named("root")),
     get_captured_observable: GET_CAPTURED_OBSERVABLE,
     do_reflect: DO_REFLECT,
     update_at_node_edge: UPDATE_AT_NODE_EDGE,

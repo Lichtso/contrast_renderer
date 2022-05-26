@@ -12,7 +12,7 @@ use crate::{
 
 /// List
 pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match messenger.behavior.label {
+    match messenger.get_kind() {
         "Reconfigure" => {
             let first_phase = match_option!(context.get_attribute("first_phase"), Value::Boolean).unwrap_or(true);
             context.set_attribute_privately("first_phase", Value::Boolean(!first_phase));
@@ -114,13 +114,12 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
             }
             match changed_keycode {
                 '⇥' => {
-                    let focus_child_id = if messenger.get_attribute("origin") != &Value::Void {
-                        context.pointer_and_button_input_focus(messenger);
-                        return Vec::new();
-                    } else if input_state.pressed_keycodes.contains(&'⇧') {
-                        None
-                    } else {
-                        Some(NodeOrObservableIdentifier::Indexed(context.get_number_of_children() / 2))
+                    let focus_child_id = match messenger.get_attribute("origin") {
+                        Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Indexed(_)) => None,
+                        Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("parent")) => {
+                            Some(NodeOrObservableIdentifier::Indexed(context.get_number_of_children() / 2))
+                        }
+                        _ => panic!(),
                     };
                     vec![input_focus_parent_or_child(messenger, focus_child_id)]
                 }

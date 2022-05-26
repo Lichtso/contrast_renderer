@@ -12,7 +12,7 @@ use crate::{
 
 /// Checkbox
 pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match messenger.behavior.label {
+    match messenger.get_kind() {
         "PrepareRendering" => {
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {

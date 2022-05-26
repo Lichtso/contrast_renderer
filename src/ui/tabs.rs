@@ -14,7 +14,7 @@ use geometric_algebra::{ppga2d, simd::Simd32x4};
 
 /// Tab
 pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match messenger.behavior.label {
+    match messenger.get_kind() {
         "PrepareRendering" => {
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
@@ -85,7 +85,7 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
 
 /// Tab handle
 pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match messenger.behavior.label {
+    match messenger.get_kind() {
         "PrepareRendering" => {
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
@@ -186,7 +186,7 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
 
 /// Tab container
 pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    match messenger.behavior.label {
+    match messenger.get_kind() {
         "Reconfigure" => {
             let mut unaffected = !context.was_attribute_touched(&["child_count", "half_extent", "orientation"]);
             let mut active = None;
@@ -252,7 +252,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                 context.configure_child(
                     NodeOrObservableIdentifier::NamedAndIndexed("tab", child_index),
                     Some(|node: &mut Node| {
-                        node.set_attribute_privately("dormant", Value::Boolean(*weight == 0.0));
+                        node.set_attribute("dormant", Value::Boolean(*weight == 0.0));
                         node.set_attribute_privately("layer_index", Value::Natural1(0));
                         let mut child_half_extent = [0.0; 2];
                         child_half_extent[major_axis] = half_extent[major_axis] * weight;

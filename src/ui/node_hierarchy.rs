@@ -1,7 +1,7 @@
 //! Scene graph of ui [Node]s
 
 use crate::{
-    hash_map, hash_set, match_option,
+    hash_map, match_option,
     safe_float::SafeFloat,
     ui::{
         message::{self, Messenger, PropagationDirection},
@@ -31,6 +31,24 @@ macro_rules! reconfigure_node {
     };
 }
 
+macro_rules! notify_property_observers {
+    ($node_hierarchy:expr, $node:expr, $attribute:expr) => {
+        let observable = NodeOrObservableIdentifier::NodeAttribute($node.global_id, $attribute);
+        if $node_hierarchy.observer_channels.contains_key(&observable) {
+            let mut messenger = Messenger::new(
+                &message::PROPERTY_CHANGED,
+                hash_map! {
+                    "attribute" => Value::Attribute($attribute),
+                    "value" => $node.get_attribute($attribute),
+                },
+            );
+            messenger.source_node_id = $node.global_id;
+            messenger.propagation_direction = PropagationDirection::Observers(observable);
+            $node_hierarchy.messenger_stack.push(messenger);
+        }
+    };
+}
+
 /// Used to interact with the `self` [Node] inside a (MessengerHandler)[crate::ui::MessengerHandler]
 pub struct NodeMessengerContext<'a> {
     global_node_id: GlobalNodeIdentifier,
@@ -38,18 +56,33 @@ pub struct NodeMessengerContext<'a> {
 }
 
 impl<'a> NodeMessengerContext<'a> {
+    fn notify_dormant_recursively(&mut self, global_node_id: GlobalNodeIdentifier) {
+        let node = self.node_hierarchy.nodes.get(&global_node_id).unwrap().borrow();
+        notify_property_observers!(self.node_hierarchy, node, "dormant");
+        let ordered_children = node.ordered_children.clone(); // TODO: Efficency
+        drop(node);
+        for global_child_id in ordered_children.iter() {
+            self.notify_dormant_recursively(*global_child_id);
+        }
+    }
+
     fn invoke_handler(&mut self, messenger: &mut Messenger) -> bool {
         let mut node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow_mut();
         if node.get_attribute("dormant") == Value::Boolean(true) {
             node.in_reconfigure_queue = false;
+            if node.in_touched_attributes.contains("dormant") {
+                node.in_touched_attributes.remove("dormant");
+                drop(node);
+                self.notify_dormant_recursively(self.global_node_id);
+            }
             return true;
         }
         let messenger_handler = node.messenger_handler;
         drop(node);
-        let mut messengers = messenger_handler(self, messenger)
-            .into_iter()
-            .map(|messenger| (self.global_node_id, messenger))
-            .collect::<Vec<_>>();
+        let mut messengers = messenger_handler(self, messenger);
+        for messenger in messengers.iter_mut() {
+            messenger.source_node_id = self.global_node_id;
+        }
         let reflect = messengers.is_empty();
         self.node_hierarchy.messenger_stack.append(&mut messengers);
         let mut node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow_mut();
@@ -115,18 +148,7 @@ impl<'a> NodeMessengerContext<'a> {
             }
             node.in_touched_attributes.clear();
             for attribute in node.out_touched_attributes.iter() {
-                let observable = NodeOrObservableIdentifier::NodeAttribute(self.global_node_id, attribute);
-                if self.node_hierarchy.observer_channels.contains_key(&observable) {
-                    let mut messenger = Messenger::new(
-                        &message::PROPERTY_CHANGED,
-                        hash_map! {
-                            "attribute" => Value::Attribute(attribute),
-                            "value" => node.get_attribute(attribute),
-                        },
-                    );
-                    messenger.propagation_direction = PropagationDirection::Observers(observable);
-                    self.node_hierarchy.messenger_stack.push((0, messenger));
-                }
+                notify_property_observers!(self.node_hierarchy, node, attribute);
             }
         } else if !node.out_touched_attributes.is_empty() {
             // println!("self={} touched_attributes={:?} ", self.global_node_id, node.out_touched_attributes);
@@ -271,7 +293,7 @@ impl<'a> NodeMessengerContext<'a> {
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
         let global_child_id = node.children.get(&local_child_id).cloned();
         drop(node);
-        global_child_id.map(|global_child_id| self.node_hierarchy.delete_node(global_child_id))
+        global_child_id.map(|global_child_id| self.node_hierarchy.delete_node(global_child_id, true))
     }
 
     /// Adds, modifies or removes a child [Node]
@@ -296,22 +318,45 @@ impl<'a> NodeMessengerContext<'a> {
         }
     }
 
-    /// Sets the set of `oberverables` this [Node] should be oberving
+    /// Starts or stops observing an observable
     ///
+    /// If `want` is `true` the observable is registered if it was not already.
+    /// Otherwise, if `want` is `false` the observable is unregistered if it was not already.
     /// If `unsubscribe_others` is `true` all other obervers of the given `oberverables` are unregistered.
-    pub fn observe(&mut self, mut observables: HashSet<NodeOrObservableIdentifier>, unsubscribe_others: bool) {
+    pub fn configure_observe(&mut self, observable: NodeOrObservableIdentifier, want: bool, unsubscribe_others: bool) {
         if unsubscribe_others {
-            self.node_hierarchy.unsubscribe_observers(observables.iter());
+            self.node_hierarchy.unsubscribe_observers(observable);
         }
-        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
-        if node.parent.is_none() {
-            observables.insert(NodeOrObservableIdentifier::Named("root"));
-        }
-        drop(node);
-        self.node_hierarchy.unsubscribe_observer(self.global_node_id, Some(&observables));
-        self.node_hierarchy.subscribe_observer(self.global_node_id, observables.iter());
         let mut node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow_mut();
-        node.observes = observables;
+        match node.observes.contains(&observable) {
+            true if !want => {
+                node.observes.remove(&observable);
+                drop(node);
+                self.node_hierarchy.unsubscribe_observer(self.global_node_id, observable);
+            }
+            false if want => {
+                node.observes.insert(observable);
+                drop(node);
+                self.node_hierarchy.subscribe_observer(self.global_node_id, observable);
+            }
+            _ => {}
+        }
+    }
+
+    /// Helper to focus this [Node]
+    pub fn pointer_and_button_input_focus(&mut self, messenger: &Messenger) {
+        let input_source = *match messenger.get_attribute("input_source") {
+            Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::ButtonInput(input_source)) => input_source,
+            Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::AxisInput(input_source)) => input_source,
+            Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::PointerInput(input_source)) => input_source,
+            _ => panic!(),
+        };
+        self.configure_observe(NodeOrObservableIdentifier::ButtonInput(input_source), true, true);
+        if messenger.get_attribute("pressed_or_released") == &Value::Boolean(true) {
+            self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), true, true);
+        } else {
+            self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), false, false);
+        }
     }
 
     /// Helper to handle the "PrepareRendering" message
@@ -325,24 +370,6 @@ impl<'a> NodeMessengerContext<'a> {
                 "rendering" => if change_rendering { Value::Boolean(true) } else { Value::Void },
             },
         )
-    }
-
-    /// Helper to focus this [Node]
-    pub fn pointer_and_button_input_focus(&mut self, messenger: &Messenger) {
-        let input_source = *match messenger.get_attribute("input_source") {
-            Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::ButtonInput(input_source)) => input_source,
-            Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::AxisInput(input_source)) => input_source,
-            Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::PointerInput(input_source)) => input_source,
-            _ => panic!(),
-        };
-        if messenger.get_attribute("pressed_or_released") == &Value::Boolean(true) {
-            self.observe(
-                hash_set! {NodeOrObservableIdentifier::PointerInput(input_source), NodeOrObservableIdentifier::ButtonInput(input_source)},
-                true,
-            );
-        } else {
-            self.observe(hash_set! {NodeOrObservableIdentifier::ButtonInput(input_source)}, true);
-        }
     }
 }
 
@@ -372,7 +399,7 @@ impl PartialOrd for ReconfigurePriority {
 pub struct NodeHierarchy {
     next_node_id: GlobalNodeIdentifier,
     nodes: HashMap<GlobalNodeIdentifier, Rc<RefCell<Node>>>,
-    messenger_stack: Vec<(GlobalNodeIdentifier, Messenger)>,
+    messenger_stack: Vec<Messenger>,
     reconfigure_queue: BinaryHeap<ReconfigurePriority>,
     observer_channels: HashMap<NodeOrObservableIdentifier, HashSet<GlobalNodeIdentifier>>,
     last_animation_time: f64,
@@ -404,85 +431,80 @@ impl NodeHierarchy {
             borrowed_node.local_id = NodeOrObservableIdentifier::Named("root");
             borrowed_node.observes.insert(NodeOrObservableIdentifier::Named("root"));
         }
-        self.subscribe_observer(global_node_id, borrowed_node.observes.iter());
         reconfigure_node!(self, borrowed_node);
         drop(borrowed_node);
+        if parent_link.is_none() {
+            self.subscribe_observer(global_node_id, NodeOrObservableIdentifier::Named("root"));
+        }
         self.nodes.insert(global_node_id, node);
         global_node_id
     }
 
     /// Removes and unlinks the given [Node], then returns it
-    pub fn delete_node(&mut self, global_node_id: GlobalNodeIdentifier) -> Rc<RefCell<Node>> {
-        self.unsubscribe_observer(global_node_id, None);
+    pub fn delete_node(&mut self, global_node_id: GlobalNodeIdentifier, is_top_level: bool) -> Rc<RefCell<Node>> {
         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
+        notify_property_observers!(self, node, "parent");
         if let Some(global_parent_id) = node.parent {
             node.touch_attribute("parent");
             let local_child_id = node.local_id;
             drop(node);
-            let mut parent = self.nodes.get(&global_parent_id).unwrap().borrow_mut();
-            parent.touch_attribute("child_count");
-            parent.children.remove(&local_child_id);
+            if is_top_level {
+                let mut parent = self.nodes.get(&global_parent_id).unwrap().borrow_mut();
+                parent.out_touched_attributes.insert("child_count");
+                parent.children.remove(&local_child_id);
+            }
         } else {
             drop(node);
         }
         let node = self.nodes.remove(&global_node_id).unwrap();
-        for (_local_child_id, global_child_id) in node.borrow().children.iter() {
-            self.delete_node(*global_child_id);
+        let borrowed_node = node.borrow();
+        for oberverable in borrowed_node.observes.iter() {
+            self.unsubscribe_observer(global_node_id, *oberverable);
         }
+        for (_local_child_id, global_child_id) in borrowed_node.children.iter() {
+            self.delete_node(*global_child_id, false);
+        }
+        drop(borrowed_node);
         node
     }
 
-    fn subscribe_observer<'a, I: IntoIterator<Item = &'a NodeOrObservableIdentifier>>(
-        &mut self,
-        global_node_id: GlobalNodeIdentifier,
-        observables: I,
-    ) {
-        for observable in observables {
-            self.observer_channels
-                .entry(*observable)
-                .or_insert_with(HashSet::new)
-                .insert(global_node_id);
-        }
+    fn subscribe_observer(&mut self, global_node_id: GlobalNodeIdentifier, observable: NodeOrObservableIdentifier) {
+        self.observer_channels
+            .entry(observable)
+            .or_insert_with(HashSet::new)
+            .insert(global_node_id);
     }
 
-    fn unsubscribe_observer(&mut self, global_node_id: GlobalNodeIdentifier, except_observables: Option<&HashSet<NodeOrObservableIdentifier>>) {
-        let node = self.nodes.get(&global_node_id).unwrap().borrow();
-        for observable in node.observes.iter() {
-            if except_observables.map(|observables| observables.contains(observable)).unwrap_or(false) {
-                continue;
-            }
-            match self.observer_channels.entry(*observable) {
-                hash_map::Entry::Occupied(mut entry) => {
-                    entry.get_mut().remove(&global_node_id);
-                    if entry.get().is_empty() {
-                        entry.remove_entry();
-                    }
-                }
-                hash_map::Entry::Vacant(_entry) => {}
-            }
-        }
-    }
-
-    /// Unsubscribes all observers of the given observables
-    pub fn unsubscribe_observers<'a, I: IntoIterator<Item = &'a NodeOrObservableIdentifier>>(&mut self, observables: I) {
-        for observable in observables {
-            match self.observer_channels.entry(*observable) {
-                hash_map::Entry::Occupied(entry) => {
-                    for global_node_id in entry.get() {
-                        let mut node = self.nodes.get(global_node_id).unwrap().borrow_mut();
-                        node.observes.remove(observable);
-                    }
+    fn unsubscribe_observer(&mut self, global_node_id: GlobalNodeIdentifier, observable: NodeOrObservableIdentifier) {
+        match self.observer_channels.entry(observable) {
+            hash_map::Entry::Occupied(mut entry) => {
+                entry.get_mut().remove(&global_node_id);
+                if entry.get().is_empty() {
                     entry.remove_entry();
                 }
-                hash_map::Entry::Vacant(_entry) => {}
             }
+            hash_map::Entry::Vacant(_entry) => {}
+        }
+    }
+
+    /// Unsubscribes all observers of the given observable
+    pub fn unsubscribe_observers(&mut self, observable: NodeOrObservableIdentifier) {
+        match self.observer_channels.entry(observable) {
+            hash_map::Entry::Occupied(entry) => {
+                for global_node_id in entry.get() {
+                    let mut node = self.nodes.get(global_node_id).unwrap().borrow_mut();
+                    node.observes.remove(&observable);
+                }
+                entry.remove_entry();
+            }
+            hash_map::Entry::Vacant(_entry) => {}
         }
     }
 
     /// Sends a [Messenger] to a set of UI nodes observing the given observable.
     pub fn notify_observers(&mut self, observable: NodeOrObservableIdentifier, mut messenger: Messenger) {
         messenger.propagation_direction = PropagationDirection::Observers(observable);
-        self.messenger_stack.push((0, messenger));
+        self.messenger_stack.push(messenger);
     }
 
     fn invoke_handler(&mut self, global_node_id: GlobalNodeIdentifier, messenger: &mut Messenger) -> bool {
@@ -496,21 +518,22 @@ impl NodeHierarchy {
     /// Internally processes all outstanding [Messenger]s
     pub fn process_messengers(&mut self) {
         while let Some(ReconfigurePriority { global_node_id, .. }) = self.reconfigure_queue.pop() {
-            let messenger = Messenger::new(&message::RECONFIGURE, hash_map! {});
-            self.messenger_stack.push((global_node_id, messenger));
+            let mut messenger = Messenger::new(&message::RECONFIGURE, hash_map! {});
+            messenger.source_node_id = global_node_id;
+            self.messenger_stack.push(messenger);
         }
-        while let Some((global_node_id, mut messenger)) = self.messenger_stack.pop() {
+        while let Some(mut messenger) = self.messenger_stack.pop() {
             println!(
-                "process_messenger global_node_id={} {} {:?}",
-                global_node_id, messenger.behavior.label, messenger.propagation_direction
+                "process_messenger {} {} {:?}",
+                messenger.behavior.label, messenger.source_node_id, messenger.propagation_direction
             );
             match messenger.propagation_direction {
                 PropagationDirection::None => panic!(),
                 PropagationDirection::Itself => {
-                    self.invoke_handler(global_node_id, &mut messenger);
+                    self.invoke_handler(messenger.source_node_id, &mut messenger);
                 }
                 PropagationDirection::Parent => {
-                    let node = self.nodes.get(&global_node_id).unwrap().borrow();
+                    let node = self.nodes.get(&messenger.source_node_id).unwrap().borrow();
                     let global_parent_id = node.parent;
                     let local_child_id = node.local_id;
                     if let Some(global_parent_id) = global_parent_id {
@@ -523,7 +546,7 @@ impl NodeHierarchy {
                     }
                 }
                 PropagationDirection::Child(local_child_id) => {
-                    let node = self.nodes.get(&global_node_id).unwrap().borrow();
+                    let node = self.nodes.get(&messenger.source_node_id).unwrap().borrow();
                     let global_child_id = node.children.get(&local_child_id).cloned();
                     drop(node);
                     let mut reflect = true;
@@ -539,11 +562,11 @@ impl NodeHierarchy {
                         }
                     }
                     if reflect && (messenger.behavior.do_reflect)(&mut messenger) {
-                        self.invoke_handler(global_node_id, &mut messenger);
+                        self.invoke_handler(messenger.source_node_id, &mut messenger);
                     }
                 }
                 PropagationDirection::Siblings => {
-                    let node = self.nodes.get(&global_node_id).unwrap().borrow();
+                    let node = self.nodes.get(&messenger.source_node_id).unwrap().borrow();
                     let global_parent_id = node.parent;
                     let local_child_id = node.local_id;
                     if let Some(global_parent_id) = global_parent_id {
@@ -552,7 +575,7 @@ impl NodeHierarchy {
                         let ordered_children = node.ordered_children.clone(); // TODO: Efficency
                         drop(node);
                         for global_child_id in ordered_children.iter() {
-                            if *global_child_id == global_node_id {
+                            if *global_child_id == messenger.source_node_id {
                                 continue;
                             }
                             let node = self.nodes.get(global_child_id).unwrap().borrow();
@@ -569,7 +592,7 @@ impl NodeHierarchy {
                     }
                 }
                 PropagationDirection::Children => {
-                    let node = self.nodes.get(&global_node_id).unwrap().borrow();
+                    let node = self.nodes.get(&messenger.source_node_id).unwrap().borrow();
                     let ordered_children = node.ordered_children.clone(); // TODO: Efficency
                     drop(node);
                     let mut reflect = true;
@@ -586,7 +609,7 @@ impl NodeHierarchy {
                         (messenger.behavior.reset_at_node_edge)(&mut messenger, false);
                     }
                     if reflect && (messenger.behavior.do_reflect)(&mut messenger) {
-                        self.invoke_handler(global_node_id, &mut messenger);
+                        self.invoke_handler(messenger.source_node_id, &mut messenger);
                     }
                 }
                 PropagationDirection::Observers(observable) => {
@@ -630,8 +653,9 @@ impl NodeHierarchy {
                 }
             }
             while let Some(ReconfigurePriority { global_node_id, .. }) = self.reconfigure_queue.pop() {
-                let messenger = Messenger::new(&message::RECONFIGURE, hash_map! {});
-                self.messenger_stack.push((global_node_id, messenger));
+                let mut messenger = Messenger::new(&message::RECONFIGURE, hash_map! {});
+                messenger.source_node_id = global_node_id;
+                self.messenger_stack.push(messenger);
             }
         }
     }
@@ -690,8 +714,9 @@ impl NodeHierarchy {
         drop(node);
 
         let mut messenger = Messenger::new(&message::PREPARE_RENDERING, hash_map! {});
+        messenger.source_node_id = global_node_id;
         if !self.invoke_handler(global_node_id, &mut messenger) {
-            let messenger = self.messenger_stack.pop().unwrap().1;
+            let messenger = self.messenger_stack.pop().unwrap();
             assert_eq!(messenger.behavior.label, "UpdateRendering");
             if let Value::Rendering(rendering) = messenger.get_attribute("rendering") {
                 let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
