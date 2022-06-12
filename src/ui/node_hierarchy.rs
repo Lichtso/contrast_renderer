@@ -90,33 +90,39 @@ impl<'a> NodeMessengerContext<'a> {
             node.out_touched_attributes = &node.in_touched_attributes | &node.out_touched_attributes;
             node.in_reconfigure_queue = false;
             let absolute_motor_changed = node.was_attribute_touched(&["absolute_motor"]);
+            let absolute_scale_changed = node.was_attribute_touched(&["absolute_scale"]);
+            let absolute_opacity_changed = node.was_attribute_touched(&["absolute_opacity"]);
             let absolute_motor: ppga2d::Motor = match_option!(node.get_attribute("absolute_motor"), Value::Float4)
                 .map(|value| value.into())
                 .unwrap_or_else(ppga2d::Motor::one);
-            let absolute_scale_changed = node.was_attribute_touched(&["absolute_scale"]);
             let absolute_scale: f32 = match_option!(node.get_attribute("absolute_scale"), Value::Float1)
                 .map(|value| value.into())
                 .unwrap_or(1.0);
-            let absolute_opacity_changed = node.was_attribute_touched(&["absolute_opacity"]);
             let absolute_opacity: f32 = match_option!(node.get_attribute("absolute_opacity"), Value::Float1)
                 .map(|value| value.into())
                 .unwrap_or(1.0);
             let mut children_order_changed = node.was_attribute_touched(&["child_count"]);
             for global_child_id in node.children.values() {
                 let mut child_node = self.node_hierarchy.nodes.get(global_child_id).unwrap().borrow_mut();
-                if absolute_motor_changed || child_node.was_attribute_touched(&["motor", "parent"]) {
+                if child_node.parents.first().unwrap().1 == node.global_id
+                    && (absolute_motor_changed || child_node.was_attribute_touched(&["motor", "parents"]))
+                {
                     let child_motor = match_option!(child_node.get_attribute("motor"), Value::Float4)
                         .map(|value| value.into())
                         .unwrap_or_else(ppga2d::Motor::one);
                     child_node.set_attribute("absolute_motor", Value::Float4((child_motor * absolute_motor).into()));
                 }
-                if absolute_scale_changed || child_node.was_attribute_touched(&["scale", "parent"]) {
+                if child_node.parents.first().unwrap().1 == node.global_id
+                    && (absolute_scale_changed || child_node.was_attribute_touched(&["scale", "parents"]))
+                {
                     let child_scale = match_option!(child_node.get_attribute("scale"), Value::Float1)
                         .map(|value| value.into())
                         .unwrap_or(1.0);
                     child_node.set_attribute("absolute_scale", Value::Float1((child_scale * absolute_scale).into()));
                 }
-                if absolute_opacity_changed || child_node.was_attribute_touched(&["opacity", "parent"]) {
+                if child_node.parents.last().unwrap().1 == node.global_id
+                    && (absolute_opacity_changed || child_node.was_attribute_touched(&["opacity", "parents"]))
+                {
                     let child_opacity = match_option!(child_node.get_attribute("opacity"), Value::Float1)
                         .map(|value| value.into())
                         .unwrap_or(1.0);
@@ -155,14 +161,15 @@ impl<'a> NodeMessengerContext<'a> {
             reconfigure_node!(self.node_hierarchy, node);
             node.in_touched_attributes = &node.in_touched_attributes | &node.out_touched_attributes;
         }
-        if let Some(global_parent_id) = node.parent {
-            if !node.out_touched_attributes.is_empty() {
-                let mut parent_node = self.node_hierarchy.nodes.get(&global_parent_id).unwrap().borrow_mut();
+        if !node.out_touched_attributes.is_empty() {
+            for (_local_child_id, global_parent_id) in node.parents.iter() {
+                let mut parent_node = self.node_hierarchy.nodes.get(global_parent_id).unwrap().borrow_mut();
                 // println!("parent={} touched_attributes={:?} ", global_parent_id, node.out_touched_attributes);
                 reconfigure_node!(self.node_hierarchy, parent_node);
             }
-        } else {
-            node.out_touched_attributes.clear();
+            if node.parents.is_empty() {
+                node.out_touched_attributes.clear();
+            }
         }
         for global_child_id in node.children.values() {
             let mut child_node = self.node_hierarchy.nodes.get(global_child_id).unwrap().borrow_mut();
@@ -170,7 +177,9 @@ impl<'a> NodeMessengerContext<'a> {
                 // println!("child={} touched_attributes={:?} ", global_child_id, child_node.in_touched_attributes);
                 reconfigure_node!(self.node_hierarchy, child_node);
             }
-            child_node.out_touched_attributes.clear();
+            if child_node.parents.last().unwrap().1 == self.global_node_id {
+                child_node.out_touched_attributes.clear();
+            }
         }
         reflect
     }
@@ -183,8 +192,8 @@ impl<'a> NodeMessengerContext<'a> {
             if let Some(value) = node.properties.get(attribute) {
                 return value.clone();
             }
-            if let Some(global_parent_id) = node.parent {
-                global_node_id = global_parent_id;
+            if let Some((_local_child_id, global_parent_id)) = node.parents.first() {
+                global_node_id = *global_parent_id;
             } else {
                 return self.node_hierarchy.theme_properties.get(attribute).cloned().unwrap_or(Value::Void);
             }
@@ -285,15 +294,16 @@ impl<'a> NodeMessengerContext<'a> {
 
     /// Adds and links a given child [Node]
     pub fn add_child(&mut self, local_child_id: NodeOrObservableIdentifier, child_node: Rc<RefCell<Node>>) {
-        let _global_child_id = self.node_hierarchy.insert_node(child_node, Some((self.global_node_id, local_child_id)));
+        let _global_child_id = self.node_hierarchy.link_node(child_node, Some((local_child_id, self.global_node_id)));
     }
 
     /// Removes and unlinks a given child [Node]
-    pub fn remove_child(&mut self, local_child_id: NodeOrObservableIdentifier) -> Option<Rc<RefCell<Node>>> {
+    pub fn remove_child(&mut self, local_child_id: NodeOrObservableIdentifier, unlink_from_all_parents: bool) -> Option<Rc<RefCell<Node>>> {
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
         let global_child_id = node.children.get(&local_child_id).cloned();
         drop(node);
-        global_child_id.map(|global_child_id| self.node_hierarchy.delete_node(global_child_id, true))
+        let global_parent_id = if unlink_from_all_parents { None } else { Some(self.global_node_id) };
+        global_child_id.and_then(|global_child_id| self.node_hierarchy.unlink_node(global_child_id, global_parent_id))
     }
 
     /// Adds, modifies or removes a child [Node]
@@ -308,7 +318,7 @@ impl<'a> NodeMessengerContext<'a> {
                 let mut child_node = self.node_hierarchy.nodes.get(&global_child_id).unwrap().borrow_mut();
                 callback(&mut child_node);
             } else {
-                self.remove_child(local_child_id);
+                self.remove_child(local_child_id, false);
             }
         } else if let Some(callback) = callback {
             drop(node);
@@ -408,64 +418,93 @@ pub struct NodeHierarchy {
 }
 
 impl NodeHierarchy {
-    /// Inserts and links the given [Node], then returns its [GlobalNodeIdentifier]
-    pub fn insert_node(
+    /// Links the given [Node] to its parent, then returns its [GlobalNodeIdentifier]
+    pub fn link_node(
         &mut self,
         node: Rc<RefCell<Node>>,
-        parent_link: Option<(GlobalNodeIdentifier, NodeOrObservableIdentifier)>,
+        parent_link: Option<(NodeOrObservableIdentifier, GlobalNodeIdentifier)>,
     ) -> GlobalNodeIdentifier {
-        let global_node_id = self.next_node_id;
-        self.next_node_id += 1;
         let mut borrowed_node = node.borrow_mut();
-        borrowed_node.global_id = global_node_id;
-        assert!(borrowed_node.parent.is_none());
-        if let Some((global_parent_id, local_child_id)) = parent_link {
-            let mut parent = self.nodes.get(&global_parent_id).unwrap().borrow_mut();
-            parent.touch_attribute("child_count");
-            parent.children.insert(local_child_id, global_node_id);
-            borrowed_node.local_id = local_child_id;
-            borrowed_node.parent = Some(global_parent_id);
-            borrowed_node.nesting_depth = parent.nesting_depth + 1;
-            borrowed_node.touch_attribute("parent");
-        } else {
-            borrowed_node.local_id = NodeOrObservableIdentifier::Named("root");
+        let was_created = borrowed_node.global_id == 0;
+        if was_created {
+            self.next_node_id += 1;
+            borrowed_node.global_id = self.next_node_id;
+        }
+        if let Some((local_child_id, global_parent_id)) = parent_link {
+            if !borrowed_node
+                .parents
+                .iter()
+                .any(|local_and_global_ids| local_and_global_ids.1 == global_parent_id)
+            {
+                let mut parent = self.nodes.get(&global_parent_id).unwrap().borrow_mut();
+                parent.touch_attribute("child_count");
+                parent.children.insert(local_child_id, borrowed_node.global_id);
+                reconfigure_node!(self, parent);
+                borrowed_node.touch_attribute("parents");
+                borrowed_node.parents.push((local_child_id, global_parent_id));
+                borrowed_node.nesting_depth = borrowed_node.nesting_depth.max(parent.nesting_depth + 1);
+            }
+        }
+        if borrowed_node.parents.is_empty() {
             borrowed_node.observes.insert(NodeOrObservableIdentifier::Named("root"));
+        } else {
+            borrowed_node.observes.remove(&NodeOrObservableIdentifier::Named("root"));
         }
         reconfigure_node!(self, borrowed_node);
-        drop(borrowed_node);
         if parent_link.is_none() {
-            self.subscribe_observer(global_node_id, NodeOrObservableIdentifier::Named("root"));
+            for oberverable in borrowed_node.observes.iter() {
+                self.subscribe_observer(borrowed_node.global_id, *oberverable);
+            }
         }
-        self.nodes.insert(global_node_id, node);
+        let global_node_id = borrowed_node.global_id;
+        drop(borrowed_node);
+        if was_created {
+            assert!(self.nodes.insert(global_node_id, node).is_none());
+        }
         global_node_id
     }
 
-    /// Removes and unlinks the given [Node], then returns it
-    pub fn delete_node(&mut self, global_node_id: GlobalNodeIdentifier, is_top_level: bool) -> Rc<RefCell<Node>> {
+    /// Unlinks the given [Node] from the given parent or all parents if no specific one is provided
+    ///
+    /// Returns the [Node] and deletes it together with its children if the [Node] has no more parents remaining
+    pub fn unlink_node(&mut self, global_node_id: GlobalNodeIdentifier, global_parent_id: Option<GlobalNodeIdentifier>) -> Option<Rc<RefCell<Node>>> {
         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
-        notify_property_observers!(self, node, "parent");
-        if let Some(global_parent_id) = node.parent {
-            node.touch_attribute("parent");
-            let local_child_id = node.local_id;
-            drop(node);
-            if is_top_level {
-                let mut parent = self.nodes.get(&global_parent_id).unwrap().borrow_mut();
-                parent.out_touched_attributes.insert("child_count");
-                parent.children.remove(&local_child_id);
+        for local_and_global_ids in node.parents.iter() {
+            if global_parent_id.is_some() && global_parent_id != Some(local_and_global_ids.1) {
+                continue;
             }
-        } else {
-            drop(node);
+            if let Some(parent) = self.nodes.get(&local_and_global_ids.1) {
+                let mut parent = parent.borrow_mut();
+                parent.touch_attribute("child_count");
+                parent.children.remove(&local_and_global_ids.0);
+                reconfigure_node!(self, parent);
+            }
         }
+        node.touch_attribute("parents");
+        if let Some(global_parent_id) = global_parent_id {
+            let parent_index = node
+                .parents
+                .iter()
+                .position(|local_and_global_ids| local_and_global_ids.1 == global_parent_id)
+                .unwrap();
+            node.parents.remove(parent_index);
+        }
+        if !node.parents.is_empty() {
+            reconfigure_node!(self, node);
+            return None;
+        }
+        notify_property_observers!(self, node, "parents");
+        drop(node);
         let node = self.nodes.remove(&global_node_id).unwrap();
         let borrowed_node = node.borrow();
         for oberverable in borrowed_node.observes.iter() {
-            self.unsubscribe_observer(global_node_id, *oberverable);
+            self.unsubscribe_observer(borrowed_node.global_id, *oberverable);
         }
         for (_local_child_id, global_child_id) in borrowed_node.children.iter() {
-            self.delete_node(*global_child_id, false);
+            self.unlink_node(*global_child_id, Some(global_node_id));
         }
         drop(borrowed_node);
-        node
+        Some(node)
     }
 
     fn subscribe_observer(&mut self, global_node_id: GlobalNodeIdentifier, observable: NodeOrObservableIdentifier) {
@@ -532,17 +571,23 @@ impl NodeHierarchy {
                 PropagationDirection::Itself => {
                     self.invoke_handler(messenger.source_node_id, &mut messenger);
                 }
-                PropagationDirection::Parent => {
+                PropagationDirection::Parent(mut parent_index) => {
                     let node = self.nodes.get(&messenger.source_node_id).unwrap().borrow();
-                    let global_parent_id = node.parent;
-                    let local_child_id = node.local_id;
-                    if let Some(global_parent_id) = global_parent_id {
-                        let half_extent = self.nodes.get(&global_parent_id).unwrap().borrow().get_half_extent(false);
-                        let (invoke, _stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, half_extent, &node, Some(local_child_id));
+                    if parent_index < 0 {
+                        parent_index += node.parents.len() as isize;
+                    }
+                    if let Some((local_child_id, global_parent_id)) = node.parents.get(parent_index as usize) {
+                        let (invoke, stop) =
+                            (messenger.behavior.update_at_node_edge)(&mut messenger, node.get_half_extent(false), &node, Some(*local_child_id));
+                        let global_parent_id = *global_parent_id;
                         drop(node);
                         if invoke {
                             self.invoke_handler(global_parent_id, &mut messenger);
                         }
+                        if stop {
+                            break;
+                        }
+                        (messenger.behavior.reset_at_node_edge)(&mut messenger, false);
                     }
                 }
                 PropagationDirection::Child(local_child_id) => {
@@ -566,11 +611,10 @@ impl NodeHierarchy {
                     }
                 }
                 PropagationDirection::Siblings => {
-                    let node = self.nodes.get(&messenger.source_node_id).unwrap().borrow();
-                    let global_parent_id = node.parent;
-                    let local_child_id = node.local_id;
-                    if let Some(global_parent_id) = global_parent_id {
+                    let parents = self.nodes.get(&messenger.source_node_id).unwrap().borrow().parents.clone(); // TODO: Efficency
+                    for (local_child_id, global_parent_id) in parents {
                         let half_extent = self.nodes.get(&global_parent_id).unwrap().borrow().get_half_extent(false);
+                        let node = self.nodes.get(&messenger.source_node_id).unwrap().borrow();
                         (messenger.behavior.update_at_node_edge)(&mut messenger, half_extent, &node, Some(local_child_id));
                         let ordered_children = node.ordered_children.clone(); // TODO: Efficency
                         drop(node);
@@ -592,9 +636,7 @@ impl NodeHierarchy {
                     }
                 }
                 PropagationDirection::Children => {
-                    let node = self.nodes.get(&messenger.source_node_id).unwrap().borrow();
-                    let ordered_children = node.ordered_children.clone(); // TODO: Efficency
-                    drop(node);
+                    let ordered_children = self.nodes.get(&messenger.source_node_id).unwrap().borrow().ordered_children.clone(); // TODO: Efficency
                     let mut reflect = true;
                     for global_child_id in ordered_children.iter().rev() {
                         let node = self.nodes.get(global_child_id).unwrap().borrow();
@@ -631,9 +673,9 @@ impl NodeHierarchy {
                         let mut parents_path = vec![*global_node_id];
                         {
                             let mut global_node_id = *global_node_id;
-                            while let Some(global_parent_id) = self.nodes.get(&global_node_id).unwrap().borrow().parent {
-                                global_node_id = global_parent_id;
-                                parents_path.push(global_parent_id);
+                            while let Some((_local_child_id, global_parent_id)) = self.nodes.get(&global_node_id).unwrap().borrow().parents.last() {
+                                global_node_id = *global_parent_id;
+                                parents_path.push(global_node_id);
                             }
                             for global_node_id in parents_path.iter().rev() {
                                 let node = self.nodes.get(global_node_id).unwrap().borrow();
@@ -664,10 +706,17 @@ impl NodeHierarchy {
         &mut self,
         renderer: &mut Renderer,
         global_node_id: GlobalNodeIdentifier,
+        global_parent_id: Option<GlobalNodeIdentifier>,
         layer_range: Range<usize>,
         clip_depth: u8,
     ) {
         let node = self.nodes.get(&global_node_id).unwrap().borrow();
+        if (global_parent_id.is_some() && Some(node.parents.last().unwrap().1) != global_parent_id)
+            || node.get_attribute("dormant") == Value::Boolean(true)
+            || node.get_attribute("absolute_opacity") == Value::Float1(0.0.into())
+        {
+            return;
+        }
         let model_matrix = match_option!(node.get_attribute("model_matrix"), Value::Float4x4)
             .map(|model_matrix| {
                 [
@@ -698,21 +747,25 @@ impl NodeHierarchy {
         renderer.instanciate_node(&node, layer_range, clip_depth, &model_projection_matrix);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn prepare_node_rendering(
         &mut self,
         renderer: &mut Renderer,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         global_node_id: GlobalNodeIdentifier,
+        global_parent_id: Option<GlobalNodeIdentifier>,
         parent_layer_range: &mut Range<usize>,
         mut clip_depth: u8,
     ) {
         let node = self.nodes.get(&global_node_id).unwrap().borrow();
-        if node.get_attribute("dormant") == Value::Boolean(true) || node.get_attribute("absolute_opacity") == Value::Float1(0.0.into()) {
+        if (global_parent_id.is_some() && Some(node.parents.last().unwrap().1) != global_parent_id)
+            || node.get_attribute("dormant") == Value::Boolean(true)
+            || node.get_attribute("absolute_opacity") == Value::Float1(0.0.into())
+        {
             return;
         }
         drop(node);
-
         let mut messenger = Messenger::new(&message::PREPARE_RENDERING, hash_map! {});
         messenger.source_node_id = global_node_id;
         if !self.invoke_handler(global_node_id, &mut messenger) {
@@ -723,7 +776,6 @@ impl NodeHierarchy {
                 renderer.set_node_rendering(device, queue, &mut node, rendering).unwrap();
             }
         }
-
         let node = self.nodes.get(&global_node_id).unwrap().borrow();
         let has_clip_shape = node.clip_shape.is_some();
         let mut child_layer_range = parent_layer_range.start + node.colored_shapes.len()..0;
@@ -743,15 +795,23 @@ impl NodeHierarchy {
             if prev_layer_index != layer_index {
                 prev_layer_index = layer_index;
                 for global_child_id in ordered_children[prev_child_index..child_index].iter() {
-                    self.instanciate_node_rendering(renderer, *global_child_id, child_layer_range.clone(), clip_depth);
+                    self.instanciate_node_rendering(renderer, *global_child_id, Some(global_node_id), child_layer_range.clone(), clip_depth);
                 }
                 prev_child_index = child_index;
                 child_layer_range.start = child_layer_range.end;
             }
-            self.prepare_node_rendering(renderer, device, queue, *global_child_id, &mut child_layer_range, clip_depth);
+            self.prepare_node_rendering(
+                renderer,
+                device,
+                queue,
+                *global_child_id,
+                Some(global_node_id),
+                &mut child_layer_range,
+                clip_depth,
+            );
         }
         for global_child_id in ordered_children[prev_child_index..].iter() {
-            self.instanciate_node_rendering(renderer, *global_child_id, child_layer_range.clone(), clip_depth);
+            self.instanciate_node_rendering(renderer, *global_child_id, Some(global_node_id), child_layer_range.clone(), clip_depth);
         }
         parent_layer_range.end = parent_layer_range.end.max(child_layer_range.end + if has_clip_shape { 1 } else { 0 });
     }
@@ -772,8 +832,8 @@ impl NodeHierarchy {
         let roots = self.observer_channels.get(&NodeOrObservableIdentifier::Named("root")).unwrap().clone();
         let mut layer_range = 0..0;
         for global_node_id in roots {
-            self.prepare_node_rendering(renderer, device, queue, global_node_id, &mut layer_range, 0);
-            self.instanciate_node_rendering(renderer, global_node_id, layer_range.clone(), 0);
+            self.prepare_node_rendering(renderer, device, queue, global_node_id, None, &mut layer_range, 0);
+            self.instanciate_node_rendering(renderer, global_node_id, None, layer_range.clone(), 0);
             layer_range.start = layer_range.end;
         }
         renderer.update_instance_buffers(device, queue);

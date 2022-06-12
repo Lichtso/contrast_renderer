@@ -212,7 +212,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 context.configure_observe(NodeOrObservableIdentifier::NodeAttribute(global_node_id, "half_extent"), true, false);
                 context.configure_observe(NodeOrObservableIdentifier::NodeAttribute(global_node_id, "absolute_motor"), true, false);
                 context.configure_observe(NodeOrObservableIdentifier::NodeAttribute(global_node_id, "dormant"), true, false);
-                context.configure_observe(NodeOrObservableIdentifier::NodeAttribute(global_node_id, "parent"), true, false);
+                context.configure_observe(NodeOrObservableIdentifier::NodeAttribute(global_node_id, "parents"), true, false);
                 let track_half_extent = match_option!(context.get_attribute("track_half_extent"), Value::Float2)
                     .map(|value| value.into())
                     .unwrap_or([0.0, 0.0]);
@@ -259,7 +259,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 &"absolute_motor" => {
                     context.set_attribute("track_motor", messenger.get_attribute("value").clone());
                 }
-                &"dormant" | &"parent" => {
+                &"dormant" | &"parents" => {
                     return vec![Messenger::new(
                         &message::CLOSE_OVERLAY,
                         hash_map! {
@@ -272,7 +272,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             Vec::new()
         }
         "PointerInput" => {
-            if messenger.propagation_direction != PropagationDirection::Parent {
+            if messenger.propagation_direction != PropagationDirection::Parent(-1) {
                 return vec![messenger.clone()];
             }
             if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) {
@@ -357,7 +357,7 @@ pub fn overlay_container(context: &mut NodeMessengerContext, messenger: &Messeng
         "CloseOverlay" => {
             let overlay_index = *match_option!(messenger.get_attribute("overlay_index"), Value::Natural1).unwrap();
             for overlay_index in overlay_index..context.get_number_of_children() {
-                context.remove_child(NodeOrObservableIdentifier::NamedAndIndexed("overlay", overlay_index));
+                context.remove_child(NodeOrObservableIdentifier::NamedAndIndexed("overlay", overlay_index), true);
             }
             Vec::new()
         }

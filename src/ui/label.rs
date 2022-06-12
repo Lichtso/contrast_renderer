@@ -115,7 +115,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         }
         "PointerInput" => {
             let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
-            if text_interaction == TextInteraction::None || messenger.propagation_direction != PropagationDirection::Parent {
+            if text_interaction == TextInteraction::None || messenger.propagation_direction != PropagationDirection::Parent(-1) {
                 return vec![messenger.clone()];
             }
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();

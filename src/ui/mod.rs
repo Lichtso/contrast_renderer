@@ -260,15 +260,14 @@ pub struct Node {
     in_touched_attributes: HashSet<&'static str>,
     out_touched_attributes: HashSet<&'static str>,
 
-    global_id: GlobalNodeIdentifier,
-    local_id: NodeOrObservableIdentifier,
-    observes: HashSet<NodeOrObservableIdentifier>,
-    children: HashMap<NodeOrObservableIdentifier, GlobalNodeIdentifier>,
-    parent: Option<GlobalNodeIdentifier>,
-
+    parents: Vec<(NodeOrObservableIdentifier, GlobalNodeIdentifier)>,
     nesting_depth: usize,
+    children: HashMap<NodeOrObservableIdentifier, GlobalNodeIdentifier>,
     ordered_children: Vec<GlobalNodeIdentifier>,
+
+    global_id: GlobalNodeIdentifier,
     in_reconfigure_queue: bool,
+    observes: HashSet<NodeOrObservableIdentifier>,
     colored_shapes: Vec<(SafeFloat<f32, 4>, Shape)>,
     clip_shape: Option<Box<Shape>>,
 }
@@ -296,15 +295,14 @@ impl Default for Node {
             in_touched_attributes: HashSet::new(),
             out_touched_attributes: HashSet::new(),
 
-            global_id: 0,
-            local_id: NodeOrObservableIdentifier::Named("uninitialized"),
-            observes: HashSet::new(),
-            children: HashMap::new(),
-            parent: None,
-
+            parents: Vec::new(),
             nesting_depth: 0,
+            children: HashMap::new(),
             ordered_children: Vec::new(),
+
+            global_id: 0,
             in_reconfigure_queue: false,
+            observes: HashSet::new(),
             colored_shapes: Vec::new(),
             clip_shape: None,
         }

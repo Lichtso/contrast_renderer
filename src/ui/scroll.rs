@@ -60,7 +60,7 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             Vec::new()
         }
         "PointerInput" => {
-            if messenger.propagation_direction != PropagationDirection::Parent {
+            if messenger.propagation_direction != PropagationDirection::Parent(-1) {
                 return vec![messenger.clone()];
             }
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
@@ -263,7 +263,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 '⇥' => {
                     let focus_child_id = match messenger.get_attribute("origin") {
                         Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("content")) => None,
-                        Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("parent")) => {
+                        Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("parents")) => {
                             Some(NodeOrObservableIdentifier::Named("content"))
                         }
                         _ => panic!(),
@@ -272,7 +272,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 }
                 '←' | '→' | '↑' | '↓' => {
                     let mut messenger = messenger.clone();
-                    messenger.propagation_direction = PropagationDirection::Parent;
+                    messenger.propagation_direction = PropagationDirection::Parent(0);
                     vec![messenger]
                 }
                 _ => Vec::new(),

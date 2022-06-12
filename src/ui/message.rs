@@ -16,8 +16,10 @@ pub enum PropagationDirection {
     None,
     /// Propagates to the node itself.
     Itself,
-    /// Propagates to parent.
-    Parent,
+    /// Propagates to a specific parent.
+    ///
+    /// Negative indices wrap around and come from the end, meaning `-1` is the last.
+    Parent(isize),
     /// Propagates to a specific child.
     Child(NodeOrObservableIdentifier),
     /// Propagates to all children of the parent except for the sender.
@@ -51,7 +53,7 @@ pub struct MessengerBehavior {
     pub default_propagation_direction: PropagationDirection,
     /// Returns an [NodeOrObservableIdentifier] if this [Messenger] could capture one
     pub get_captured_observable: GetCapturedObservable,
-    /// Reflects the propagation direction of this [Messenger] from [PropagationDirection::Children] to [PropagationDirection::Parent]
+    /// Reflects the propagation direction of this [Messenger] from [PropagationDirection::Children] to [PropagationDirection::Parent(-1)]
     pub do_reflect: DoReflect,
     /// Updates the message when this [Messenger] carries it over an edge from one [Node] to an adjacent one
     pub update_at_node_edge: UpdateAtNodeEdge,
@@ -140,7 +142,7 @@ pub fn input_focus_parent_or_child(messenger: &Messenger, child_id: Option<NodeO
     if let Some(child_id) = child_id {
         messenger.propagation_direction = PropagationDirection::Child(child_id);
     } else {
-        messenger.propagation_direction = PropagationDirection::Parent;
+        messenger.propagation_direction = PropagationDirection::Parent(0);
     }
     messenger
 }
@@ -188,7 +190,7 @@ pub const BUTTON_INPUT: MessengerBehavior = MessengerBehavior {
             } else {
                 messenger
                     .properties
-                    .insert("origin", Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("parent")));
+                    .insert("origin", Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("parents")));
             }
         }
         (true, false)
@@ -212,10 +214,10 @@ pub const POINTER_INPUT: MessengerBehavior = MessengerBehavior {
     default_propagation_direction: PropagationDirection::Children,
     get_captured_observable: |messenger| Some(*match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()),
     do_reflect: |messenger| {
-        if messenger.propagation_direction == PropagationDirection::Parent {
+        if messenger.propagation_direction == PropagationDirection::Parent(-1) {
             return false;
         }
-        messenger.propagation_direction = PropagationDirection::Parent;
+        messenger.propagation_direction = PropagationDirection::Parent(-1);
         true
     },
     update_at_node_edge: |messenger, half_extent, child_node, from_child_to_parent| {
@@ -264,7 +266,7 @@ pub const POINTER_INPUT: MessengerBehavior = MessengerBehavior {
 /// Sets a scroll nodes content motor
 pub const SCROLL_TO: MessengerBehavior = MessengerBehavior {
     label: "ScrollTo",
-    default_propagation_direction: PropagationDirection::Parent,
+    default_propagation_direction: PropagationDirection::Parent(0),
     get_captured_observable: GET_CAPTURED_OBSERVABLE,
     do_reflect: DO_REFLECT,
     update_at_node_edge: UPDATE_AT_NODE_EDGE,

@@ -164,7 +164,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
         }
         "PointerInput" => {
             if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false)
-                || messenger.propagation_direction != PropagationDirection::Parent
+                || messenger.propagation_direction != PropagationDirection::Parent(-1)
             {
                 return vec![messenger.clone()];
             }
@@ -227,7 +227,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 }
                 '←' | '→' | '↑' | '↓' => {
                     let mut messenger = messenger.clone();
-                    messenger.propagation_direction = PropagationDirection::Parent;
+                    messenger.propagation_direction = PropagationDirection::Parent(0);
                     vec![messenger]
                 }
                 _ => Vec::new(),

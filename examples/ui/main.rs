@@ -116,10 +116,9 @@ impl application_framework::Application for Application {
         let mut ui_event_translator = contrast_renderer::ui::message::WinitEventTranslator::default();
         ui_event_translator.load_keymap(KEYMAP).unwrap();
 
-        let overlay_container_node_id =
-            ui_node_hierarchy.insert_node(Node::new(contrast_renderer::ui::overlay::overlay_container, hash_map! {}), None);
+        let overlay_container_node_id = ui_node_hierarchy.link_node(Node::new(contrast_renderer::ui::overlay::overlay_container, hash_map! {}), None);
 
-        let tab_container_node_id = ui_node_hierarchy.insert_node(
+        let tab_container_node_id = ui_node_hierarchy.link_node(
             Node::new(
                 contrast_renderer::ui::tabs::tab_container,
                 hash_map! {
@@ -127,28 +126,28 @@ impl application_framework::Application for Application {
                     "half_extent" => Value::Float2([500.0, 300.0].into()),
                 },
             ),
-            Some((overlay_container_node_id, NodeOrObservableIdentifier::Named("content"))),
+            Some((NodeOrObservableIdentifier::Named("content"), overlay_container_node_id)),
         );
 
         let weights = [0.1, 0.3, 0.6];
         let mut tab_node_id = 0;
         for (child_index, weight) in weights.iter().enumerate() {
-            tab_node_id = ui_node_hierarchy.insert_node(
+            tab_node_id = ui_node_hierarchy.link_node(
                 Node::new(contrast_renderer::ui::tabs::tab, hash_map! {}),
-                Some((tab_container_node_id, NodeOrObservableIdentifier::NamedAndIndexed("tab", child_index))),
+                Some((NodeOrObservableIdentifier::NamedAndIndexed("tab", child_index), tab_container_node_id)),
             );
-            ui_node_hierarchy.insert_node(
+            ui_node_hierarchy.link_node(
                 Node::new(
                     contrast_renderer::ui::tabs::tab_handle,
                     hash_map! {
                         "weight" => Value::Float1(weight.into()),
                     },
                 ),
-                Some((tab_container_node_id, NodeOrObservableIdentifier::NamedAndIndexed("handle", child_index))),
+                Some((NodeOrObservableIdentifier::NamedAndIndexed("handle", child_index), tab_container_node_id)),
             );
         }
 
-        let scroll_node_id = ui_node_hierarchy.insert_node(
+        let scroll_node_id = ui_node_hierarchy.link_node(
             Node::new(
                 contrast_renderer::ui::scroll::scroll,
                 hash_map! {
@@ -160,10 +159,10 @@ impl application_framework::Application for Application {
                     "vertical_bar" => Value::ScrollBarType(contrast_renderer::ui::ScrollBarType::Overflow),
                 },
             ),
-            Some((tab_node_id, NodeOrObservableIdentifier::Named("content"))),
+            Some((NodeOrObservableIdentifier::Named("content"), tab_node_id)),
         );
 
-        let list_node_id = ui_node_hierarchy.insert_node(
+        let list_node_id = ui_node_hierarchy.link_node(
             Node::new(
                 contrast_renderer::ui::list::list,
                 hash_map! {
@@ -174,10 +173,10 @@ impl application_framework::Application for Application {
                     "list_minor_axis_alignment" => Value::Float1(0.0.into()),
                 },
             ),
-            Some((scroll_node_id, NodeOrObservableIdentifier::Named("content"))),
+            Some((NodeOrObservableIdentifier::Named("content"), scroll_node_id)),
         );
 
-        ui_node_hierarchy.insert_node(
+        ui_node_hierarchy.link_node(
             Node::new(
                 contrast_renderer::ui::checkbox::checkbox,
                 hash_map! {
@@ -185,10 +184,10 @@ impl application_framework::Application for Application {
                     "enable_interaction" => Value::Boolean(true),
                 },
             ),
-            Some((list_node_id, NodeOrObservableIdentifier::Indexed(0))),
+            Some((NodeOrObservableIdentifier::Indexed(0), list_node_id)),
         );
 
-        ui_node_hierarchy.insert_node(
+        ui_node_hierarchy.link_node(
             Node::new(
                 contrast_renderer::ui::range::range,
                 hash_map! {
@@ -211,10 +210,10 @@ impl application_framework::Application for Application {
                     }),
                 },
             ),
-            Some((list_node_id, NodeOrObservableIdentifier::Indexed(1))),
+            Some((NodeOrObservableIdentifier::Indexed(1), list_node_id)),
         );
 
-        ui_node_hierarchy.insert_node(
+        ui_node_hierarchy.link_node(
             Node::new(
                 contrast_renderer::ui::label::text_label,
                 hash_map! {
@@ -222,7 +221,7 @@ impl application_framework::Application for Application {
                     "text_content" => Value::TextString("Hello World".to_string()),
                 },
             ),
-            Some((list_node_id, NodeOrObservableIdentifier::Indexed(2))),
+            Some((NodeOrObservableIdentifier::Indexed(2), list_node_id)),
         );
 
         Self {
