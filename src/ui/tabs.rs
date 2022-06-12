@@ -48,7 +48,7 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
             Vec::new()
         }
         "PointerInput" => {
-            if messenger.propagation_direction == PropagationDirection::Parent {
+            if messenger.propagation_direction == PropagationDirection::Parent(-1) {
                 context.pointer_and_button_input_focus(messenger);
             }
             vec![messenger.clone()]
@@ -73,7 +73,7 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
                 }
                 '←' | '→' | '↑' | '↓' => {
                     let mut messenger = messenger.clone();
-                    messenger.propagation_direction = PropagationDirection::Parent;
+                    messenger.propagation_direction = PropagationDirection::Parent(0);
                     vec![messenger]
                 }
                 _ => Vec::new(),
@@ -136,7 +136,7 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             Vec::new()
         }
         "PointerInput" => {
-            if messenger.propagation_direction != PropagationDirection::Parent {
+            if messenger.propagation_direction != PropagationDirection::Parent(-1) {
                 return vec![messenger.clone()];
             }
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
@@ -170,7 +170,7 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 }
                 '←' | '→' | '↑' | '↓' => {
                     let mut messenger = messenger.clone();
-                    messenger.propagation_direction = PropagationDirection::Parent;
+                    messenger.propagation_direction = PropagationDirection::Parent(0);
                     vec![messenger]
                 }
                 '⏎' => {
@@ -286,7 +286,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
             Vec::new()
         }
         "PointerInput" => {
-            if messenger.propagation_direction != PropagationDirection::Parent {
+            if messenger.propagation_direction != PropagationDirection::Parent(-1) {
                 return vec![messenger.clone()];
             }
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
@@ -454,7 +454,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                         };
                     } else {
                         let mut messenger = messenger.clone();
-                        messenger.propagation_direction = PropagationDirection::Parent;
+                        messenger.propagation_direction = PropagationDirection::Parent(0);
                         return vec![messenger];
                     }
                 }
