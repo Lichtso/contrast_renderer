@@ -116,7 +116,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 '⇥' => {
                     let focus_child_id = match messenger.get_attribute("origin") {
                         Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Indexed(_)) => None,
-                        Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("parent")) => {
+                        Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("parents")) => {
                             Some(NodeOrObservableIdentifier::Indexed(context.get_number_of_children() / 2))
                         }
                         _ => panic!(),
@@ -150,7 +150,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                         Vec::new()
                     } else {
                         let mut messenger = messenger.clone();
-                        messenger.propagation_direction = PropagationDirection::Parent;
+                        messenger.propagation_direction = PropagationDirection::Parent(0);
                         vec![messenger]
                     }
                 }
