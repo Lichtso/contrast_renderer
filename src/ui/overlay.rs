@@ -10,7 +10,6 @@ use crate::{
     },
     utils::translate2d,
 };
-use geometric_algebra::{ppga2d, One};
 
 /// Speech balloon overlay
 pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
@@ -180,7 +179,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             vec![update_rendering]
         }
         "Reconfigure" => {
-            let mut unaffected = !context.was_attribute_touched(&["child_count", "content_node", "track_node", "track_half_extent", "track_motor"]);
+            let mut unaffected = !context.was_attribute_touched(&["child_count", "content_node", "track_node", "track_half_extent"]);
             context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
                 if node.was_attribute_touched(&["proposed_half_extent"]) {
                     unaffected = false;
@@ -208,9 +207,8 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             }
             let half_extent = context.get_half_extent(false).unwrap();
             let arrow_side = match_option!(context.derive_attribute("speech_balloon_arrow_side"), Value::Side).unwrap();
-            let track_motor: ppga2d::Motor = if let Value::Natural1(global_node_id) = context.get_attribute("track_node") {
+            if let Value::Natural1(global_node_id) = context.get_attribute("track_node") {
                 context.configure_observe(NodeOrObservableIdentifier::NodeAttribute(global_node_id, "half_extent"), true, false);
-                context.configure_observe(NodeOrObservableIdentifier::NodeAttribute(global_node_id, "absolute_motor"), true, false);
                 context.configure_observe(NodeOrObservableIdentifier::NodeAttribute(global_node_id, "dormant"), true, false);
                 context.configure_observe(NodeOrObservableIdentifier::NodeAttribute(global_node_id, "parents"), true, false);
                 let track_half_extent = match_option!(context.get_attribute("track_half_extent"), Value::Float2)
@@ -225,15 +223,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                         };
                     context.set_attribute("speech_balloon_arrow_origin", Value::Float1(track_alignment.into()));
                 }
-                let mut track_motor = match_option!(context.get_attribute("track_motor"), Value::Float4)
-                    .map(|value| value.into())
-                    .unwrap_or_else(ppga2d::Motor::one);
-                track_motor.g0[0] = 1.0;
-                track_motor.g0[1] = 0.0;
-                track_motor
-            } else {
-                ppga2d::Motor::one()
-            };
+            }
             let arrow_extent = match_option!(context.derive_attribute("speech_balloon_arrow_extent"), Value::Float1)
                 .unwrap()
                 .unwrap();
@@ -247,7 +237,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 Side::Right => [-half_extent[0] - arrow_extent, -arrow_origin],
                 _ => panic!(),
             };
-            context.set_attribute("motor", Value::Float4((track_motor * translate2d(translation)).into()));
+            context.set_attribute("motor", Value::Float4(translate2d(translation).into()));
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }
@@ -255,9 +245,6 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             match match_option!(messenger.get_attribute("attribute"), Value::Attribute).unwrap() {
                 &"half_extent" => {
                     context.set_attribute("track_half_extent", messenger.get_attribute("value").clone());
-                }
-                &"absolute_motor" => {
-                    context.set_attribute("track_motor", messenger.get_attribute("value").clone());
                 }
                 &"dormant" | &"parents" => {
                     return vec![Messenger::new(
@@ -356,7 +343,7 @@ pub fn overlay_container(context: &mut NodeMessengerContext, messenger: &Messeng
         }
         "CloseOverlay" => {
             let overlay_index = *match_option!(messenger.get_attribute("overlay_index"), Value::Natural1).unwrap();
-            for overlay_index in overlay_index..context.get_number_of_children() {
+            for overlay_index in overlay_index..context.get_number_of_children() - 1 {
                 context.remove_child(NodeOrObservableIdentifier::NamedAndIndexed("overlay", overlay_index), true);
             }
             Vec::new()
