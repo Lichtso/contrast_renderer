@@ -269,10 +269,25 @@ impl<'a> NodeMessengerContext<'a> {
         node.observes.contains(observable)
     }
 
+    /// Returns how many parent [Node]s this [Node] has
+    pub fn get_number_of_parents(&self) -> usize {
+        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
+        node.parents.len()
+    }
+
     /// Returns how many child [Node]s this [Node] has
     pub fn get_number_of_children(&self) -> usize {
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
         node.children.len()
+    }
+
+    /// Iterates the parent [Node]s of this [Node]
+    pub fn iter_parents<F: FnMut(usize, &Node)>(&self, mut callback: F) {
+        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
+        for (parent_index, (_local_child_id, global_parent_id)) in node.parents.iter().enumerate() {
+            let parent_node = self.node_hierarchy.nodes.get(global_parent_id).unwrap().borrow();
+            callback(parent_index, &parent_node);
+        }
     }
 
     /// Iterates the child [Node]s of this [Node]
@@ -282,6 +297,16 @@ impl<'a> NodeMessengerContext<'a> {
             let child_node = self.node_hierarchy.nodes.get(global_child_id).unwrap().borrow();
             callback(local_child_id, &child_node);
         }
+    }
+
+    /// Used to read properties of a specific parent [Node]
+    pub fn inspect_parent<R, F: FnOnce(&Node) -> R>(&self, parent_index: usize, callback: F) -> Option<R> {
+        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
+        node.parents
+            .get(parent_index)
+            .map(|(_local_child_id, global_parent_id)| {
+                callback(&self.node_hierarchy.nodes.get(global_parent_id).unwrap().borrow())
+            })
     }
 
     /// Used to read properties of a specific child [Node]
@@ -488,6 +513,8 @@ impl NodeHierarchy {
                 .position(|local_and_global_ids| local_and_global_ids.1 == global_parent_id)
                 .unwrap();
             node.parents.remove(parent_index);
+        } else {
+            node.parents.clear();
         }
         if !node.parents.is_empty() {
             reconfigure_node!(self, node);
