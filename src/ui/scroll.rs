@@ -112,6 +112,11 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         }
         "Reconfigure" => {
             let mut unaffected = !context.was_attribute_touched(&["child_count", "half_extent", "content_motor", "content_scale"]);
+            if let Value::Node(content_node) = context.get_attribute("content") {
+                context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
+                context.set_attribute("content", Value::Void);
+                unaffected = false;
+            }
             let mut content_motor = None;
             context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
                 if node.was_attribute_touched(&["proposed_half_extent"]) {
@@ -203,6 +208,11 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 context.set_attribute("content_motor", Value::Float4(content_motor.into()));
             }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
+            Vec::new()
+        }
+        "AdoptNode" => {
+            let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
+            context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
             Vec::new()
         }
         "PointerInput" => {
