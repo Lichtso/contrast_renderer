@@ -319,6 +319,12 @@ impl<'a> NodeMessengerContext<'a> {
 
     /// Adds and links a given child [Node]
     pub fn add_child(&mut self, local_child_id: NodeOrObservableIdentifier, child_node: Rc<RefCell<Node>>) {
+        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
+        let global_child_id = node.children.get(&local_child_id).cloned();
+        drop(node);
+        if let Some(global_child_id) = global_child_id {
+            self.node_hierarchy.unlink_node(global_child_id, None);
+        }
         let _global_child_id = self.node_hierarchy.link_node(child_node, Some((local_child_id, self.global_node_id)));
     }
 

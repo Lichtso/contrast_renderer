@@ -1,6 +1,6 @@
 //! Tabs
 use crate::{
-    match_option,
+    hash_map, match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
         message::{input_focus_parent_or_child, Messenger, PropagationDirection},
@@ -32,7 +32,13 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
             vec![update_rendering]
         }
         "Reconfigure" => {
-            if !context.was_attribute_touched(&["child_count", "half_extent"]) {
+            let mut unaffected = !context.was_attribute_touched(&["child_count", "half_extent"]);
+            if let Value::Node(content_node) = context.get_attribute("content") {
+                context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
+                context.set_attribute("content", Value::Void);
+                unaffected = false;
+            }
+            if unaffected {
                 return Vec::new();
             }
             let half_extent = context.get_half_extent(false);
@@ -45,6 +51,12 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
                 );
             }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
+            Vec::new()
+        }
+        "AdoptNode" => {
+            let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
+            context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
+            context.pointer_and_button_input_focus(messenger);
             Vec::new()
         }
         "PointerInput" => {
@@ -189,6 +201,25 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
     match messenger.get_kind() {
         "Reconfigure" => {
             let mut unaffected = !context.was_attribute_touched(&["child_count", "half_extent", "orientation"]);
+            if let Value::Vec(entries) = context.get_attribute("entries") {
+                for child_index in 0..context.get_number_of_children() {
+                    context.remove_child(NodeOrObservableIdentifier::Indexed(child_index), true);
+                }
+                let weight = 1.0 / entries.len() as f32;
+                for (tab_index, entry) in entries.into_iter().enumerate() {
+                    let tab_node = match_option!(entry, Value::Node).unwrap();
+                    context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("tab", tab_index), tab_node);
+                    let handle_node = Node::new(
+                        tab_handle,
+                        hash_map! {
+                            "weight" => Value::Float1(weight.into()),
+                        },
+                    );
+                    context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_index), handle_node);
+                }
+                context.set_attribute("entries", Value::Void);
+                unaffected = false;
+            }
             let mut active = None;
             context.iter_children(|local_child_id: &NodeOrObservableIdentifier, node: &Node| {
                 if node.was_attribute_touched(&["weight"]) {
@@ -283,6 +314,19 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                     }),
                 );
             }
+            Vec::new()
+        }
+        "AdoptNode" => {
+            let tab_index = context.get_number_of_children();
+            let tab_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
+            context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("tab", tab_index), tab_node);
+            let handle_node = Node::new(
+                tab_handle,
+                hash_map! {
+                    "weight" => Value::Float1((0.0).into()),
+                },
+            );
+            context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_index), handle_node);
             Vec::new()
         }
         "PointerInput" => {

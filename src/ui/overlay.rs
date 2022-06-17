@@ -179,17 +179,17 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             vec![update_rendering]
         }
         "Reconfigure" => {
-            let mut unaffected = !context.was_attribute_touched(&["child_count", "content_node", "track_node", "track_half_extent"]);
+            let mut unaffected = !context.was_attribute_touched(&["child_count", "track_node", "track_half_extent"]);
+            if let Value::Node(content_node) = context.get_attribute("content") {
+                context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
+                context.set_attribute("content", Value::Void);
+                unaffected = false;
+            }
             context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
                 if node.was_attribute_touched(&["proposed_half_extent"]) {
                     unaffected = false;
                 }
             });
-            if let Value::Node(content_node) = context.get_attribute("content_node") {
-                context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
-                context.set_attribute("content_node", Value::Void);
-                unaffected = false;
-            }
             if unaffected {
                 return Vec::new();
             }
@@ -256,6 +256,12 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 }
                 _ => unreachable!(),
             }
+            Vec::new()
+        }
+        "AdoptNode" => {
+            let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
+            context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
+            context.pointer_and_button_input_focus(messenger);
             Vec::new()
         }
         "PointerInput" => {
@@ -330,16 +336,15 @@ pub fn overlay_container(context: &mut NodeMessengerContext, messenger: &Messeng
             }
             Vec::new()
         }
-        "OpenOverlay" => {
+        "AdoptNode" => {
             let overlay_index = context.get_number_of_children() - 1;
-            let overlay_node = match_option!(messenger.get_attribute("overlay_node"), Value::Node).unwrap().clone();
+            let overlay_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
             let mut borrowed_node = overlay_node.borrow_mut();
             borrowed_node.set_attribute("track_node", Value::Natural1(messenger.get_source_node_id()));
             borrowed_node.set_attribute("overlay_index", Value::Natural1(overlay_index));
             drop(borrowed_node);
-            let child_id = NodeOrObservableIdentifier::NamedAndIndexed("overlay", overlay_index);
-            context.add_child(child_id, overlay_node);
-            vec![input_focus_parent_or_child(messenger, Some(child_id))]
+            context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("overlay", overlay_index), overlay_node);
+            Vec::new()
         }
         "CloseOverlay" => {
             let overlay_index = *match_option!(messenger.get_attribute("overlay_index"), Value::Natural1).unwrap();

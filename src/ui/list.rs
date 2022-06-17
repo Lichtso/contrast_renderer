@@ -15,17 +15,29 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
     match messenger.get_kind() {
         "Reconfigure" => {
             let first_phase = match_option!(context.get_attribute("first_phase"), Value::Boolean).unwrap_or(true);
-            context.set_attribute_privately("first_phase", Value::Boolean(!first_phase));
             let mut unaffected =
                 first_phase && !context.was_attribute_touched(&["child_count", "half_extent", "proposed_half_extent", "orientation", "reverse"]);
+            if let Value::Vec(entries) = context.get_attribute("entries") {
+                for child_index in 0..context.get_number_of_children() {
+                    context.remove_child(NodeOrObservableIdentifier::Indexed(child_index), true);
+                }
+                for (child_index, entry) in entries.into_iter().enumerate() {
+                    let child_node = match_option!(entry, Value::Node).unwrap();
+                    context.add_child(NodeOrObservableIdentifier::Indexed(child_index), child_node);
+                }
+                context.set_attribute("entries", Value::Void);
+                unaffected = false;
+            }
             context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
                 if node.was_attribute_touched(&["proposed_half_extent"]) {
                     unaffected = false;
                 }
             });
             if unaffected {
+                context.set_attribute_privately("first_phase", Value::Boolean(true));
                 return Vec::new();
             }
+            context.set_attribute_privately("first_phase", Value::Boolean(!first_phase));
             let propose_half_extent = context.get_attribute("proposed_half_extent") != Value::Void;
             let margin = match_option!(context.derive_attribute("list_margin"), Value::Float1).unwrap().unwrap();
             let padding = match_option!(context.derive_attribute("list_padding"), Value::Float2).unwrap().unwrap();
@@ -101,6 +113,11 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 }
                 Vec::new()
             }
+        }
+        "AdoptNode" => {
+            let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
+            context.add_child(NodeOrObservableIdentifier::Indexed(context.get_number_of_children()), content_node);
+            Vec::new()
         }
         "PointerInput" => {
             vec![messenger.clone()]
