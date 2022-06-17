@@ -23,15 +23,14 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                     unaffected = false;
                 }
             });
-            let mut result = Vec::new();
             if unaffected {
-                return result;
+                return Vec::new();
             }
             let propose_half_extent = context.get_attribute("proposed_half_extent") != Value::Void;
             let margin = match_option!(context.derive_attribute("list_margin"), Value::Float1).unwrap().unwrap();
             let padding = match_option!(context.derive_attribute("list_padding"), Value::Float2).unwrap().unwrap();
             let minor_axis_alignment = context.derive_attribute("list_minor_axis_alignment");
-            let reverse = match_option!(context.get_attribute("reverse"), Value::Boolean).unwrap_or(false);
+            let reverse = matches!(context.get_attribute("reverse"), Value::Boolean(true));
             let major_axis = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap_or(Orientation::Horizontal) as usize;
             let minor_axis = 1 - major_axis;
             let mut half_extent = [0.0, 0.0];
@@ -61,9 +60,6 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 major_half_extent_to_distribute
             };
             let mut major_axis_offset = -half_extent[major_axis];
-            if first_phase {
-                result.insert(0, Messenger::new(&message::RECONFIGURE, hash_map! {}));
-            }
             for child_index in 0..context.get_number_of_children() {
                 context.configure_child(
                     NodeOrObservableIdentifier::Indexed(child_index),
@@ -73,12 +69,11 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                             .unwrap_or(0.0)
                             .max(0.0);
                         let mut child_half_extent = node.get_half_extent(true).unwrap();
-                        if first_phase {
-                            if minor_axis_alignment == Value::Void {
-                                child_half_extent[minor_axis] = half_extent[minor_axis];
-                            }
-                            node.set_attribute("half_extent", Value::Float2(child_half_extent.into()));
-                        } else {
+                        if minor_axis_alignment == Value::Void {
+                            child_half_extent[minor_axis] = half_extent[minor_axis];
+                        }
+                        node.set_attribute("half_extent", Value::Float2(child_half_extent.into()));
+                        if !first_phase {
                             let mut translation = [0.0; 2];
                             child_half_extent[major_axis] += major_half_extent_to_distribute * weight;
                             translation[minor_axis] = match minor_axis_alignment {
@@ -96,12 +91,16 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                     }),
                 );
             }
-            half_extent[0] += padding[0];
-            half_extent[1] += padding[1];
-            if !first_phase && propose_half_extent {
-                context.set_half_extent(half_extent.into());
+            if first_phase {
+                vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
+            } else {
+                if propose_half_extent {
+                    half_extent[0] += padding[0];
+                    half_extent[1] += padding[1];
+                    context.set_half_extent(half_extent.into());
+                }
+                Vec::new()
             }
-            result
         }
         "PointerInput" => {
             vec![messenger.clone()]
@@ -138,7 +137,10 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                                 _ => None,
                             }
                         };
-                        if let Some(direction) = direction {
+                        if let Some(mut direction) = direction {
+                            if matches!(context.get_attribute("reverse"), Value::Boolean(true)) {
+                                direction *= -1;
+                            }
                             let focus_child_index = *child_index as isize + direction;
                             if focus_child_index >= 0 && focus_child_index < context.get_number_of_children() as isize {
                                 return vec![input_focus_parent_or_child(
