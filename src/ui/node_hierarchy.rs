@@ -576,10 +576,10 @@ impl NodeHierarchy {
                     if parent_index < 0 {
                         parent_index += node.parents.len() as isize;
                     }
-                    if let Some((local_child_id, global_parent_id)) = node.parents.get(parent_index as usize) {
-                        let (invoke, stop) =
-                            (messenger.behavior.update_at_node_edge)(&mut messenger, node.get_half_extent(false), &node, Some(*local_child_id));
-                        let global_parent_id = *global_parent_id;
+                    if let Some((local_child_id, global_parent_id)) = node.parents.get(parent_index as usize).cloned() {
+                        drop(node);
+                        let node = self.nodes.get(&global_parent_id).unwrap().borrow();
+                        let (invoke, stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, &node, Some(local_child_id));
                         drop(node);
                         if invoke {
                             self.invoke_handler(global_parent_id, &mut messenger);
@@ -587,7 +587,6 @@ impl NodeHierarchy {
                         if stop {
                             break;
                         }
-                        (messenger.behavior.reset_at_node_edge)(&mut messenger, false);
                     }
                 }
                 PropagationDirection::Child(local_child_id) => {
@@ -597,25 +596,25 @@ impl NodeHierarchy {
                     let mut reflect = true;
                     if let Some(global_child_id) = global_child_id {
                         let node = self.nodes.get(&global_child_id).unwrap().borrow();
-                        let (invoke, stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, node.get_half_extent(false), &node, None);
+                        let (invoke, _stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
                         drop(node);
                         if invoke {
                             reflect &= self.invoke_handler(global_child_id, &mut messenger);
                         }
-                        if !stop {
-                            (messenger.behavior.reset_at_node_edge)(&mut messenger, false);
-                        }
                     }
-                    if reflect && (messenger.behavior.do_reflect)(&mut messenger) {
-                        self.invoke_handler(messenger.source_node_id, &mut messenger);
+                    if reflect {
+                        let node = self.nodes.get(&messenger.source_node_id).unwrap().borrow();
+                        if (messenger.behavior.do_reflect)(&mut messenger, Some(&node)) {
+                            drop(node);
+                            self.invoke_handler(messenger.source_node_id, &mut messenger);
+                        }
                     }
                 }
                 PropagationDirection::Siblings => {
                     let parents = self.nodes.get(&messenger.source_node_id).unwrap().borrow().parents.clone(); // TODO: Efficency
                     for (local_child_id, global_parent_id) in parents {
-                        let half_extent = self.nodes.get(&global_parent_id).unwrap().borrow().get_half_extent(false);
-                        let node = self.nodes.get(&messenger.source_node_id).unwrap().borrow();
-                        (messenger.behavior.update_at_node_edge)(&mut messenger, half_extent, &node, Some(local_child_id));
+                        let node = self.nodes.get(&global_parent_id).unwrap().borrow();
+                        (messenger.behavior.update_at_node_edge)(&mut messenger, &node, Some(local_child_id));
                         let ordered_children = node.ordered_children.clone(); // TODO: Efficency
                         drop(node);
                         for global_child_id in ordered_children.iter() {
@@ -623,7 +622,7 @@ impl NodeHierarchy {
                                 continue;
                             }
                             let node = self.nodes.get(global_child_id).unwrap().borrow();
-                            let (invoke, stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, node.get_half_extent(false), &node, None);
+                            let (invoke, stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
                             drop(node);
                             if invoke {
                                 self.invoke_handler(*global_child_id, &mut messenger);
@@ -631,7 +630,6 @@ impl NodeHierarchy {
                             if stop {
                                 break;
                             }
-                            (messenger.behavior.reset_at_node_edge)(&mut messenger, false);
                         }
                     }
                 }
@@ -640,7 +638,7 @@ impl NodeHierarchy {
                     let mut reflect = true;
                     for global_child_id in ordered_children.iter().rev() {
                         let node = self.nodes.get(global_child_id).unwrap().borrow();
-                        let (invoke, stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, node.get_half_extent(false), &node, None);
+                        let (invoke, stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
                         drop(node);
                         if invoke {
                             reflect &= self.invoke_handler(*global_child_id, &mut messenger);
@@ -648,10 +646,13 @@ impl NodeHierarchy {
                         if stop {
                             break;
                         }
-                        (messenger.behavior.reset_at_node_edge)(&mut messenger, false);
                     }
-                    if reflect && (messenger.behavior.do_reflect)(&mut messenger) {
-                        self.invoke_handler(messenger.source_node_id, &mut messenger);
+                    if reflect {
+                        let node = self.nodes.get(&messenger.source_node_id).unwrap().borrow();
+                        if (messenger.behavior.do_reflect)(&mut messenger, Some(&node)) {
+                            drop(node);
+                            self.invoke_handler(messenger.source_node_id, &mut messenger);
+                        }
                     }
                 }
                 PropagationDirection::Observers(observable) => {
@@ -666,7 +667,7 @@ impl NodeHierarchy {
                         continue;
                     };
                     if is_captured_observable {
-                        (messenger.behavior.do_reflect)(&mut messenger);
+                        (messenger.behavior.do_reflect)(&mut messenger, None);
                     }
                     for global_node_id in global_node_ids.iter() {
                         let mut invoke_handler = true;
@@ -679,8 +680,7 @@ impl NodeHierarchy {
                             }
                             for global_node_id in parents_path.iter().rev() {
                                 let node = self.nodes.get(global_node_id).unwrap().borrow();
-                                let (invoke, _stop) =
-                                    (messenger.behavior.update_at_node_edge)(&mut messenger, node.get_half_extent(false), &node, None);
+                                let (invoke, _stop) = (messenger.behavior.update_at_node_edge)(&mut messenger, &node, None);
                                 if !invoke && !is_captured_observable {
                                     invoke_handler = false;
                                     break;
@@ -690,7 +690,6 @@ impl NodeHierarchy {
                         if invoke_handler || is_captured_observable {
                             self.invoke_handler(*global_node_id, &mut messenger);
                         }
-                        (messenger.behavior.reset_at_node_edge)(&mut messenger, true);
                     }
                 }
             }
