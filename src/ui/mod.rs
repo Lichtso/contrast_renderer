@@ -158,8 +158,6 @@ pub struct InputState {
     pub absolute_positions: HashMap<usize, SafeFloat<f32, 3>>,
     /// Mouse, touch, pen relative to the current node
     pub relative_positions: HashMap<usize, SafeFloat<f32, 3>>,
-    /// Mouse, touch, pen relative to the parent node
-    pub relative_positions_in_parent: HashMap<usize, SafeFloat<f32, 3>>,
     /// Mouse, touch, pen relative which are inside the current node
     pub is_inside_bounds: HashMap<usize, bool>,
 }
