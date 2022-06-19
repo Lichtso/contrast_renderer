@@ -288,6 +288,9 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 _ => Vec::new(),
             }
         }
+        "UserInput" => {
+            vec![messenger.clone()]
+        }
         _ => Vec::new(),
     }
 }

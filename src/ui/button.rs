@@ -1,70 +1,67 @@
-//! Checkbox
+//! Button
 use crate::{
     hash_map, match_option,
-    path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
+    path::Path,
     ui::{
         message::{self, input_focus_parent_or_child, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
-        Rendering,
+        Node, NodeOrObservableIdentifier, Rendering,
     },
 };
 
-/// Checkbox
-pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
+/// Button
+pub fn button(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.get_kind() {
         "PrepareRendering" => {
             let mut update_rendering = context.update_rendering_helper(messenger);
             if update_rendering.get_attribute("rendering") != &Value::Void {
                 let mut rendering = Rendering::default();
                 let half_extent = context.get_half_extent(false).unwrap();
-                let corner_radius = match_option!(context.derive_attribute("checkbox_corner_radius"), Value::Float1)
+                let corner_radius = match_option!(context.derive_attribute("button_corner_radius"), Value::Float1)
                     .unwrap()
                     .unwrap()
                     .min(half_extent[0].min(half_extent[1]));
-                let is_checked = match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
-                let fill_color_attribute = if is_checked {
-                    "checkbox_checked_color"
-                } else {
-                    "checkbox_unchecked_color"
-                };
-                let fill_color = match_option!(context.derive_attribute(fill_color_attribute), Value::Float4).unwrap();
+                let fill_color = match_option!(context.derive_attribute("button_fill_color"), Value::Float4).unwrap();
                 let fill_path = Path::from_rounded_rect([0.0, 0.0], half_extent, corner_radius);
                 rendering.colored_paths.push((fill_color, vec![fill_path]));
-                if is_checked {
-                    let shorter_edge = half_extent[0].min(half_extent[1]);
-                    let mut stroke_path = Path::from_polygon(&[
-                        [-0.5 * shorter_edge, 0.4 * shorter_edge],
-                        [0.0, -0.3 * shorter_edge],
-                        [0.8 * shorter_edge, 1.5 * shorter_edge],
-                    ]);
-                    stroke_path.stroke_options = Some(StrokeOptions {
-                        width: (0.2 * shorter_edge).into(),
-                        offset: 0.0.into(),
-                        miter_clip: (0.1 * shorter_edge).into(),
-                        closed: false,
-                        dynamic_stroke_options_group: 0,
-                        curve_approximation: CurveApproximation::UniformlySpacedParameters(0),
-                    });
-                    rendering.colored_paths.push((
-                        match_option!(context.derive_attribute("checkbox_checkmark_color"), Value::Float4).unwrap(),
-                        vec![stroke_path],
-                    ));
-                    rendering.dynamic_stroke_options = vec![DynamicStrokeOptions::Solid {
-                        join: Join::Miter,
-                        start: Cap::Butt,
-                        end: Cap::Butt,
-                    }];
-                }
                 update_rendering.set_attribute("rendering", Value::Rendering(Box::new(rendering)));
             }
             vec![update_rendering]
         }
         "Reconfigure" => {
-            if !context.was_attribute_touched(&["is_checked"]) {
+            let mut unaffected = !context.was_attribute_touched(&["child_count", "half_extent", "observes"]);
+            if let Value::Node(content_node) = context.get_attribute("content") {
+                context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
+                context.set_attribute("content", Value::Void);
+                unaffected = false;
+            }
+            context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
+                if node.was_attribute_touched(&["proposed_half_extent"]) {
+                    unaffected = false;
+                }
+            });
+            if unaffected {
                 return Vec::new();
             }
-            context.set_half_extent(match_option!(context.derive_attribute("ckeckbox_half_extent"), Value::Float2).unwrap());
+            if let Some(content_half_extent) =
+                context.inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.get_half_extent(true))
+            {
+                let padding = match_option!(context.derive_attribute("button_padding"), Value::Float2).unwrap().unwrap();
+                let mut half_extent = context.get_half_extent(false).unwrap();
+                let mut content_half_extent = content_half_extent.unwrap();
+                half_extent[0] = content_half_extent[0] + padding[0];
+                half_extent[1] = content_half_extent[1] + padding[1];
+                content_half_extent[0] = half_extent[0] - padding[0];
+                content_half_extent[1] = half_extent[1] - padding[1];
+                context.set_half_extent(half_extent.into());
+                context.configure_child(
+                    NodeOrObservableIdentifier::Named("content"),
+                    Some(|node: &mut Node| {
+                        node.set_attribute("half_extent", Value::Float2(content_half_extent.into()));
+                    }),
+                );
+            }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }
@@ -76,20 +73,17 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             }
             let mut messengers = Vec::new();
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
-            if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) {
+            if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) && *input_state.is_inside_bounds.get(&0).unwrap() {
                 if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
                     if !*pressed
-                        && *input_state.is_inside_bounds.get(&0).unwrap()
                         && context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap())
                     {
-                        let is_checked = !match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
-                        context.set_attribute("is_checked", Value::Boolean(is_checked));
+                        context.touch_attribute("active");
                         if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {
                             messengers.push(Messenger::new(
                                 &message::USER_INPUT,
                                 hash_map! {
                                     "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
-                                    "value" => context.get_attribute("is_checked"),
                                 },
                             ));
                         }
@@ -120,14 +114,12 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                     vec![messenger]
                 }
                 '⏎' => {
-                    let is_checked = !match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
-                    context.set_attribute("is_checked", Value::Boolean(is_checked));
+                    context.touch_attribute("active");
                     if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {
                         vec![Messenger::new(
                             &message::USER_INPUT,
                             hash_map! {
                                 "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
-                                "value" => context.get_attribute("is_checked"),
                             },
                         )]
                     } else {

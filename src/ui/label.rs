@@ -1,10 +1,10 @@
 //! Text label
 use crate::{
-    match_option,
+    hash_map, match_option,
     path::Path,
     text::{byte_offset_of_char_index, half_extent_of_text, index_of_char_at, paths_of_text, Layout},
     ui::{
-        message::{input_focus_parent_or_child, Messenger, PropagationDirection},
+        message::{self, input_focus_parent_or_child, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering, TextInteraction,
@@ -197,7 +197,17 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                         return Vec::new();
                     }
                     context.touch_attribute("text_content");
-                    vec![]
+                    if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {
+                        vec![Messenger::new(
+                            &message::USER_INPUT,
+                            hash_map! {
+                                "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
+                                "value" => context.get_attribute("text_content"),
+                            },
+                        )]
+                    } else {
+                        Vec::new()
+                    }
                 }
                 _ => {
                     if text_interaction != TextInteraction::Editing {

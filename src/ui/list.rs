@@ -176,6 +176,9 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 _ => Vec::new(),
             }
         }
+        "UserInput" => {
+            vec![messenger.clone()]
+        }
         _ => Vec::new(),
     }
 }

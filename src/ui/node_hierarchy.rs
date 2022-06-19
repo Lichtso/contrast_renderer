@@ -372,11 +372,13 @@ impl<'a> NodeMessengerContext<'a> {
         match node.observes.contains(&observable) {
             true if !want => {
                 node.observes.remove(&observable);
+                node.out_touched_attributes.insert("observes");
                 drop(node);
                 self.node_hierarchy.unsubscribe_observer(self.global_node_id, observable);
             }
             false if want => {
                 node.observes.insert(observable);
+                node.out_touched_attributes.insert("observes");
                 drop(node);
                 self.node_hierarchy.subscribe_observer(self.global_node_id, observable);
             }
@@ -566,6 +568,8 @@ impl NodeHierarchy {
                 for global_node_id in entry.get() {
                     let mut node = self.nodes.get(global_node_id).unwrap().borrow_mut();
                     node.observes.remove(&observable);
+                    node.in_touched_attributes.insert("observes");
+                    reconfigure_node!(self, node);
                 }
                 entry.remove_entry();
             }

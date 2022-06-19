@@ -71,6 +71,10 @@ impl application_framework::Application for Application {
             "range_filled_color" => Value::Float4([0.1, 0.3, 0.8, 1.0].into()),
             "range_corner_radius" => Value::Float1(10.0.into()),
 
+            "button_fill_color" => Value::Float4([0.03, 0.03, 0.03, 1.0].into()),
+            "button_corner_radius" => Value::Float1(7.0.into()),
+            "button_padding" => Value::Float2([10.0, 10.0].into()),
+
             "checkbox_unchecked_color" => Value::Float4([0.3, 0.3, 0.3, 1.0].into()),
             "checkbox_checked_color" => Value::Float4([0.1, 0.3, 0.5, 1.0].into()),
             "checkbox_checkmark_color" => Value::Float4([1.0, 1.0, 1.0, 1.0].into()),

@@ -1,10 +1,10 @@
 //! Range slider
 use crate::{
-    match_option,
+    hash_map, match_option,
     path::Path,
     ui::{
         label::text_label,
-        message::{input_focus_parent_or_child, Messenger, PropagationDirection},
+        message::{self, input_focus_parent_or_child, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation, Rendering, TextInteraction,
@@ -70,6 +70,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 "snap_clamp_function",
                 "textual_projection",
             ]);
+            let mut messengers = Vec::new();
             if let Value::TextualProjection(textual_projection) = context.get_attribute("textual_projection") {
                 let text_content = context
                     .inspect_child(&NodeOrObservableIdentifier::Named("textual"), |node: &Node| {
@@ -94,13 +95,21 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                         if new_numeric_value != numeric_value {
                             unaffected = false;
                             context.set_attribute("numeric_value", Value::Float1(new_numeric_value.into()));
-                            context.set_attribute("rendering_is_dirty", Value::Boolean(true));
+                            if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {
+                                messengers.push(Messenger::new(
+                                    &message::USER_INPUT,
+                                    hash_map! {
+                                        "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
+                                        "value" => context.get_attribute("numeric_value"),
+                                    },
+                                ));
+                            }
                         }
                     }
                 }
             }
             if unaffected {
-                return Vec::new();
+                return messengers;
             }
             let half_extent = context.get_half_extent(false).unwrap();
             let axis = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap_or(Orientation::Horizontal) as usize;
@@ -160,7 +169,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 }),
             );
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            Vec::new()
+            messengers
         }
         "PointerInput" => {
             if !match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false)
@@ -201,7 +210,15 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                     }
                     if numeric_value != new_numeric_value {
                         context.set_attribute("numeric_value", Value::Float1(new_numeric_value.into()));
-                        context.set_attribute("rendering_is_dirty", Value::Boolean(true));
+                        if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {
+                            return vec![Messenger::new(
+                                &message::USER_INPUT,
+                                hash_map! {
+                                    "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
+                                    "value" => context.get_attribute("numeric_value"),
+                                },
+                            )];
+                        }
                     }
                 }
             }
