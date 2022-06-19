@@ -91,6 +91,9 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
                 _ => Vec::new(),
             }
         }
+        "UserInput" => {
+            vec![messenger.clone()]
+        }
         _ => Vec::new(),
     }
 }
@@ -509,6 +512,9 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
             } else {
                 Vec::new()
             }
+        }
+        "UserInput" => {
+            vec![messenger.clone()]
         }
         _ => Vec::new(),
     }
