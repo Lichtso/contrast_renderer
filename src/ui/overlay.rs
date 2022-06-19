@@ -304,6 +304,9 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 _ => Vec::new(),
             }
         }
+        "UserInput" => {
+            vec![messenger.clone()]
+        }
         _ => Vec::new(),
     }
 }
