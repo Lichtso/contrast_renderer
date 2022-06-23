@@ -179,7 +179,13 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             vec![update_rendering]
         }
         "Reconfigure" => {
-            let mut unaffected = !context.was_attribute_touched(&["child_count", "track_node", "track_half_extent"]);
+            if context.get_number_of_parents() == 2 {
+                let track_half_extent = context.inspect_parent(0, |node: &Node| node.get_half_extent(false)).unwrap();
+                context.set_attribute("track_half_extent", Value::Float2(track_half_extent));
+                let track_node = match_option!(context.get_attribute("track_node"), Value::Natural1).unwrap(); // TODO: Stop using global ids
+                context.configure_observe(NodeOrObservableIdentifier::NodeAttribute(track_node, "half_extent"), true, false);
+            }
+            let mut unaffected = !context.was_attribute_touched(&["parents", "child_count", "track_half_extent", "dormant_parent_count"]);
             if let Value::Node(content_node) = context.get_attribute("content") {
                 context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
                 context.set_attribute("content", Value::Void);
@@ -189,10 +195,19 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             if unaffected {
                 return Vec::new();
             }
+            if match_option!(context.derive_attribute("dormant_parent_count"), Value::Natural1).unwrap_or(0) > 0 {
+                return vec![Messenger::new(
+                    &message::CLOSE_OVERLAY,
+                    hash_map! {
+                        "overlay_index" => context.get_attribute("overlay_index"),
+                    },
+                )];
+            }
+            let mut half_extent = context.get_half_extent(false).unwrap();
             if let Some(content_half_extent) =
                 context.inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.get_half_extent(true))
             {
-                let mut half_extent = content_half_extent.unwrap();
+                half_extent = content_half_extent.unwrap();
                 let padding = match_option!(context.derive_attribute("speech_balloon_stroke_width"), Value::Float1)
                     .unwrap()
                     .unwrap()
@@ -200,31 +215,27 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 half_extent[0] += padding;
                 half_extent[1] += padding;
                 context.set_attribute("proposed_half_extent", Value::Float2(half_extent.into()));
+                half_extent[0] += padding;
+                half_extent[1] += padding;
             }
-            let half_extent = context.get_half_extent(false).unwrap();
+            let track_half_extent = match_option!(context.derive_attribute("track_half_extent"), Value::Float2)
+                .map(|half_extent| half_extent.into())
+                .unwrap_or([0.0, 0.0]);
             let arrow_side = match_option!(context.derive_attribute("speech_balloon_arrow_side"), Value::Side).unwrap();
             let mut arrow_extent = match_option!(context.derive_attribute("speech_balloon_arrow_extent"), Value::Float1)
                 .unwrap()
                 .unwrap();
-            if let Value::Natural1(global_node_id) = context.get_attribute("track_node") {
-                context.configure_observe(NodeOrObservableIdentifier::NodeAttribute(global_node_id, "half_extent"), true, false);
-                context.configure_observe(NodeOrObservableIdentifier::NodeAttribute(global_node_id, "dormant"), true, false);
-                context.configure_observe(NodeOrObservableIdentifier::NodeAttribute(global_node_id, "parents"), true, false);
-                let track_half_extent = match_option!(context.get_attribute("track_half_extent"), Value::Float2)
-                    .map(|value| value.into())
-                    .unwrap_or([0.0, 0.0]);
-                if arrow_extent == 0.0 {
-                    arrow_extent = track_half_extent[(arrow_side as usize) / 2];
-                }
-                if let Value::Float1(track_alignment) = context.get_attribute("track_alignment") {
-                    let track_alignment = track_alignment.unwrap()
-                        * match arrow_side {
-                            Side::Bottom | Side::Top => half_extent[0] - track_half_extent[0],
-                            Side::Left | Side::Right => half_extent[1] - track_half_extent[1],
-                            _ => panic!(),
-                        };
-                    context.set_attribute("speech_balloon_arrow_origin", Value::Float1(track_alignment.into()));
-                }
+            if arrow_extent == 0.0 {
+                arrow_extent = track_half_extent[(arrow_side as usize) / 2];
+            }
+            if let Value::Float1(track_alignment) = context.get_attribute("track_alignment") {
+                let track_alignment = track_alignment.unwrap()
+                    * match arrow_side {
+                        Side::Bottom | Side::Top => half_extent[0] - track_half_extent[0],
+                        Side::Left | Side::Right => half_extent[1] - track_half_extent[1],
+                        _ => panic!(),
+                    };
+                context.set_attribute("speech_balloon_arrow_origin", Value::Float1(track_alignment.into()));
             }
             let track_offset = match_option!(context.get_attribute("track_offset"), Value::Float1)
                 .map(|track_offset| track_offset.into())
@@ -241,23 +252,6 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             };
             context.set_attribute("motor", Value::Float4(translate2d(translation).into()));
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
-            Vec::new()
-        }
-        "PropertyChanged" => {
-            match match_option!(messenger.get_attribute("attribute"), Value::Attribute).unwrap() {
-                &"half_extent" => {
-                    context.set_attribute("track_half_extent", messenger.get_attribute("value").clone());
-                }
-                &"dormant" | &"parents" => {
-                    return vec![Messenger::new(
-                        &message::CLOSE_OVERLAY,
-                        hash_map! {
-                            "overlay_index" => context.get_attribute("overlay_index"),
-                        },
-                    )];
-                }
-                _ => unreachable!(),
-            }
             Vec::new()
         }
         "AdoptNode" => {

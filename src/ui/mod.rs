@@ -309,8 +309,9 @@ impl Default for Node {
 
 impl Node {
     /// Creates a new [Node]
-    pub fn new(messenger_handler: MessengerHandler, properties: HashMap<&'static str, Value>) -> Rc<RefCell<Self>> {
+    pub fn new(messenger_handler: MessengerHandler, mut properties: HashMap<&'static str, Value>) -> Rc<RefCell<Self>> {
         let touched_attributes = properties.keys().cloned().collect();
+        properties.insert("dormant", Value::Boolean(false));
         Rc::new(RefCell::new(Self {
             messenger_handler,
             properties,

@@ -20,31 +20,13 @@ use std::{
 };
 
 macro_rules! reconfigure_node {
-    ($self:expr, $node:expr) => {
+    ($node_hierarchy:expr, $node:expr) => {
         if !$node.in_reconfigure_queue {
             $node.in_reconfigure_queue = true;
-            $self.reconfigure_queue.push(ReconfigurePriority {
+            $node_hierarchy.reconfigure_queue.push(ReconfigurePriority {
                 nesting_depth: $node.nesting_depth,
                 global_node_id: $node.global_id,
             });
-        }
-    };
-}
-
-macro_rules! notify_property_observers {
-    ($node_hierarchy:expr, $node:expr, $attribute:expr) => {
-        let observable = NodeOrObservableIdentifier::NodeAttribute($node.global_id, $attribute);
-        if $node_hierarchy.observer_channels.contains_key(&observable) {
-            let mut messenger = Messenger::new(
-                &message::PROPERTY_CHANGED,
-                hash_map! {
-                    "attribute" => Value::Attribute($attribute),
-                    "value" => $node.get_attribute($attribute),
-                },
-            );
-            messenger.source_node_id = $node.global_id;
-            messenger.propagation_direction = PropagationDirection::Observers(observable);
-            $node_hierarchy.messenger_stack.push(messenger);
         }
     };
 }
@@ -56,29 +38,42 @@ pub struct NodeMessengerContext<'a> {
 }
 
 impl<'a> NodeMessengerContext<'a> {
-    fn notify_dormant_recursively(&mut self, global_node_id: GlobalNodeIdentifier) {
+    fn notify_dormant_recursively(&mut self, global_node_id: GlobalNodeIdentifier, increase: bool) {
         let node = self.node_hierarchy.nodes.get(&global_node_id).unwrap().borrow();
-        notify_property_observers!(self.node_hierarchy, node, "dormant");
         let ordered_children = node.ordered_children.clone(); // TODO: Efficency
         drop(node);
         for global_child_id in ordered_children.iter() {
-            self.notify_dormant_recursively(*global_child_id);
+            let mut node = self.node_hierarchy.nodes.get(global_child_id).unwrap().borrow_mut();
+            let mut dormant_parent_count = match_option!(node.get_attribute("dormant_parent_count"), Value::Natural1).unwrap_or(0);
+            if increase {
+                dormant_parent_count += 1;
+            } else {
+                dormant_parent_count -= 1;
+            }
+            node.set_attribute("dormant_parent_count", Value::Natural1(dormant_parent_count));
+            reconfigure_node!(self.node_hierarchy, node);
+            drop(node);
+            self.notify_dormant_recursively(*global_child_id, increase);
         }
     }
 
     fn invoke_handler(&mut self, messenger: &mut Messenger) -> bool {
         let mut node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow_mut();
-        if node.get_attribute("dormant") == Value::Boolean(true) {
+        let messenger_handler = node.messenger_handler;
+        if messenger.behavior.label == "Reconfigure" {
             node.in_reconfigure_queue = false;
-            if node.touched_attributes.contains("dormant") {
-                node.touched_attributes.remove("dormant");
-                drop(node);
-                self.notify_dormant_recursively(self.global_node_id);
-            }
+        }
+        let is_dormant = node.get_attribute("dormant") == Value::Boolean(true);
+        if node.touched_attributes.contains("dormant") {
+            node.touched_attributes.remove("dormant");
+            drop(node);
+            self.notify_dormant_recursively(self.global_node_id, is_dormant);
+        } else {
+            drop(node);
+        }
+        if is_dormant {
             return true;
         }
-        let messenger_handler = node.messenger_handler;
-        drop(node);
         let mut messengers = messenger_handler(self, messenger);
         for messenger in messengers.iter_mut() {
             messenger.source_node_id = self.global_node_id;
@@ -87,7 +82,6 @@ impl<'a> NodeMessengerContext<'a> {
         self.node_hierarchy.messenger_stack.append(&mut messengers);
         let mut node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow_mut();
         if messenger.behavior.label == "Reconfigure" {
-            node.in_reconfigure_queue = false;
             let absolute_motor_changed = node.touched_attributes.contains(&"absolute_motor");
             let absolute_scale_changed = node.touched_attributes.contains(&"absolute_scale");
             let absolute_opacity_changed = node.touched_attributes.contains(&"absolute_opacity");
@@ -157,7 +151,13 @@ impl<'a> NodeMessengerContext<'a> {
                     .collect();
             }
             for attribute in node.touched_attributes.iter() {
-                notify_property_observers!(self.node_hierarchy, node, attribute);
+                let observable = NodeOrObservableIdentifier::NodeAttribute(self.global_node_id, attribute);
+                if let Some(observers) = self.node_hierarchy.observer_channels.get(&observable) {
+                    for global_node_id in observers {
+                        let mut observer = self.node_hierarchy.nodes.get(global_node_id).unwrap().borrow_mut();
+                        reconfigure_node!(self.node_hierarchy, observer);
+                    }
+                }
             }
             if !node.touched_attributes.is_empty() {
                 let mut touched_attributes_of_child = HashSet::new();
@@ -221,7 +221,7 @@ impl<'a> NodeMessengerContext<'a> {
             .unwrap_or(false)
     }
 
-    /// Returns true if one of the given `attributes` was touched by either the parent, an animation or its self
+    /// Returns true if one of the given `attributes` was touched by either the parent, an animation or the node itself
     pub fn was_attribute_touched(&self, attributes: &[&'static str]) -> bool {
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
         for attribute in attributes {
@@ -538,7 +538,6 @@ impl NodeHierarchy {
             reconfigure_node!(self, node);
             return None;
         }
-        notify_property_observers!(self, node, "parents");
         drop(node);
         let node = self.nodes.remove(&global_node_id).unwrap();
         let borrowed_node = node.borrow();
