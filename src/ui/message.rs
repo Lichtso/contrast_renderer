@@ -253,15 +253,6 @@ pub const SCROLL_TO: MessengerBehavior = MessengerBehavior {
     update_at_node_edge: UPDATE_AT_NODE_EDGE,
 };
 
-/// Send when a property of a node changes
-pub const PROPERTY_CHANGED: MessengerBehavior = MessengerBehavior {
-    label: "PropertyChanged",
-    default_propagation_direction: PropagationDirection::None,
-    get_captured_observable: GET_CAPTURED_OBSERVABLE,
-    do_reflect: DO_REFLECT,
-    update_at_node_edge: UPDATE_AT_NODE_EDGE,
-};
-
 /// Send the attached node to a specific child or the overlay container
 pub const ADOPT_NODE: MessengerBehavior = MessengerBehavior {
     label: "AdoptNode",
