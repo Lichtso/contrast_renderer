@@ -185,11 +185,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 context.set_attribute("content", Value::Void);
                 unaffected = false;
             }
-            unaffected &= context
-                .inspect_child(&NodeOrObservableIdentifier::Named("content"), |node| {
-                    !node.was_attribute_touched(&["proposed_half_extent"])
-                })
-                .unwrap_or(true);
+            unaffected &= !context.was_attribute_of_child_touched(&NodeOrObservableIdentifier::Named("content"), &["proposed_half_extent"]);
             if unaffected {
                 return Vec::new();
             }
@@ -322,11 +318,7 @@ pub fn overlay_container(context: &mut NodeMessengerContext, messenger: &Messeng
     match messenger.get_kind() {
         "Reconfigure" => {
             let mut unaffected = !context.was_attribute_touched(&["child_count"]);
-            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, node: &Node| {
-                if local_child_id == &NodeOrObservableIdentifier::Named("content") && node.was_attribute_touched(&["proposed_half_extent"]) {
-                    unaffected = false;
-                }
-            });
+            unaffected &= !context.was_attribute_of_child_touched(&NodeOrObservableIdentifier::Named("content"), &["proposed_half_extent"]);
             if unaffected {
                 return Vec::new();
             }
