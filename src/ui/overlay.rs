@@ -179,12 +179,6 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             vec![update_rendering]
         }
         "Reconfigure" => {
-            if context.get_number_of_parents() == 2 {
-                let track_half_extent = context.inspect_parent(0, |node: &Node| node.get_half_extent(false)).unwrap();
-                context.set_attribute("track_half_extent", Value::Float2(track_half_extent));
-                let track_node = match_option!(context.get_attribute("track_node"), Value::Natural1).unwrap(); // TODO: Stop using global ids
-                context.configure_observe(NodeOrObservableIdentifier::NodeAttribute(track_node, "half_extent"), true, false);
-            }
             let mut unaffected = !context.was_attribute_touched(&["parents", "child_count", "track_half_extent", "dormant_parent_count"]);
             if let Value::Node(content_node) = context.get_attribute("content") {
                 context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
