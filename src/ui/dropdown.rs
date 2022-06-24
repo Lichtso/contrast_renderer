@@ -160,6 +160,14 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                     half_extent[1] += padding[1];
                 }),
             );
+            if context.get_number_of_children() == 2 {
+                context.configure_child(
+                    NodeOrObservableIdentifier::Named("overlay"),
+                    Some(|node: &mut Node| {
+                        node.set_attribute("track_half_extent", Value::Float2(half_extent.into()));
+                    }),
+                );
+            }
             context.set_attribute("proposed_half_extent", Value::Float2(half_extent.into()));
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
