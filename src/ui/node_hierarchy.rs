@@ -150,15 +150,6 @@ impl<'a> NodeMessengerContext<'a> {
                     .map(|(_layer_index, global_child_id)| global_child_id)
                     .collect();
             }
-            for attribute in node.touched_attributes.iter() {
-                let observable = NodeOrObservableIdentifier::NodeAttribute(self.global_node_id, attribute);
-                if let Some(observers) = self.node_hierarchy.observer_channels.get(&observable) {
-                    for global_node_id in observers {
-                        let mut observer = self.node_hierarchy.nodes.get(global_node_id).unwrap().borrow_mut();
-                        reconfigure_node!(self.node_hierarchy, observer);
-                    }
-                }
-            }
             if !node.touched_attributes.is_empty() {
                 let mut touched_attributes_of_child = HashSet::new();
                 std::mem::swap(&mut node.touched_attributes, &mut touched_attributes_of_child);
