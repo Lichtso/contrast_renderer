@@ -257,10 +257,9 @@ pub struct Node {
     messenger_handler: MessengerHandler,
     properties: HashMap<&'static str, Value>,
     property_animations: HashMap<&'static str, Vec<AnimationFrame>>,
-    in_touched_attributes: HashSet<&'static str>,
-    out_touched_attributes: HashSet<&'static str>,
+    touched_attributes: HashSet<&'static str>,
 
-    parents: Vec<(NodeOrObservableIdentifier, GlobalNodeIdentifier)>,
+    parents: Vec<(NodeOrObservableIdentifier, GlobalNodeIdentifier, HashSet<&'static str>)>,
     nesting_depth: usize,
     children: HashMap<NodeOrObservableIdentifier, GlobalNodeIdentifier>,
     ordered_children: Vec<GlobalNodeIdentifier>,
@@ -292,8 +291,7 @@ impl Default for Node {
             messenger_handler: |_context: &mut NodeMessengerContext, _message: &Messenger| panic!(),
             properties: HashMap::new(),
             property_animations: HashMap::new(),
-            in_touched_attributes: HashSet::new(),
-            out_touched_attributes: HashSet::new(),
+            touched_attributes: HashSet::new(),
 
             parents: Vec::new(),
             nesting_depth: 0,
@@ -312,18 +310,18 @@ impl Default for Node {
 impl Node {
     /// Creates a new [Node]
     pub fn new(messenger_handler: MessengerHandler, properties: HashMap<&'static str, Value>) -> Rc<RefCell<Self>> {
-        let in_touched_attributes = properties.keys().cloned().collect();
+        let touched_attributes = properties.keys().cloned().collect();
         Rc::new(RefCell::new(Self {
             messenger_handler,
             properties,
-            in_touched_attributes,
+            touched_attributes,
             ..Node::default()
         }))
     }
 
     pub(crate) fn advance_property_animations(&mut self, current_time: f64) -> bool {
         let properties = &mut self.properties;
-        let in_touched_attributes = &mut self.in_touched_attributes;
+        let touched_attributes = &mut self.touched_attributes;
         let mut result = false;
         self.property_animations.retain(|attribute, key_frames| {
             let retain_from_index = key_frames
@@ -338,12 +336,12 @@ impl Node {
             } else if key_frames.len() == 1 {
                 result |= true;
                 properties.insert(attribute, key_frames[0].value.clone());
-                in_touched_attributes.insert(attribute);
+                touched_attributes.insert(attribute);
                 false
             } else {
                 result |= true;
                 properties.insert(attribute, key_frames[1].interpolate(&key_frames[0], current_time));
-                in_touched_attributes.insert(attribute);
+                touched_attributes.insert(attribute);
                 true
             }
         });
@@ -356,23 +354,13 @@ impl Node {
             return false;
         }
         self.messenger_handler = messenger_handler;
-        self.in_touched_attributes.insert("messenger_handler");
+        self.touched_attributes.insert("messenger_handler");
         true
     }
 
-    /// Returns true if the node touched one of the given `attributes`
-    pub fn was_attribute_touched(&self, attributes: &[&'static str]) -> bool {
-        for attribute in attributes {
-            if self.out_touched_attributes.contains(attribute) {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Lets the node know that the given `attribute` was touched
+    /// Sets the given `attribute` to be touched
     pub fn touch_attribute(&mut self, attribute: &'static str) {
-        self.in_touched_attributes.insert(attribute);
+        self.touched_attributes.insert(attribute);
     }
 
     /// Get the [Value] of the property by the given `attribute`
@@ -391,7 +379,7 @@ impl Node {
             return false;
         }
         self.properties.insert(attribute, value);
-        self.in_touched_attributes.insert(attribute);
+        self.touched_attributes.insert(attribute);
         true
     }
 

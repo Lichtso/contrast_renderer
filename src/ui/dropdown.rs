@@ -136,11 +136,7 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
         }
         "Reconfigure" => {
             let mut unaffected = !context.was_attribute_touched(&["child_count", "options", "option_index", "half_extent"]);
-            unaffected &= context
-                .inspect_child(&NodeOrObservableIdentifier::Named("content"), |node| {
-                    !node.was_attribute_touched(&["proposed_half_extent"])
-                })
-                .unwrap_or(true);
+            unaffected &= !context.was_attribute_of_child_touched(&NodeOrObservableIdentifier::Named("content"), &["proposed_half_extent"]);
             if unaffected {
                 return Vec::new();
             }
@@ -213,7 +209,6 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                 _ => Vec::new(),
             }
         }
-        /* TODO
         "UserInput" => {
             let input_field_id = match_option!(messenger.get_attribute("input_field_id"), Value::NodeOrObservableIdentifier).unwrap();
             let option_index = match_option!(input_field_id, NodeOrObservableIdentifier::Indexed).unwrap();
@@ -230,7 +225,7 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             } else {
                 Vec::new()
             }
-        }*/
+        }
         _ => Vec::new(),
     }
 }

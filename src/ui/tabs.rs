@@ -223,11 +223,11 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                 unaffected = false;
             }
             let mut active = None;
-            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, node: &Node| {
-                if node.was_attribute_touched(&["weight"]) {
+            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, _node: &Node| {
+                if context.was_attribute_of_child_touched(local_child_id, &["weight"]) {
                     unaffected = false;
                 }
-                if node.was_attribute_touched(&["active"]) {
+                if context.was_attribute_of_child_touched(local_child_id, &["active"]) {
                     unaffected = false;
                     active = Some(*local_child_id);
                 }

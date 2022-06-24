@@ -28,8 +28,8 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 context.set_attribute("entries", Value::Void);
                 unaffected = false;
             }
-            context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
-                if node.was_attribute_touched(&["proposed_half_extent"]) {
+            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, _node: &Node| {
+                if context.was_attribute_of_child_touched(local_child_id, &["proposed_half_extent"]) {
                     unaffected = false;
                 }
             });
