@@ -64,7 +64,7 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             if !context.was_attribute_touched(&["is_checked"]) {
                 return Vec::new();
             }
-            context.set_half_extent(match_option!(context.derive_attribute("ckeckbox_half_extent"), Value::Float2).unwrap());
+            context.set_attribute("proposed_half_extent", context.derive_attribute("ckeckbox_half_extent"));
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }
@@ -76,10 +76,9 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             }
             let mut messengers = Vec::new();
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
-            if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) {
+            if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) && *input_state.is_inside_bounds.get(&0).unwrap() {
                 if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
                     if !*pressed
-                        && *input_state.is_inside_bounds.get(&0).unwrap()
                         && context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap())
                     {
                         let is_checked = !match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);

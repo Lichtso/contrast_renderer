@@ -18,6 +18,7 @@ use wrapped_values::Value;
 
 pub mod button;
 pub mod checkbox;
+pub mod dropdown;
 pub mod label;
 pub mod list;
 pub mod message;
@@ -419,9 +420,11 @@ impl Node {
 
     /// Optionally gets "proposed_half_extent" first, and if it is not available returns "half_extent"
     pub fn get_half_extent(&self, proposed: bool) -> SafeFloat<f32, 2> {
-        let value = if proposed { self.properties.get("proposed_half_extent") } else { None };
+        let proposed_half_extent = self.properties.get("proposed_half_extent");
+        let value = if proposed { proposed_half_extent } else { None };
         value
             .or_else(|| self.properties.get("half_extent"))
+            .or(proposed_half_extent)
             .and_then(|value| match_option!(value, Value::Float2).cloned())
             .unwrap_or_else(|| [0.0; 2].into())
     }

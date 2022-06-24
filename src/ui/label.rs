@@ -83,7 +83,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             let range = cursor_a.min(cursor_b)..cursor_a.max(cursor_b);
             let half_extent = half_extent_of_text(text_font.face(), &layout, &text_content);
             let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
-            context.set_half_extent(half_extent);
+            context.set_attribute("proposed_half_extent", Value::Float2(half_extent));
             let selection_start_position =
                 half_extent_of_text(text_font.face(), &layout, &text_content.chars().take(range.start).collect::<String>()).unwrap()[0] * 2.0
                     - half_extent.unwrap()[0];

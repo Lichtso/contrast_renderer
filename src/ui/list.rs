@@ -109,7 +109,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 if propose_half_extent {
                     half_extent[0] += padding[0];
                     half_extent[1] += padding[1];
-                    context.set_half_extent(half_extent.into());
+                    context.set_attribute("proposed_half_extent", Value::Float2(half_extent.into()));
                 }
                 Vec::new()
             }
