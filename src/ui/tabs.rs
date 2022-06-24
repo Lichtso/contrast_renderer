@@ -146,7 +146,7 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             if !context.was_attribute_touched(&["half_extent", "weight"]) {
                 return Vec::new();
             }
-            context.set_half_extent(match_option!(context.derive_attribute("tab_handle_half_extent"), Value::Float2).unwrap());
+            context.set_attribute("proposed_half_extent", context.derive_attribute("tab_handle_half_extent"));
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }
@@ -155,10 +155,9 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 return vec![messenger.clone()];
             }
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
-            if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) {
+            if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) && *input_state.is_inside_bounds.get(&0).unwrap() {
                 if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
                     if !*pressed
-                        && *input_state.is_inside_bounds.get(&0).unwrap()
                         && context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap())
                     {
                         context.touch_attribute("active");
@@ -326,7 +325,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
             let handle_node = Node::new(
                 tab_handle,
                 hash_map! {
-                    "weight" => Value::Float1((0.0).into()),
+                    "weight" => Value::Float1(0.0.into()),
                 },
             );
             context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_index), handle_node);

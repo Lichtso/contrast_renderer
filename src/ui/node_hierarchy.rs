@@ -246,12 +246,6 @@ impl<'a> NodeMessengerContext<'a> {
         node.set_attribute_animated(attribute, value, start_time, duration)
     }
 
-    /// Sets "proposed_half_extent" and "half_extent"
-    pub fn set_half_extent(&mut self, half_extent: SafeFloat<f32, 2>) {
-        self.set_attribute("half_extent", Value::Float2(half_extent));
-        self.set_attribute("proposed_half_extent", Value::Float2(half_extent));
-    }
-
     /// Optionally gets "proposed_half_extent" first, and if it is not available returns "half_extent"
     pub fn get_half_extent(&self, proposed: bool) -> SafeFloat<f32, 2> {
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
@@ -304,9 +298,7 @@ impl<'a> NodeMessengerContext<'a> {
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
         node.parents
             .get(parent_index)
-            .map(|(_local_child_id, global_parent_id)| {
-                callback(&self.node_hierarchy.nodes.get(global_parent_id).unwrap().borrow())
-            })
+            .map(|(_local_child_id, global_parent_id)| callback(&self.node_hierarchy.nodes.get(global_parent_id).unwrap().borrow()))
     }
 
     /// Used to read properties of a specific child [Node]

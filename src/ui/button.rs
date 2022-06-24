@@ -54,7 +54,7 @@ pub fn button(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 half_extent[1] = content_half_extent[1] + padding[1];
                 content_half_extent[0] = half_extent[0] - padding[0];
                 content_half_extent[1] = half_extent[1] - padding[1];
-                context.set_half_extent(half_extent.into());
+                context.set_attribute("proposed_half_extent", Value::Float2(half_extent.into()));
                 context.configure_child(
                     NodeOrObservableIdentifier::Named("content"),
                     Some(|node: &mut Node| {
