@@ -81,6 +81,16 @@ impl application_framework::Application for Application {
             "checkbox_corner_radius" => Value::Float1(7.0.into()),
             "ckeckbox_half_extent" => Value::Float2([10.0, 10.0].into()),
 
+            "dropdown_button_corner_radius" => Value::Float1(7.0.into()),
+            "dropdown_button_triangle_extent" => Value::Float1(10.0.into()),
+            "dropdown_button_closed_color" => Value::Float4([0.05, 0.05, 0.05, 1.0].into()),
+            "dropdown_button_open_color" => Value::Float4([0.2, 0.2, 0.2, 1.0].into()),
+            "dropdown_button_stroke_color" => Value::Float4([1.0, 1.0, 1.0, 1.0].into()),
+            "dropdown_button_padding" => Value::Float2([12.0, 5.0].into()),
+            "dropdown_overlay_list_marging" => Value::Float1(4.0.into()),
+            "dropdown_overlay_list_padding" => Value::Float2([0.0, 7.0].into()),
+            "dropdown_overlay_button_padding" => Value::Float2([20.0, 3.0].into()),
+
             "speech_balloon_fill_color" => Value::Float4([0.02, 0.02, 0.02, 1.0].into()),
             "speech_balloon_stroke_color" => Value::Float4([0.8, 0.8, 0.8, 1.0].into()),
             "speech_balloon_stroke_width" => Value::Float1(2.0.into()),
@@ -155,7 +165,6 @@ impl application_framework::Application for Application {
             Node::new(
                 contrast_renderer::ui::scroll::scroll,
                 hash_map! {
-                    "half_extent" => Value::Float2([150.0, 50.0].into()),
                     "proposed_half_extent" => Value::Float2([150.0, 50.0].into()),
                     "content_motor" => Value::Float4([1.0, 0.0, 0.0, 0.0].into()),
                     "content_scale" => Value::Float1(1.0.into()),
@@ -170,7 +179,6 @@ impl application_framework::Application for Application {
             Node::new(
                 contrast_renderer::ui::list::list,
                 hash_map! {
-                    "half_extent" => Value::Float2([150.0, 100.0].into()),
                     "proposed_half_extent" => Value::Float2([0.0, 0.0].into()),
                     "reverse" => Value::Boolean(false),
                     "orientation" => Value::Orientation(contrast_renderer::ui::Orientation::Vertical),
@@ -182,10 +190,11 @@ impl application_framework::Application for Application {
 
         ui_node_hierarchy.link_node(
             Node::new(
-                contrast_renderer::ui::checkbox::checkbox,
+                contrast_renderer::ui::dropdown::dropdown,
                 hash_map! {
-                    "is_checked" => Value::Boolean(false),
                     "enable_interaction" => Value::Boolean(true),
+                    "options" => Value::Vec(vec![Value::TextString("first".to_string()), Value::TextString("second".to_string()), Value::TextString("third".to_string())]),
+                    "option_index" => Value::Natural1(0),
                 },
             ),
             Some((NodeOrObservableIdentifier::Indexed(0), list_node_id)),
@@ -226,6 +235,17 @@ impl application_framework::Application for Application {
                 },
             ),
             Some((NodeOrObservableIdentifier::Indexed(2), list_node_id)),
+        );
+
+        ui_node_hierarchy.link_node(
+            Node::new(
+                contrast_renderer::ui::checkbox::checkbox,
+                hash_map! {
+                    "is_checked" => Value::Boolean(false),
+                    "enable_interaction" => Value::Boolean(true),
+                },
+            ),
+            Some((NodeOrObservableIdentifier::Indexed(3), list_node_id)),
         );
 
         Self {
