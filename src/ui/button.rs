@@ -36,11 +36,7 @@ pub fn button(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 context.set_attribute("content", Value::Void);
                 unaffected = false;
             }
-            context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
-                if node.was_attribute_touched(&["proposed_half_extent"]) {
-                    unaffected = false;
-                }
-            });
+            unaffected &= !context.was_attribute_of_child_touched(&NodeOrObservableIdentifier::Named("content"), &["proposed_half_extent"]);
             if unaffected {
                 return Vec::new();
             }
