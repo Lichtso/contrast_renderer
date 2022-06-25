@@ -116,6 +116,7 @@ impl application_framework::Application for Application {
 
             "tab_fill_color" => Value::Float4([0.03, 0.03, 0.03, 1.0].into()),
             "tab_corner_radius" => Value::Float1(7.0.into()),
+            "tab_animation_duration" => Value::Float1(0.5.into()),
             "tab_handle_inactive_fill_color" => Value::Float4([0.02, 0.02, 0.02, 1.0].into()),
             "tab_handle_active_fill_color" => Value::Float4([0.6, 0.6, 0.6, 1.0].into()),
             "tab_handle_stroke_color" => Value::Float4([0.8, 0.8, 0.8, 1.0].into()),

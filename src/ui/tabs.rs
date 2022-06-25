@@ -6,7 +6,7 @@ use crate::{
         message::{input_focus_parent_or_child, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
-        Node, NodeOrObservableIdentifier, Orientation, Rendering,
+        Node, NodeOrObservableIdentifier, Orientation, Rendering, ANIMATION_FADE_IN_OUT,
     },
     utils::translate2d,
 };
@@ -238,12 +238,15 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
             if let Some(NodeOrObservableIdentifier::NamedAndIndexed("handle", handle_index)) = active {
                 let tab_count = context.get_number_of_children() / 2;
                 let start_time = context.get_last_animation_time();
+                let duration = match_option!(context.derive_attribute("tab_animation_duration"), Value::Float1)
+                    .unwrap()
+                    .unwrap() as f64;
                 for child_index in 0..tab_count {
                     let weight = if child_index == handle_index { 1.0 } else { 0.0 };
                     context.configure_child(
                         NodeOrObservableIdentifier::NamedAndIndexed("handle", child_index),
                         Some(|node: &mut Node| {
-                            node.set_attribute_animated("weight", Value::Float1(weight.into()), start_time, 5.0);
+                            node.set_attribute_animated("weight", Value::Float1(weight.into()), start_time, duration, ANIMATION_FADE_IN_OUT);
                         }),
                     );
                 }
