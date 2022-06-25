@@ -248,9 +248,16 @@ impl<'a> NodeMessengerContext<'a> {
     }
 
     /// Have the [Value] of the property by the given `attribute` be animated
-    pub fn set_attribute_animated(&mut self, attribute: &'static str, value: Value, start_time: f64, duration: f64) -> bool {
+    pub fn set_attribute_animated(
+        &mut self,
+        attribute: &'static str,
+        value: Value,
+        start_time: f64,
+        duration: f64,
+        interpolation_control_points: [f32; 4],
+    ) -> bool {
         let mut node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow_mut();
-        node.set_attribute_animated(attribute, value, start_time, duration)
+        node.set_attribute_animated(attribute, value, start_time, duration, interpolation_control_points)
     }
 
     /// Optionally gets "proposed_half_extent" first, and if it is not available returns "half_extent"

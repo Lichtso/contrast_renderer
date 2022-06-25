@@ -263,6 +263,9 @@ impl AnimationFrame {
     }
 }
 
+/// Smoothstep `interpolation_control_points`
+pub const ANIMATION_FADE_IN_OUT: [f32; 4] = [0.0, 0.0, 3.0, 1.0];
+
 /// Trait of a [Node], which defines its behavior
 pub type MessengerHandler = for<'a> fn(context: &mut NodeMessengerContext, message: &Messenger) -> Vec<Messenger>;
 
@@ -399,7 +402,14 @@ impl Node {
     }
 
     /// Have the [Value] of the property by the given `attribute` be animated
-    pub fn set_attribute_animated(&mut self, attribute: &'static str, value: Value, start_time: f64, duration: f64) -> bool {
+    pub fn set_attribute_animated(
+        &mut self,
+        attribute: &'static str,
+        value: Value,
+        start_time: f64,
+        duration: f64,
+        interpolation_control_points: [f32; 4],
+    ) -> bool {
         if self.properties.get(attribute) == Some(&value) {
             return false;
         }
@@ -413,7 +423,7 @@ impl Node {
                 },
                 AnimationFrame {
                     timestamp: (start_time + duration).into(),
-                    interpolation_control_points: [0.0, 0.0, 3.0, 1.0].into(),
+                    interpolation_control_points: interpolation_control_points.into(),
                     value,
                 },
             ],
