@@ -459,7 +459,7 @@ impl Renderer {
             return Err(Error::NumberOfStencilBitsIsUnsupported);
         }
 
-        let shader_module = device.create_shader_module(&include_wgsl!("shaders.wgsl"));
+        let shader_module = device.create_shader_module(include_wgsl!("shaders.wgsl"));
         let segment_0f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
             array_stride: (2 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
@@ -660,7 +660,7 @@ impl Renderer {
             "fill_solid",
             TriangleStrip,
             Some(wgpu::IndexFormat::Uint16),
-            &[blending],
+            &[Some(blending)],
             wgpu::StencilState {
                 front: stencil_descriptor!(Less, Zero, Zero),
                 back: stencil_descriptor!(Never, Zero, Zero),

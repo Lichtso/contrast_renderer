@@ -182,7 +182,7 @@ impl application_framework::Application for Application {
             let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
-                color_attachments: &[wgpu::RenderPassColorAttachment {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: if MSAA_SAMPLE_COUNT == 1 {
                         &frame_view
                     } else {
@@ -193,7 +193,7 @@ impl application_framework::Application for Application {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: true,
                     },
-                }],
+                })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_stencil_texture_view.as_ref().unwrap(),
                     depth_ops: Some(wgpu::Operations {

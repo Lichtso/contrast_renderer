@@ -172,10 +172,10 @@ impl ApplicationManager {
         self.window.request_redraw();
         let surface_configuration = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: self.surface.get_preferred_format(&self.adapter).unwrap(),
+            format: self.surface.get_supported_formats(&self.adapter)[0],
             width: self.size.width,
             height: self.size.height,
-            present_mode: wgpu::PresentMode::Mailbox,
+            present_mode: wgpu::PresentMode::Fifo, // self.surface.get_supported_modes(&self.adapter)[0],
         };
         self.surface.configure(&self.device, &surface_configuration);
         surface_configuration
