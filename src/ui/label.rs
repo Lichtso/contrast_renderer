@@ -103,7 +103,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 if text_interaction == TextInteraction::Editing || (text_interaction == TextInteraction::Selection && cursor_a != cursor_b) {
                     Some(|node: &mut Node| {
                         node.set_messenger_handler(text_selection);
-                        node.set_attribute("motor", Value::Float4(translate2d([selection_translation, 0.0]).into()));
+                        node.set_attribute("motor", Value::Motor(translate2d([selection_translation, 0.0]).into()));
                         node.set_attribute("half_extent", Value::Float2([selection_half_width, layout.size.unwrap() * 0.4].into()));
                     })
                 } else {
