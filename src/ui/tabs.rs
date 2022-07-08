@@ -298,7 +298,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                         } else {
                             translation[major_axis] -= margin * 0.5;
                         }
-                        node.set_attribute("motor", Value::Float4(translate2d(translation).into()));
+                        node.set_attribute("motor", Value::Motor(translate2d(translation).into()));
                     }),
                 );
                 context.configure_child(
@@ -312,7 +312,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                         if major_axis == 0 {
                             translation[minor_axis] = -translation[minor_axis];
                         }
-                        node.set_attribute("motor", Value::Float4(translate2d(translation).into()));
+                        node.set_attribute("motor", Value::Motor(translate2d(translation).into()));
                     }),
                 );
             }
@@ -352,7 +352,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                         for child_index in 1..tab_count {
                             let mut break_the_loop = false;
                             context.inspect_child(&NodeOrObservableIdentifier::NamedAndIndexed("tab", child_index), |node: &Node| {
-                                let child_motor: ppga2d::Motor = match_option!(node.get_attribute("motor"), Value::Float4).unwrap().into();
+                                let child_motor: ppga2d::Motor = match_option!(node.get_attribute("motor"), Value::Motor).unwrap().into();
                                 let half_extent = node.get_half_extent(false).unwrap()[major_axis];
                                 let mut boundary = child_motor.g0[3 - major_axis] * motor_factor;
                                 if node.get_attribute("dormant") != Value::Boolean(true) {
