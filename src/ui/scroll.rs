@@ -78,13 +78,13 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
                     let orientation = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap();
                     let movement_scale = match_option!(context.get_attribute("movement_scale"), Value::Float1).unwrap().unwrap();
-                    let mut content_motor: ppga2d::Motor = match_option!(context.get_attribute("previous_content_motor"), Value::Float4)
+                    let mut content_motor: ppga2d::Motor = match_option!(context.get_attribute("previous_content_motor"), Value::Motor)
                         .unwrap()
                         .into();
                     content_motor.g0[3 - orientation as usize] += if orientation == Orientation::Horizontal { -0.5 } else { 0.5 }
                         * (absolute_position - pointer_start).g0[1 + orientation as usize]
                         * movement_scale;
-                    context.set_attribute("content_motor", Value::Float4(content_motor.into()));
+                    context.set_attribute("content_motor", Value::Motor(content_motor.into()));
                 }
             }
             Vec::new()
@@ -137,7 +137,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 content.get_half_extent(true).unwrap()
             }) {
                 let half_extent = context.get_half_extent(false).unwrap();
-                let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Float4)
+                let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Motor)
                     .map(|value| value.into())
                     .unwrap_or_else(ppga2d::Motor::one);
                 let content_scale = match_option!(context.get_attribute("content_scale"), Value::Float1)
@@ -187,10 +187,10 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                             Some(|node: &mut Node| {
                                 node.set_messenger_handler(scroll_bar);
                                 node.set_attribute("orientation", Value::Orientation(orientation));
-                                node.set_attribute("content_motor", Value::Float4(content_motor.into()));
+                                node.set_attribute("content_motor", Value::Motor(content_motor.into()));
                                 node.set_attribute("movement_scale", Value::Float1(movement_scale.into()));
                                 node.set_attribute_privately("layer_index", Value::Natural1(1));
-                                node.set_attribute("motor", Value::Float4(translate2d(bar_translation).into()));
+                                node.set_attribute("motor", Value::Motor(translate2d(bar_translation).into()));
                                 node.set_attribute("half_extent", Value::Float2(bar_half_extent.into()));
                             })
                         } else {
@@ -201,11 +201,11 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 context.configure_child(
                     NodeOrObservableIdentifier::Named("content"),
                     Some(|node: &mut Node| {
-                        node.set_attribute("motor", Value::Float4(content_motor.into()));
+                        node.set_attribute("motor", Value::Motor(content_motor.into()));
                         node.set_attribute("scale", Value::Float1(content_scale.into()));
                     }),
                 );
-                context.set_attribute("content_motor", Value::Float4(content_motor.into()));
+                context.set_attribute("content_motor", Value::Motor(content_motor.into()));
             }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
@@ -231,7 +231,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
                     let absolute_position: ppga2d::Point = (*input_state.absolute_positions.get(&0).unwrap()).into();
                     let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
-                    let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Float4)
+                    let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Motor)
                         .map(|value| value.into())
                         .unwrap_or_else(ppga2d::Motor::one);
                     let scale = match_option!(context.get_attribute("content_scale"), Value::Float1)
@@ -239,7 +239,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                         .unwrap_or(1.0);
                     let delta = absolute_position - pointer_start;
                     content_motor = translate2d([delta.g0[1] * scale, delta.g0[2] * scale]) * content_motor;
-                    context.set_attribute("content_motor", Value::Float4(content_motor.into()));
+                    context.set_attribute("content_motor", Value::Motor(content_motor.into()));
                 }
                 return Vec::new();
             }
@@ -249,7 +249,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             if match_option!(context.get_attribute("enable_stationary_scroll"), Value::Boolean).unwrap_or(false)
                 && !context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap())
             {
-                let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Float4)
+                let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Motor)
                     .map(|value| value.into())
                     .unwrap_or_else(ppga2d::Motor::one);
                 let scale = match_option!(context.get_attribute("content_scale"), Value::Float1)
@@ -257,7 +257,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     .unwrap_or(-1.0);
                 let delta: ppga2d::Point = match_option!(context.get_attribute("delta"), Value::Float3).unwrap().into();
                 content_motor = translate2d([delta.g0[1] * scale, delta.g0[2] * scale]) * content_motor;
-                context.set_attribute("content_motor", Value::Float4(content_motor.into()));
+                context.set_attribute("content_motor", Value::Motor(content_motor.into()));
                 Vec::new()
             } else {
                 vec![messenger.clone()]

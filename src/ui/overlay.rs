@@ -244,7 +244,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 Side::Right => [-half_extent[0] - arrow_extent + track_offset, -arrow_origin],
                 _ => panic!(),
             };
-            context.set_attribute("motor", Value::Float4(translate2d(translation).into()));
+            context.set_attribute("motor", Value::Motor(translate2d(translation).into()));
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }

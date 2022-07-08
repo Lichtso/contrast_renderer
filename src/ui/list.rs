@@ -98,7 +98,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                             if reverse {
                                 translation[major_axis] *= -1.0;
                             }
-                            node.set_attribute("motor", Value::Float4(translate2d(translation).into()));
+                            node.set_attribute("motor", Value::Motor(translate2d(translation).into()));
                         }
                     }),
                 );

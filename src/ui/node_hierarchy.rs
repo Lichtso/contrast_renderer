@@ -85,7 +85,7 @@ impl<'a> NodeMessengerContext<'a> {
             let absolute_motor_changed = node.touched_attributes.contains(&"absolute_motor");
             let absolute_scale_changed = node.touched_attributes.contains(&"absolute_scale");
             let absolute_opacity_changed = node.touched_attributes.contains(&"absolute_opacity");
-            let absolute_motor: ppga2d::Motor = match_option!(node.get_attribute("absolute_motor"), Value::Float4)
+            let absolute_motor: ppga2d::Motor = match_option!(node.get_attribute("absolute_motor"), Value::Motor)
                 .map(|value| value.into())
                 .unwrap_or_else(ppga2d::Motor::one);
             let absolute_scale: f32 = match_option!(node.get_attribute("absolute_scale"), Value::Float1)
@@ -111,10 +111,10 @@ impl<'a> NodeMessengerContext<'a> {
                 let absolute_scale_changed = parents_changed || absolute_scale_changed || touched_attributes.contains(&"scale");
                 let absolute_opacity_changed = parents_changed || absolute_opacity_changed || touched_attributes.contains(&"opacity");
                 if parent_index == 0 && absolute_motor_changed {
-                    let child_motor = match_option!(child_node.get_attribute("motor"), Value::Float4)
+                    let child_motor = match_option!(child_node.get_attribute("motor"), Value::Motor)
                         .map(|value| value.into())
                         .unwrap_or_else(ppga2d::Motor::one);
-                    child_node.set_attribute("absolute_motor", Value::Float4((child_motor * absolute_motor).into()));
+                    child_node.set_attribute("absolute_motor", Value::Motor((child_motor * absolute_motor).into()));
                 }
                 if parent_index == 0 && absolute_scale_changed {
                     let child_scale = match_option!(child_node.get_attribute("scale"), Value::Float1)
@@ -765,7 +765,7 @@ impl NodeHierarchy {
                 ]
             })
             .unwrap_or_else(|| {
-                let motor: ppga2d::Motor = match_option!(node.get_attribute("absolute_motor"), Value::Float4)
+                let motor: ppga2d::Motor = match_option!(node.get_attribute("absolute_motor"), Value::Motor)
                     .map(|value| value.into())
                     .unwrap_or_else(ppga2d::Motor::one);
                 let scale: f32 = match_option!(node.get_attribute("absolute_scale"), Value::Float1)

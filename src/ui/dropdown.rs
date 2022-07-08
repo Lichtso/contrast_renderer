@@ -154,7 +154,7 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                 Some(|node: &mut Node| {
                     node.set_messenger_handler(text_label);
                     node.set_attribute("text_content", options.get(option_index).unwrap().clone());
-                    node.set_attribute("motor", Value::Float4(translate2d([-1.5 * triangle_extent, 0.0]).into()));
+                    node.set_attribute("motor", Value::Motor(translate2d([-1.5 * triangle_extent, 0.0]).into()));
                     half_extent = node.get_half_extent(true).unwrap();
                     half_extent[0] += padding[0] + triangle_extent * 1.5;
                     half_extent[1] += padding[1];

@@ -202,7 +202,7 @@ fn update_pointer_position(messenger: &mut Messenger, destination_node: &Node) -
         destination_node
             .properties
             .get("absolute_motor")
-            .map(|value| ppga2d::Motor::from(*match_option!(value, Value::Float4).unwrap()).inverse())
+            .map(|value| ppga2d::Motor::from(*match_option!(value, Value::Motor).unwrap()).inverse())
             .unwrap_or_else(ppga2d::Motor::one),
         destination_node
             .properties
