@@ -132,7 +132,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 Some(&mut |node: &mut Node| {
                     node.set_messenger_handler(range_bar);
                     node.set_attribute("is_filled", Value::Boolean(false));
-                    node.set_attribute("motor", Value::Float4(translate2d(empty_translation).into()));
+                    node.set_attribute("motor", Value::Motor(translate2d(empty_translation).into()));
                     node.set_attribute("half_extent", Value::Float2(empty_half_extent.into()));
                 }),
             );
@@ -141,7 +141,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 Some(&mut |node: &mut Node| {
                     node.set_messenger_handler(range_bar);
                     node.set_attribute("is_filled", Value::Boolean(true));
-                    node.set_attribute("motor", Value::Float4(translate2d(filled_translation).into()));
+                    node.set_attribute("motor", Value::Motor(translate2d(filled_translation).into()));
                     node.set_attribute("half_extent", Value::Float2(filled_half_extent.into()));
                 }),
             );

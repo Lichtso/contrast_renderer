@@ -166,7 +166,7 @@ impl application_framework::Application for Application {
                 contrast_renderer::ui::scroll::scroll,
                 hash_map! {
                     "proposed_half_extent" => Value::Float2([150.0, 50.0].into()),
-                    "content_motor" => Value::Float4([1.0, 0.0, 0.0, 0.0].into()),
+                    "content_motor" => Value::Motor([1.0, 0.0, 0.0, 0.0].into()),
                     "content_scale" => Value::Float1(1.0.into()),
                     "horizontal_bar" => Value::ScrollBarType(contrast_renderer::ui::ScrollBarType::Overflow),
                     "vertical_bar" => Value::ScrollBarType(contrast_renderer::ui::ScrollBarType::Overflow),

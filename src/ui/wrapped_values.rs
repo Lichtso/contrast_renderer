@@ -21,6 +21,7 @@ pub enum Value {
     Float2(SafeFloat<f32, 2>),
     Float3(SafeFloat<f32, 3>),
     Float4(SafeFloat<f32, 4>),
+    Motor(SafeFloat<f32, 4>),
     Float4x4([SafeFloat<f32, 4>; 4]),
     Data(Vec<u8>),
     Character(char),
