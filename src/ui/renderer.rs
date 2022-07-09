@@ -165,48 +165,18 @@ impl Renderer {
     /// Encodes the rendering commands with the given attachments
     ///
     /// [NodeHierarchy::prepare_rendering](crate::ui::node_hierarchy::NodeHierarchy::prepare_rendering) needs to be called first.
-    pub fn encode_commands(
-        &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        color_attachments: &[Option<wgpu::RenderPassColorAttachment>],
-        depth_stencil_attachment: wgpu::RenderPassDepthStencilAttachment,
-    ) {
-        const REUSE_RENDER_PASS: bool = true;
-        let encoder = encoder as *mut wgpu::CommandEncoder;
-        let render_pass_descriptor = wgpu::RenderPassDescriptor {
-            label: None,
-            color_attachments,
-            depth_stencil_attachment: Some(depth_stencil_attachment),
-        };
+    pub fn encode_commands<'a, 'b: 'a>(&'b mut self, render_pass: &mut wgpu::RenderPass<'a>) {
         let command_count = self.command_stream.len();
         let mut used_render_passes = 0;
         let mut prev_entry: Option<RenderCommand> = None;
-        let mut render_pass = None;
+        render_pass.set_vertex_buffer(0, self.instance_buffers[0].buffer.slice(..));
         while let Some(entry) = self.command_stream.pop() {
-            /*println!(
-                "{} {:?} {} {}",
-                entry.render_layer, entry.operation, entry.clip_depth, entry.instance_index
-            );*/
-            if !REUSE_RENDER_PASS || prev_entry.map(|prev_entry| prev_entry.cmp(&entry) != Ordering::Equal).unwrap_or(false) {
-                render_pass = None;
-            }
-            if render_pass.is_none() {
+            if prev_entry.map(|prev_entry| prev_entry.cmp(&entry) != Ordering::Equal).unwrap_or(true) {
                 used_render_passes += 1;
-                // The borrow checker does not understand that there can only be one `render_pass` at a time, so we have to disable the check.
-                let encoder = unsafe { &mut *encoder };
-                render_pass = Some(encoder.begin_render_pass(&render_pass_descriptor));
-                render_pass
-                    .as_mut()
-                    .unwrap()
-                    .set_vertex_buffer(0, self.instance_buffers[0].buffer.slice(..));
                 if entry.operation == RenderOperation::Color {
-                    render_pass
-                        .as_mut()
-                        .unwrap()
-                        .set_vertex_buffer(1, self.instance_buffers[1].buffer.slice(..));
+                    render_pass.set_vertex_buffer(1, self.instance_buffers[1].buffer.slice(..));
                 }
             }
-            let render_pass = render_pass.as_mut().unwrap();
             self.renderer.set_clip_depth(render_pass, entry.clip_depth as usize).unwrap();
             entry.shape.render(
                 &self.renderer,
