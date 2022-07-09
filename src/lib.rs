@@ -1,4 +1,5 @@
 //! Contrast is a web-gpu based 2D render engine written in Rust.
+#![warn(missing_docs)]
 
 pub extern crate geometric_algebra;
 #[cfg(feature = "text")]
