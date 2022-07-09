@@ -238,3 +238,27 @@ pub fn matrix_multiplication(a: &[ppga3d::Point; 4], b: &[ppga3d::Point; 4]) -> 
         Scalar { g0: b[3].g0[0] } * a[0] + Scalar { g0: b[3].g0[1] } * a[1] + Scalar { g0: b[3].g0[2] } * a[2] + Scalar { g0: b[3].g0[3] } * a[3],
     ]
 }
+
+/// Converts from srgb color space to linear color space
+pub fn srgb_to_linear(mut color: [f32; 4]) -> [f32; 4] {
+    for channel in color.iter_mut().take(3) {
+        *channel = if *channel > 0.04045 {
+            ((*channel + 0.055) / 1.055).powf(2.4)
+        } else {
+            *channel / 12.92
+        };
+    }
+    color
+}
+
+/// Converts from linear color space to srgb color space
+pub fn linear_to_srgb(mut color: [f32; 4]) -> [f32; 4] {
+    for channel in color.iter_mut().take(3) {
+        *channel = if *channel > 0.0031308 {
+            1.055 * (*channel).powf(1.0 / 2.4) - 0.055
+        } else {
+            12.92 * *channel
+        };
+    }
+    color
+}
