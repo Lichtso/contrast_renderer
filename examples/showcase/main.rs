@@ -40,7 +40,7 @@ impl application_framework::Application for Application {
             }),
             write_mask: wgpu::ColorWrites::ALL,
         };
-        let renderer = contrast_renderer::renderer::Renderer::new(&device, blending, MSAA_SAMPLE_COUNT, 4, 4).unwrap();
+        let renderer = contrast_renderer::renderer::Renderer::new(&device, blending, true, MSAA_SAMPLE_COUNT, 4, 4).unwrap();
 
         let dynamic_stroke_options = [contrast_renderer::path::DynamicStrokeOptions::Dashed {
             join: contrast_renderer::path::Join::Miter,
@@ -160,25 +160,6 @@ impl application_framework::Application for Application {
         self.instance_buffers[1].update(device, queue, &contrast_renderer::concat_buffers!([instances_color]).1);
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_stencil_texture_view.as_ref().unwrap(),
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0.0),
-                        store: false,
-                    }),
-                    stencil_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0),
-                        store: true,
-                    }),
-                }),
-            });
-            render_pass.set_vertex_buffer(0, self.instance_buffers[0].buffer.slice(..));
-            self.shape.render(&self.renderer, &mut render_pass, 0..1, RenderOperation::Stencil);
-        }
-        {
             let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
@@ -197,16 +178,17 @@ impl application_framework::Application for Application {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_stencil_texture_view.as_ref().unwrap(),
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
+                        load: wgpu::LoadOp::Clear(0.0),
                         store: false,
                     }),
                     stencil_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
+                        load: wgpu::LoadOp::Clear(0),
                         store: true,
                     }),
                 }),
             });
             render_pass.set_vertex_buffer(0, self.instance_buffers[0].buffer.slice(..));
+            self.shape.render(&self.renderer, &mut render_pass, 0..1, RenderOperation::Stencil);
             render_pass.set_vertex_buffer(1, self.instance_buffers[1].buffer.slice(..));
             self.shape.render(&self.renderer, &mut render_pass, 0..1, RenderOperation::Color);
         }
