@@ -6,10 +6,10 @@
 Contrast is a [web-gpu](https://gpuweb.github.io/gpuweb/) based 2D renderer written in [Rust](https://www.rust-lang.org/).
 It renders planar [vector graphics](https://en.wikipedia.org/wiki/Vector_graphics) and can easily be integrated with other forward-rendering code.
 Filling uses [implicit curves](https://en.wikipedia.org/wiki/Implicit_curve) and is resolution-independent, while stroking uses [parametric curves](https://en.wikipedia.org/wiki/Parametric_equation) and is approximated via polygon [tesselation](https://en.wikipedia.org/wiki/Tessellation_(computer_graphics)).
-This way you can have logos, icons, text and other [GUI](https://en.wikipedia.org/wiki/Graphical_user_interface) elements
-- as classic 2D menu overlay on top of the 3D scene.
-- as [HUD](https://en.wikipedia.org/wiki/Head-up_display) fixed relative to the camera movement but in the 3D scene.
-- on abitrary planes in the 3D scene: Decals on any flat surface such as a wall or simply [mid air](https://en.wikipedia.org/wiki/Holography_in_fiction).
+This way you can have non-diegetic, diegetic and spacial [GUI](https://en.wikipedia.org/wiki/Graphical_user_interface) elements on any flat plane:
+- As classic 2D menu overlay on top of the 3D scene.
+- As [HUD](https://en.wikipedia.org/wiki/Head-up_display) fixed relative to the camera movement but occluded by the 3D scene.
+- As decals on walls or [holograms](https://en.wikipedia.org/wiki/Holography_in_fiction) hovering in the 3D scene.
 
 To get started, checkout the [showcase example](examples/showcase/main.rs).
 
@@ -24,6 +24,8 @@ To get started, checkout the [showcase example](examples/showcase/main.rs).
         - MSAA ✓
     - Custom (User Provided) Shaders ✓
     - Blending ✓
+    - Group Opacity ✗
+    - Depth Test ✗
     - Instancing ✓
 - Filling
     - Paths
@@ -80,6 +82,7 @@ To get started, checkout the [showcase example](examples/showcase/main.rs).
     - [Optional] Font (TTF)
         - Glyph ✓
         - Text ◯
+- Graphical User Interface ✗
 
 
 ## Dependencies
