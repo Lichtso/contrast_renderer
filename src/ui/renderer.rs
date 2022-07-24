@@ -95,9 +95,25 @@ impl Renderer {
 
     pub(super) fn instanciate_node(&mut self, node: &Node, layer_range: Range<usize>, clip_depth: u8, model_projection_matrix: &[ppga3d::Point; 4]) {
         let instance_index = self.instance_transform.len() as u32;
-        for (color, _shape) in node.colored_shapes.iter() {
+        for (layer_index, (color, shape)) in node.colored_shapes.iter().enumerate() {
             self.instance_transform.push(*model_projection_matrix);
             self.instance_color.push(*color);
+            // As long as the Shapes are not changed until encode_commands() is called, this is safe.
+            let shape: &'static Shape = unsafe { std::mem::transmute(shape) };
+            self.command_stream.push(RenderCommand {
+                operation: RenderOperation::Stencil,
+                render_layer: layer_range.start + layer_index,
+                clip_depth,
+                instance_index,
+                shape,
+            });
+            self.command_stream.push(RenderCommand {
+                operation: RenderOperation::Color,
+                render_layer: layer_range.start + layer_index,
+                clip_depth,
+                instance_index: instance_index + layer_index as u32,
+                shape,
+            });
         }
         if let Some(shape) = &node.clip_shape {
             if node.colored_shapes.is_empty() {
@@ -126,24 +142,6 @@ impl Renderer {
                 render_layer: layer_range.end - 1,
                 clip_depth,
                 instance_index,
-                shape,
-            });
-        }
-        for (layer_index, (_color, shape)) in node.colored_shapes.iter().enumerate() {
-            // As long as the Shapes are not changed until encode_commands() is called, this is safe.
-            let shape: &'static Shape = unsafe { std::mem::transmute(shape) };
-            self.command_stream.push(RenderCommand {
-                operation: RenderOperation::Stencil,
-                render_layer: layer_range.start + layer_index,
-                clip_depth,
-                instance_index,
-                shape,
-            });
-            self.command_stream.push(RenderCommand {
-                operation: RenderOperation::Color,
-                render_layer: layer_range.start + layer_index,
-                clip_depth,
-                instance_index: instance_index + layer_index as u32,
                 shape,
             });
         }
