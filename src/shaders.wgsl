@@ -305,5 +305,5 @@ fn stencil_stroke_joint(
 fn fill_solid(
     stage_in: FragmentColor,
 ) -> @location(0) vec4<f32> {
-    return stage_in.color;
+    return vec4<f32>(stage_in.color.rgb * stage_in.color.a, stage_in.color.a);
 }
