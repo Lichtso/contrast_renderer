@@ -302,8 +302,54 @@ fn stencil_stroke_joint(
 
 
 @fragment
-fn fill_solid(
+fn color_cover(
     stage_in: FragmentColor,
 ) -> @location(0) vec4<f32> {
     return vec4<f32>(stage_in.color.rgb * stage_in.color.a, stage_in.color.a);
+}
+
+@fragment
+fn scale_alpha_context_cover(
+    stage_in: FragmentColor,
+) -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0 - stage_in.color.a);
+}
+
+@group(0) @binding(0)
+var frame: texture_2d<f32>;
+@group(0) @binding(0)
+var multisampled_frame: texture_multisampled_2d<f32>;
+
+@fragment
+fn save_alpha_context_cover(
+    stage_in: Fragment0,
+) -> @location(0) f32 {
+    let alpha: f32 = textureLoad(frame, vec2<i32>(stage_in.gl_Position.xy), 0).a;
+    return alpha;
+}
+
+@fragment
+fn multisampled_save_alpha_context_cover(
+    stage_in: Fragment0,
+    @builtin(sample_index) gl_SampleID: u32,
+) -> @location(0) f32 {
+    let alpha: f32 = textureLoad(multisampled_frame, vec2<i32>(stage_in.gl_Position.xy), i32(gl_SampleID)).a;
+    return alpha;
+}
+
+@fragment
+fn restore_alpha_context_cover(
+    stage_in: FragmentColor,
+) -> @location(0) vec4<f32> {
+    let alpha: f32 = textureLoad(frame, vec2<i32>(stage_in.gl_Position.xy), 0).x;
+    return vec4<f32>(0.0, 0.0, 0.0, (1.0 - alpha) * (1.0 - stage_in.color.a));
+}
+
+@fragment
+fn multisampled_restore_alpha_context_cover(
+    stage_in: FragmentColor,
+    @builtin(sample_index) gl_SampleID: u32,
+) -> @location(0) vec4<f32> {
+    let alpha: f32 = textureLoad(multisampled_frame, vec2<i32>(stage_in.gl_Position.xy), i32(gl_SampleID)).x;
+    return vec4<f32>(0.0, 0.0, 0.0, (1.0 - alpha) * (1.0 - stage_in.color.a));
 }

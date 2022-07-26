@@ -145,12 +145,18 @@ macro_rules! concat_buffers {
 pub enum RenderOperation {
     /// Prepare rendering the [Shape]
     Stencil,
-    /// Render the [Shape] as a solid color
-    Color,
     /// Start using the rendered [Shape] as stencil for other [Shape]s
     Clip,
     /// Stop using the rendered [Shape] as stencil for other [Shape]s
     UnClip,
+    /// Render the [Shape] as a solid color using alpha blending
+    Color,
+    /// Start using the rendered [Shape] as opacity group for other [Shape]s
+    SaveAlphaContext,
+    /// Second step of [RenderOperation::SaveAlphaContext], needs its own [wgpu::RenderPass]
+    ScaleAlphaContext,
+    /// Stop using the rendered [Shape] as opacity group for other [Shape]s
+    RestoreAlphaContext,
 }
 
 /// A set of [Path]s which is always rendered together
@@ -329,14 +335,20 @@ impl Shape {
                 }
                 return;
             }
-            RenderOperation::Color => render_pass.set_pipeline(&renderer.color_solid_pipeline),
             RenderOperation::Clip => render_pass.set_pipeline(&renderer.increment_clip_nesting_counter_pipeline),
             RenderOperation::UnClip => render_pass.set_pipeline(&renderer.decrement_clip_nesting_counter_pipeline),
+            RenderOperation::Color => render_pass.set_pipeline(&renderer.color_cover_pipeline),
+            RenderOperation::SaveAlphaContext => render_pass.set_pipeline(&renderer.save_alpha_context_cover_pipeline),
+            RenderOperation::ScaleAlphaContext => render_pass.set_pipeline(&renderer.scale_alpha_context_cover_pipeline),
+            RenderOperation::RestoreAlphaContext => render_pass.set_pipeline(&renderer.restore_alpha_context_cover_pipeline),
         }
         let begin_offset = self.vertex_offsets[6];
         let end_offset = self.vertex_offsets[7];
         render_pass.set_vertex_buffer(
-            if render_operation == RenderOperation::Color { 2 } else { 1 },
+            match render_operation {
+                RenderOperation::Color | RenderOperation::ScaleAlphaContext | RenderOperation::RestoreAlphaContext => 2,
+                _ => 1,
+            },
             self.vertex_buffer.buffer.slice(begin_offset as u64..end_offset as u64),
         );
         render_pass.draw(0..((end_offset - begin_offset) / std::mem::size_of::<Vertex0>()) as u32, instance_indices);
@@ -377,7 +389,7 @@ macro_rules! stencil_descriptor {
 
 macro_rules! render_pipeline_descriptor {
     ($pipeline_layout:expr,
-     $shader_module:expr, $vertex_entry:literal, $fragment_entry:literal,
+     $shader_module:expr, $vertex_entry:expr, $fragment_entry:expr,
      $primitive_topology:ident, $primitive_index_format:expr,
      $color_states:expr, $stencil_state:expr,
      [$($vertex_buffer:expr),*], $msaa_sample_count:expr $(,)?) => {
@@ -428,7 +440,10 @@ macro_rules! render_pipeline_descriptor {
 pub struct Renderer {
     winding_counter_bits: usize,
     clip_nesting_counter_bits: usize,
+    alpha_layer_count: usize,
+    msaa_sample_count: u32,
     stroke_bind_group_layout: wgpu::BindGroupLayout,
+    alpha_context_cover_bind_group_layout: wgpu::BindGroupLayout,
     stroke_line_pipeline: wgpu::RenderPipeline,
     stroke_joint_pipeline: wgpu::RenderPipeline,
     fill_solid_pipeline: wgpu::RenderPipeline,
@@ -438,7 +453,13 @@ pub struct Renderer {
     fill_rational_cubic_curve_pipeline: wgpu::RenderPipeline,
     increment_clip_nesting_counter_pipeline: wgpu::RenderPipeline,
     decrement_clip_nesting_counter_pipeline: wgpu::RenderPipeline,
-    color_solid_pipeline: wgpu::RenderPipeline,
+    color_cover_pipeline: wgpu::RenderPipeline,
+    save_alpha_context_cover_pipeline: wgpu::RenderPipeline,
+    scale_alpha_context_cover_pipeline: wgpu::RenderPipeline,
+    restore_alpha_context_cover_pipeline: wgpu::RenderPipeline,
+    save_alpha_context_cover_bind_group: Option<wgpu::BindGroup>,
+    save_alpha_context_cover_render_targets: Vec<wgpu::TextureView>,
+    restore_alpha_context_cover_bind_groups: Vec<wgpu::BindGroup>,
 }
 
 impl Renderer {
@@ -455,42 +476,75 @@ impl Renderer {
         msaa_sample_count: u32,
         clip_nesting_counter_bits: usize,
         winding_counter_bits: usize,
+        alpha_layer_count: usize,
     ) -> Result<Self, Error> {
         if winding_counter_bits == 0 || clip_nesting_counter_bits + winding_counter_bits > 8 {
             return Err(Error::NumberOfStencilBitsIsUnsupported);
         }
 
         let shader_module = device.create_shader_module(include_wgsl!("shaders.wgsl"));
-        let segment_0f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+        let color_instance_buffer_layout = wgpu::VertexBufferLayout {
+            array_stride: (4 * 4) as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &vertex_attr_array![5 => Float32x4],
+        };
+        let segment_0f_vertex_buffer_layout = wgpu::VertexBufferLayout {
             array_stride: (2 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &vertex_attr_array![4 => Float32x2],
         };
-        let segment_2f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+        let segment_2f_vertex_buffer_layout = wgpu::VertexBufferLayout {
             array_stride: (4 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x2],
         };
-        let segment_2f1i_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+        let segment_2f1i_vertex_buffer_layout = wgpu::VertexBufferLayout {
             array_stride: (5 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x2, 6 => Uint32],
         };
-        let segment_3f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+        let segment_3f_vertex_buffer_layout = wgpu::VertexBufferLayout {
             array_stride: (5 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x3],
         };
-        let segment_3f1i_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+        let segment_3f1i_vertex_buffer_layout = wgpu::VertexBufferLayout {
             array_stride: (6 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x3, 6 => Uint32],
         };
-        let segment_4f_vertex_buffer_descriptor = wgpu::VertexBufferLayout {
+        let segment_4f_vertex_buffer_layout = wgpu::VertexBufferLayout {
             array_stride: (6 * 4) as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &vertex_attr_array![4 => Float32x2, 5 => Float32x4],
         };
+
+        let stroke_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<DynamicStrokeDescriptor>() as u64),
+                },
+                count: None,
+            }],
+        });
+        let alpha_context_cover_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: msaa_sample_count > 1,
+                },
+                count: None,
+            }],
+        });
 
         let winding_counter_mask = (1 << winding_counter_bits) - 1;
         let clip_nesting_counter_mask = ((1 << clip_nesting_counter_bits) - 1) << winding_counter_bits;
@@ -510,19 +564,6 @@ impl Renderer {
             read_mask: clip_nesting_counter_mask | winding_counter_mask,
             write_mask: winding_counter_mask,
         };
-        let stroke_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<DynamicStrokeDescriptor>() as u64),
-                },
-                count: None,
-            }],
-        });
         let stroke_line_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&stroke_bind_group_layout],
@@ -542,7 +583,7 @@ impl Renderer {
             Some(wgpu::IndexFormat::Uint16),
             &[phony_color_state.clone()],
             stroke_stencil_state.clone(),
-            [segment_2f1i_vertex_buffer_descriptor.clone()],
+            [segment_2f1i_vertex_buffer_layout.clone()],
             msaa_sample_count,
         ));
         let stroke_joint_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -554,7 +595,7 @@ impl Renderer {
             Some(wgpu::IndexFormat::Uint16),
             &[phony_color_state.clone()],
             stroke_stencil_state,
-            [segment_3f1i_vertex_buffer_descriptor.clone()],
+            [segment_3f1i_vertex_buffer_layout.clone()],
             msaa_sample_count,
         ));
         let fill_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -566,7 +607,7 @@ impl Renderer {
             Some(wgpu::IndexFormat::Uint16),
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
-            [segment_0f_vertex_buffer_descriptor.clone()],
+            [segment_0f_vertex_buffer_layout.clone()],
             msaa_sample_count,
         ));
         let fill_integral_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -578,7 +619,7 @@ impl Renderer {
             None,
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
-            [segment_2f_vertex_buffer_descriptor],
+            [segment_2f_vertex_buffer_layout],
             msaa_sample_count,
         ));
         let fill_integral_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -590,7 +631,7 @@ impl Renderer {
             None,
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
-            [segment_3f_vertex_buffer_descriptor.clone()],
+            [segment_3f_vertex_buffer_layout.clone()],
             msaa_sample_count,
         ));
         let fill_rational_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -602,7 +643,7 @@ impl Renderer {
             None,
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
-            [segment_3f_vertex_buffer_descriptor.clone()],
+            [segment_3f_vertex_buffer_layout.clone()],
             msaa_sample_count,
         ));
         let fill_rational_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -614,7 +655,7 @@ impl Renderer {
             None,
             &[phony_color_state.clone()],
             fill_stencil_state,
-            [segment_4f_vertex_buffer_descriptor],
+            [segment_4f_vertex_buffer_layout],
             msaa_sample_count,
         ));
 
@@ -632,7 +673,7 @@ impl Renderer {
                 read_mask: winding_counter_mask,
                 write_mask: clip_nesting_counter_mask | winding_counter_mask,
             },
-            [segment_0f_vertex_buffer_descriptor.clone()],
+            [segment_0f_vertex_buffer_layout.clone()],
             msaa_sample_count,
         ));
         let decrement_clip_nesting_counter_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -649,44 +690,141 @@ impl Renderer {
                 read_mask: clip_nesting_counter_mask,
                 write_mask: clip_nesting_counter_mask | winding_counter_mask,
             },
-            [segment_0f_vertex_buffer_descriptor.clone()],
+            [segment_0f_vertex_buffer_layout.clone()],
             msaa_sample_count,
         ));
 
-        let color_solid_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let color_cover_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[],
             push_constant_ranges: &[],
         });
-        let color_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
-            &color_solid_pipeline_layout,
+        let color_cover_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &color_cover_pipeline_layout,
             &shader_module,
             "vertex_color",
-            "fill_solid",
+            "color_cover",
             TriangleStrip,
             Some(wgpu::IndexFormat::Uint16),
-            &[Some(blending)],
+            &[Some(blending.clone())],
             wgpu::StencilState {
                 front: stencil_descriptor!(Less, Zero, Zero),
                 back: stencil_descriptor!(Never, Zero, Zero),
                 read_mask: clip_nesting_counter_mask | winding_counter_mask,
                 write_mask: winding_counter_mask,
             },
-            [
-                wgpu::VertexBufferLayout {
-                    array_stride: (4 * 4) as wgpu::BufferAddress,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &vertex_attr_array![5 => Float32x4],
-                },
-                segment_0f_vertex_buffer_descriptor
-            ],
+            [color_instance_buffer_layout.clone(), segment_0f_vertex_buffer_layout.clone()],
+            msaa_sample_count,
+        ));
+
+        let alpha_context_cover_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&alpha_context_cover_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let alpha_context_cover_stencil_state = wgpu::StencilState {
+            front: stencil_descriptor!(LessEqual, Zero, Zero),
+            back: stencil_descriptor!(Never, Zero, Zero),
+            read_mask: clip_nesting_counter_mask | winding_counter_mask,
+            write_mask: 0,
+        };
+        let save_alpha_context_cover_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &alpha_context_cover_pipeline_layout,
+            &shader_module,
+            "vertex0",
+            if msaa_sample_count == 1 {
+                "save_alpha_context_cover"
+            } else {
+                "multisampled_save_alpha_context_cover"
+            },
+            TriangleStrip,
+            Some(wgpu::IndexFormat::Uint16),
+            &[Some(wgpu::ColorTargetState {
+                format: wgpu::TextureFormat::R8Unorm,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::Zero,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::Zero,
+                        dst_factor: wgpu::BlendFactor::Zero,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                }),
+                write_mask: wgpu::ColorWrites::RED,
+            })],
+            alpha_context_cover_stencil_state.clone(),
+            [segment_0f_vertex_buffer_layout.clone()],
+            msaa_sample_count,
+        ));
+        let scale_alpha_context_cover_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &color_cover_pipeline_layout,
+            &shader_module,
+            "vertex_color",
+            "scale_alpha_context_cover",
+            TriangleStrip,
+            Some(wgpu::IndexFormat::Uint16),
+            &[Some(wgpu::ColorTargetState {
+                format: blending.format,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::Zero,
+                        dst_factor: wgpu::BlendFactor::Zero,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                }),
+                write_mask: wgpu::ColorWrites::ALPHA,
+            })],
+            alpha_context_cover_stencil_state.clone(),
+            [color_instance_buffer_layout.clone(), segment_0f_vertex_buffer_layout.clone()],
+            msaa_sample_count,
+        ));
+        let restore_alpha_context_cover_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
+            &alpha_context_cover_pipeline_layout,
+            &shader_module,
+            "vertex_color",
+            if msaa_sample_count == 1 {
+                "restore_alpha_context_cover"
+            } else {
+                "multisampled_restore_alpha_context_cover"
+            },
+            TriangleStrip,
+            Some(wgpu::IndexFormat::Uint16),
+            &[Some(wgpu::ColorTargetState {
+                format: blending.format,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::Zero,
+                        dst_factor: wgpu::BlendFactor::Zero,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::One,
+                        operation: wgpu::BlendOperation::ReverseSubtract,
+                    },
+                }),
+                write_mask: wgpu::ColorWrites::ALPHA,
+            })],
+            alpha_context_cover_stencil_state,
+            [color_instance_buffer_layout, segment_0f_vertex_buffer_layout],
             msaa_sample_count,
         ));
 
         Ok(Self {
             winding_counter_bits,
             clip_nesting_counter_bits,
+            alpha_layer_count,
+            msaa_sample_count,
             stroke_bind_group_layout,
+            alpha_context_cover_bind_group_layout,
             stroke_line_pipeline,
             stroke_joint_pipeline,
             fill_solid_pipeline,
@@ -696,18 +834,106 @@ impl Renderer {
             fill_rational_cubic_curve_pipeline,
             increment_clip_nesting_counter_pipeline,
             decrement_clip_nesting_counter_pipeline,
-            color_solid_pipeline,
+            color_cover_pipeline,
+            save_alpha_context_cover_pipeline,
+            scale_alpha_context_cover_pipeline,
+            restore_alpha_context_cover_pipeline,
+            save_alpha_context_cover_bind_group: None,
+            save_alpha_context_cover_render_targets: Vec::new(),
+            restore_alpha_context_cover_bind_groups: Vec::new(),
         })
     }
 
-    /// Adjusts the `clip_depth` in the given `render_pass`.
-    ///
+    /// Call this after initialization and when the viewport / window has been resized.
+    pub fn resize_internal_buffers(&mut self, device: &wgpu::Device, viewport_size: wgpu::Extent3d, msaa_frame_view: &wgpu::TextureView) {
+        let alpha_context_texture_descriptor = wgpu::TextureDescriptor {
+            size: viewport_size,
+            mip_level_count: 1,
+            sample_count: self.msaa_sample_count,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            label: None,
+        };
+        self.save_alpha_context_cover_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.alpha_context_cover_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(msaa_frame_view),
+            }],
+        }));
+        (self.save_alpha_context_cover_render_targets, self.restore_alpha_context_cover_bind_groups) = (0..self.alpha_layer_count as u32)
+            .map(|_layer_index| {
+                let alpha_context_texture = device.create_texture(&alpha_context_texture_descriptor);
+                let alpha_context_texture_view = alpha_context_texture.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    ..wgpu::TextureViewDescriptor::default()
+                });
+                let restore_alpha_context_cover_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: None,
+                    layout: &self.alpha_context_cover_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&alpha_context_texture_view),
+                    }],
+                });
+                (alpha_context_texture_view, restore_alpha_context_cover_bind_group)
+            })
+            .unzip();
+    }
+
     /// Increment before [RenderOperation::Clip] and decrement again before [RenderOperation::UnClip].
     pub fn set_clip_depth(&self, render_pass: &mut wgpu::RenderPass, clip_depth: usize) -> Result<(), Error> {
         if clip_depth >= (1 << self.clip_nesting_counter_bits) {
             return Err(Error::ClipStackOverflow);
         }
         render_pass.set_stencil_reference((clip_depth << self.winding_counter_bits) as u32);
+        Ok(())
+    }
+
+    /// Call before [RenderOperation::SaveAlphaContext].
+    pub fn save_alpha_context<'a, 'b: 'a>(
+        &'a self,
+        encoder: &'b mut wgpu::CommandEncoder,
+        depth_stencil_texture_view: &'a wgpu::TextureView,
+        alpha_layer: usize,
+    ) -> Result<wgpu::RenderPass, Error> {
+        if alpha_layer >= self.alpha_layer_count {
+            return Err(Error::TooManyNestedOpacityGroups);
+        }
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &self.save_alpha_context_cover_render_targets[alpha_layer],
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: true,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth_stencil_texture_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: false,
+                }),
+                stencil_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: true,
+                }),
+            }),
+        });
+        render_pass.set_bind_group(0, self.save_alpha_context_cover_bind_group.as_ref().unwrap(), &[]);
+        Ok(render_pass)
+    }
+
+    /// Call before [RenderOperation::RestoreAlphaContext].
+    pub fn restore_alpha_context<'a, 'b: 'a>(&'b self, render_pass: &mut wgpu::RenderPass<'a>, alpha_layer: usize) -> Result<(), Error> {
+        if alpha_layer >= self.alpha_layer_count {
+            return Err(Error::TooManyNestedOpacityGroups);
+        }
+        render_pass.set_bind_group(0, &self.restore_alpha_context_cover_bind_groups[alpha_layer], &[]);
         Ok(())
     }
 }

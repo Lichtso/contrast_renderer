@@ -40,7 +40,7 @@ impl application_framework::Application for Application {
             }),
             write_mask: wgpu::ColorWrites::ALL,
         };
-        let renderer = contrast_renderer::renderer::Renderer::new(&device, blending, true, MSAA_SAMPLE_COUNT, 4, 4).unwrap();
+        let renderer = contrast_renderer::renderer::Renderer::new(&device, blending, true, MSAA_SAMPLE_COUNT, 4, 4, 0).unwrap();
 
         let dynamic_stroke_options = [contrast_renderer::path::DynamicStrokeOptions::Dashed {
             join: contrast_renderer::path::Join::Miter,
@@ -122,7 +122,7 @@ impl application_framework::Application for Application {
                 sample_count: MSAA_SAMPLE_COUNT,
                 dimension: wgpu::TextureDimension::D2,
                 format: surface_configuration.format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
                 label: None,
             };
             let msaa_color_texture = device.create_texture(&msaa_color_texture_descriptor);
@@ -131,6 +131,8 @@ impl application_framework::Application for Application {
                 ..wgpu::TextureViewDescriptor::default()
             }));
         }
+        self.renderer
+            .resize_internal_buffers(device, self.viewport_size, self.msaa_color_texture_view.as_ref().unwrap());
     }
 
     fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SurfaceTexture, animation_time: f64) {
@@ -158,20 +160,21 @@ impl application_framework::Application for Application {
         let instances_color: &[contrast_renderer::renderer::Color] = &[[1.0, 1.0, 1.0, 1.0].into()];
         self.instance_buffers[0].update(device, queue, &contrast_renderer::concat_buffers!([instances_transform]).1);
         self.instance_buffers[1].update(device, queue, &contrast_renderer::concat_buffers!([instances_color]).1);
+        let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let msaa_frame_view = if MSAA_SAMPLE_COUNT == 1 {
+            &frame_view
+        } else {
+            &self.msaa_color_texture_view.as_ref().unwrap()
+        };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
-            let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: if MSAA_SAMPLE_COUNT == 1 {
-                        &frame_view
-                    } else {
-                        &self.msaa_color_texture_view.as_ref().unwrap()
-                    },
+                    view: msaa_frame_view,
                     resolve_target: if MSAA_SAMPLE_COUNT == 1 { None } else { Some(&frame_view) },
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: true,
                     },
                 })],

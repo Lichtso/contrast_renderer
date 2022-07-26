@@ -22,11 +22,9 @@ To get started, checkout the [showcase example](examples/showcase/main.rs).
 - Rendering
     - Anti Aliasing ◯
         - MSAA ✓
-    - Custom (User Provided) Shaders ✓
-    - Blending ✓
-    - Group Opacity ✗
-    - Depth Test ✗
+    - Custom (User Defined) Shaders ✓
     - Instancing ✓
+    - Depth Test ✗
 - Filling
     - Paths
         - Polygons ✓
@@ -39,6 +37,8 @@ To get started, checkout the [showcase example](examples/showcase/main.rs).
                 - Cubic ✓
     - Winding Fill Rules ✓
     - Nestable Clipping ✓
+    - Nestable Group Opacity ✓
+    - Custom (User Defined) Blending ✓
 - Stroking
     - Paths
         - Polygons ✓
