@@ -268,17 +268,15 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
             let mut half_extent = context.get_half_extent(false).unwrap();
             half_extent[0] -= padding[0];
             half_extent[1] -= padding[1];
-            let mut weights = vec![0.0; tab_count];
-            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, node: &Node| {
-                let child_index = match local_child_id {
-                    NodeOrObservableIdentifier::NamedAndIndexed("handle", child_index) => *child_index,
-                    _ => return,
-                };
-                weights[child_index] = match_option!(node.properties.get("weight").unwrap(), Value::Float1)
-                    .map(|value| value.unwrap())
-                    .unwrap_or(0.0)
-                    .max(0.0);
-            });
+            let weights: Vec<f32> = (0..tab_count)
+                .map(|tab_index| {
+                    context
+                        .inspect_child(&NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_index), |node: &Node| {
+                            match_option!(node.get_attribute("weight"), Value::Float1).unwrap().unwrap()
+                        })
+                        .unwrap()
+                })
+                .collect();
             let open_tab_count = weights
                 .iter()
                 .fold(0usize, |counter, weight| if *weight > 0.0 { counter + 1 } else { counter });
@@ -344,13 +342,13 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                 let margin = match_option!(context.derive_attribute("tabs_margin"), Value::Float1).unwrap().unwrap();
                 let major_axis = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap_or(Orientation::Horizontal) as usize;
                 let motor_factor = if major_axis == 0 { 2.0 } else { -2.0 };
+                let tab_count = context.get_number_of_children() / 2;
                 if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
                     if *pressed {
                         let tabs_splitter_width = match_option!(context.derive_attribute("tabs_splitter_width"), Value::Float1)
                             .unwrap()
                             .unwrap();
                         let relative_position: ppga2d::Point = (*input_state.relative_positions.get(&0).unwrap()).into();
-                        let tab_count = context.get_number_of_children() / 2;
                         let mut splitter_index = None;
                         for child_index in 1..tab_count {
                             let mut break_the_loop = false;
@@ -372,24 +370,14 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                             }
                         }
                         if let Some(splitter_index) = splitter_index {
-                            let mut weights = [0.0; 2];
-                            let mut half_extents = [0.0; 2];
-                            for side in 0..2 {
-                                context.inspect_child(
-                                    &NodeOrObservableIdentifier::NamedAndIndexed("tab", splitter_index + side),
-                                    |node: &Node| {
-                                        half_extents[side] = node.get_half_extent(false).unwrap()[major_axis];
-                                    },
-                                );
-                                context.inspect_child(
-                                    &NodeOrObservableIdentifier::NamedAndIndexed("handle", splitter_index + side),
-                                    |node: &Node| {
-                                        weights[side] = match_option!(node.get_attribute("weight"), Value::Float1).unwrap().unwrap();
-                                    },
+                            for tab_index in 0..tab_count {
+                                context.configure_child(
+                                    NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_index),
+                                    Some(|node: &mut Node| {
+                                        node.set_attribute("prev_weight", node.get_attribute("weight"));
+                                    }),
                                 );
                             }
-                            context.set_attribute("weights", Value::Float2(weights.into()));
-                            context.set_attribute("half_extents", Value::Float2(half_extents.into()));
                             context.set_attribute("splitter_index", Value::Natural1(splitter_index));
                             context.set_attribute("pointer_start", Value::Float3(*input_state.absolute_positions.get(&0).unwrap()));
                             context.pointer_and_button_input_focus(messenger);
@@ -403,25 +391,68 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                         context.set_attribute("pointer_start", Value::Void);
                     }
                 } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
-                    let mut weights = match_option!(context.get_attribute("weights"), Value::Float2).unwrap().unwrap();
-                    let half_extents = match_option!(context.get_attribute("half_extents"), Value::Float2).unwrap().unwrap();
-                    let splitter_index = match_option!(context.get_attribute("splitter_index"), Value::Natural1).unwrap();
+                    let padding = match_option!(context.derive_attribute("tabs_padding"), Value::Float2).unwrap().unwrap();
+                    let mut half_extent = context.get_half_extent(false).unwrap();
+                    half_extent[0] -= padding[0];
+                    half_extent[1] -= padding[1];
+                    let mut weights: Vec<f32> = (0..tab_count)
+                        .map(|tab_index| {
+                            context
+                                .inspect_child(&NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_index), |node: &Node| {
+                                    match_option!(node.get_attribute("prev_weight"), Value::Float1).unwrap().unwrap()
+                                })
+                                .unwrap()
+                        })
+                        .collect();
+                    let open_tab_count = weights
+                        .iter()
+                        .fold(0usize, |counter, weight| if *weight > 0.0 { counter + 1 } else { counter });
+                    half_extent[major_axis] -= margin * 0.5 * open_tab_count.saturating_sub(1) as f32;
                     let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
-                    let weight_sum = weights[0] + weights[1];
-                    let half_extent_sum = half_extents[0] + half_extents[1];
-                    let mut diff = (absolute_position - pointer_start).g0[1 + major_axis] / half_extent_sum * weight_sum * 0.5;
-                    /*if diff < -weights[0] || diff > weights[1] {
-                        let margin = match_option!(context.derive_attribute("tabs_margin"), Value::Float1).unwrap().unwrap();
-                        // TODO: Redistribute weight of missing margin
-                    }*/
-                    diff = diff.max(-weights[0]).min(weights[1]);
-                    weights[0] += diff;
-                    weights[1] -= diff;
-                    for (side, weight) in weights.iter().enumerate() {
+                    let splitter_index = match_option!(context.get_attribute("splitter_index"), Value::Natural1).unwrap();
+                    let both_were_open = weights[splitter_index] > 0.0 && weights[splitter_index + 1] > 0.0;
+                    let prev_weight_sum = weights[splitter_index] + weights[splitter_index + 1];
+                    let weight_to_redistribute = margin * 0.5 / half_extent[major_axis] * (1.0 - prev_weight_sum);
+                    let lower_limit = if both_were_open { 0.0 } else { weight_to_redistribute };
+                    let diff = (absolute_position - pointer_start).g0[1 + major_axis] / half_extent[major_axis] * 0.5;
+                    // max-min-clamping won't work here because of floating point imprecision
+                    let hit_lower_limit = diff <= lower_limit - weights[splitter_index];
+                    let hit_upper_limit = diff >= weights[splitter_index + 1];
+                    let both_are_open = if hit_lower_limit {
+                        weights[splitter_index] = 0.0;
+                        weights[splitter_index + 1] = prev_weight_sum;
+                        false
+                    } else if hit_upper_limit {
+                        weights[splitter_index] = prev_weight_sum;
+                        weights[splitter_index + 1] = 0.0;
+                        false
+                    } else {
+                        weights[splitter_index] += diff;
+                        weights[splitter_index + 1] -= diff;
+                        true
+                    };
+                    if both_are_open != both_were_open {
+                        if both_are_open {
+                            if hit_lower_limit {
+                                weights[splitter_index + 1] += weight_to_redistribute;
+                            } else {
+                                weights[splitter_index] -= weight_to_redistribute;
+                            }
+                        } else {
+                            let redistribution_index = (weights[splitter_index + 1] > 0.0) as usize;
+                            weights[splitter_index + redistribution_index] += weight_to_redistribute;
+                        }
+                    }
+                    let post_weight_sum = weights[splitter_index] + weights[splitter_index + 1];
+                    let rescale_factor = (1.0 - post_weight_sum) / (1.0 - prev_weight_sum);
+                    for (tab_index, weight) in weights.iter_mut().enumerate() {
                         context.configure_child(
-                            NodeOrObservableIdentifier::NamedAndIndexed("handle", splitter_index + side),
+                            NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_index),
                             Some(|node: &mut Node| {
-                                node.set_attribute("weight", Value::Float1(weight.into()));
+                                if (tab_index < splitter_index || tab_index > splitter_index + 1) && prev_weight_sum < 1.0 {
+                                    *weight *= rescale_factor;
+                                }
+                                node.set_attribute("weight", Value::Float1((*weight).into()));
                             }),
                         );
                     }
