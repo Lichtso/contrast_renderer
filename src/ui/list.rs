@@ -10,6 +10,17 @@ use crate::{
     utils::translate2d,
 };
 
+fn get_child_count(context: &NodeMessengerContext) -> usize {
+    let mut child_count = 0;
+    while context
+        .inspect_child(&NodeOrObservableIdentifier::Indexed(child_count), |_node: &Node| ())
+        .is_some()
+    {
+        child_count += 1;
+    }
+    child_count
+}
+
 /// List
 pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.get_kind() {
@@ -18,8 +29,9 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
             let mut unaffected =
                 first_phase && !context.was_attribute_touched(&["child_count", "half_extent", "proposed_half_extent", "orientation", "reverse"]);
             if let Value::Vec(entries) = context.get_attribute("entries") {
-                for child_index in 0..context.get_number_of_children() {
-                    context.remove_child(NodeOrObservableIdentifier::Indexed(child_index), true);
+                let mut child_index = 0;
+                while context.remove_child(NodeOrObservableIdentifier::Indexed(child_index), true).is_some() {
+                    child_index += 1;
                 }
                 for (child_index, entry) in entries.into_iter().enumerate() {
                     let child_node = match_option!(entry, Value::Node).unwrap();
@@ -28,8 +40,11 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 context.set_attribute("entries", Value::Void);
                 unaffected = false;
             }
-            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, _node: &Node| {
-                if context.was_attribute_of_child_touched(local_child_id, &["proposed_half_extent"]) {
+            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, node: &mut Node| {
+                if !matches!(local_child_id, NodeOrObservableIdentifier::Indexed(_)) {
+                    return;
+                }
+                if context.was_attribute_of_child_touched(node, &["proposed_half_extent"]) {
                     unaffected = false;
                 }
             });
@@ -47,7 +62,12 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
             let minor_axis = 1 - major_axis;
             let mut half_extent = [0.0, 0.0];
             let mut weight_sum: f32 = 0.0;
-            context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
+            let mut child_count = 0usize;
+            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, node: &mut Node| {
+                if !matches!(local_child_id, NodeOrObservableIdentifier::Indexed(_)) {
+                    return;
+                }
+                child_count += 1;
                 let weight = match_option!(node.get_attribute("weight"), Value::Float1)
                     .map(|value| value.unwrap())
                     .unwrap_or(0.0)
@@ -57,7 +77,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 half_extent[minor_axis] = half_extent[minor_axis].max(child_half_extent[minor_axis]);
                 weight_sum += weight;
             });
-            half_extent[major_axis] += margin * 0.5 * context.get_number_of_children().saturating_sub(1) as f32;
+            half_extent[major_axis] += margin * 0.5 * child_count.saturating_sub(1) as f32;
             let major_half_extent_to_distribute = if propose_half_extent {
                 0.0
             } else {
@@ -72,7 +92,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 major_half_extent_to_distribute
             };
             let mut major_axis_offset = -half_extent[major_axis];
-            for child_index in 0..context.get_number_of_children() {
+            for child_index in 0..child_count {
                 context.configure_child(
                     NodeOrObservableIdentifier::Indexed(child_index),
                     Some(|node: &mut Node| {
@@ -116,7 +136,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
         }
         "AdoptNode" => {
             let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
-            context.add_child(NodeOrObservableIdentifier::Indexed(context.get_number_of_children()), content_node);
+            context.add_child(NodeOrObservableIdentifier::Indexed(get_child_count(context)), content_node);
             Vec::new()
         }
         "PointerInput" => {
@@ -133,7 +153,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                     let focus_child_id = match messenger.get_attribute("origin") {
                         Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Indexed(_)) => None,
                         Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("parents")) => {
-                            Some(NodeOrObservableIdentifier::Indexed(context.get_number_of_children() / 2))
+                            Some(NodeOrObservableIdentifier::Indexed(get_child_count(context) / 2))
                         }
                         _ => panic!(),
                     };
@@ -159,7 +179,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                                 direction *= -1;
                             }
                             let focus_child_index = *child_index as isize + direction;
-                            if focus_child_index >= 0 && focus_child_index < context.get_number_of_children() as isize {
+                            if focus_child_index >= 0 && focus_child_index < get_child_count(context) as isize {
                                 return vec![input_focus_parent_or_child(
                                     messenger,
                                     Some(NodeOrObservableIdentifier::Indexed(focus_child_index as usize)),
