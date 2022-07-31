@@ -185,7 +185,11 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 context.set_attribute("content", Value::Void);
                 unaffected = false;
             }
-            unaffected &= !context.was_attribute_of_child_touched(&NodeOrObservableIdentifier::Named("content"), &["proposed_half_extent"]);
+            unaffected &= !context
+                .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
+                    context.was_attribute_of_child_touched(content, &["proposed_half_extent"])
+                })
+                .unwrap_or(false);
             if unaffected {
                 return Vec::new();
             }
@@ -193,6 +197,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 return vec![Messenger::new(
                     &message::CLOSE_OVERLAY,
                     hash_map! {
+                        "input_source" => context.get_attribute("input_source"),
                         "overlay_index" => context.get_attribute("overlay_index"),
                     },
                 )];
@@ -281,6 +286,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                             Messenger::new(
                                 &message::CLOSE_OVERLAY,
                                 hash_map! {
+                                    "input_source" => context.get_attribute("input_source"),
                                     "overlay_index" => context.get_attribute("overlay_index"),
                                 },
                             ),
@@ -306,7 +312,11 @@ pub fn overlay_container(context: &mut NodeMessengerContext, messenger: &Messeng
     match messenger.get_kind() {
         "Reconfigure" => {
             let mut unaffected = !context.was_attribute_touched(&["child_count"]);
-            unaffected &= !context.was_attribute_of_child_touched(&NodeOrObservableIdentifier::Named("content"), &["proposed_half_extent"]);
+            unaffected &= !context
+                .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
+                    context.was_attribute_of_child_touched(content, &["proposed_half_extent"])
+                })
+                .unwrap_or(false);
             if unaffected {
                 return Vec::new();
             }
@@ -314,31 +324,46 @@ pub fn overlay_container(context: &mut NodeMessengerContext, messenger: &Messeng
                 context.inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.get_half_extent(true))
             {
                 context.set_attribute("proposed_half_extent", Value::Float2(content_half_extent));
-                for overlay_index in 0..context.get_number_of_children() - 1 {
-                    context.configure_child(
-                        NodeOrObservableIdentifier::NamedAndIndexed("overlay", overlay_index),
-                        Some(|node: &mut Node| {
-                            node.set_attribute("layer_index", Value::Natural1(1));
-                        }),
-                    );
-                }
             }
+            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, node: &mut Node| {
+                if !matches!(local_child_id, NodeOrObservableIdentifier::Indexed2D(_, _)) {
+                    return;
+                }
+                node.set_attribute("layer_index", Value::Natural1(1));
+            });
             Vec::new()
         }
         "AdoptNode" => {
-            let overlay_index = context.get_number_of_children() - 1;
+            let input_source = *match messenger.get_attribute("input_source") {
+                Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::ButtonInput(input_source)) => input_source,
+                Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::AxisInput(input_source)) => input_source,
+                Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::PointerInput(input_source)) => input_source,
+                _ => panic!(),
+            };
+            let mut overlay_index = 0;
+            while context
+                .inspect_child(&NodeOrObservableIdentifier::Indexed2D(input_source, overlay_index), |_node: &Node| ())
+                .is_some()
+            {
+                overlay_index += 1;
+            }
             let overlay_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
             let mut borrowed_node = overlay_node.borrow_mut();
             borrowed_node.set_attribute("track_node", Value::Natural1(messenger.get_source_node_id()));
+            borrowed_node.set_attribute("input_source", Value::Natural1(input_source));
             borrowed_node.set_attribute("overlay_index", Value::Natural1(overlay_index));
             drop(borrowed_node);
-            context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("overlay", overlay_index), overlay_node);
+            context.add_child(NodeOrObservableIdentifier::Indexed2D(0, overlay_index), overlay_node);
             Vec::new()
         }
         "CloseOverlay" => {
-            let overlay_index = *match_option!(messenger.get_attribute("overlay_index"), Value::Natural1).unwrap();
-            for overlay_index in overlay_index..context.get_number_of_children() - 1 {
-                context.remove_child(NodeOrObservableIdentifier::NamedAndIndexed("overlay", overlay_index), true);
+            let input_source = *match_option!(messenger.get_attribute("input_source"), Value::Natural1).unwrap();
+            let mut overlay_index = *match_option!(messenger.get_attribute("overlay_index"), Value::Natural1).unwrap();
+            while context
+                .remove_child(NodeOrObservableIdentifier::Indexed2D(input_source, overlay_index), true)
+                .is_some()
+            {
+                overlay_index += 1;
             }
             Vec::new()
         }

@@ -201,6 +201,8 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                         vec![Messenger::new(
                             &message::USER_INPUT,
                             hash_map! {
+                                "input_state" => messenger.get_attribute("input_state").clone(),
+                                "input_source" => messenger.get_attribute("input_source").clone(),
                                 "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
                                 "value" => context.get_attribute("text_content"),
                             },

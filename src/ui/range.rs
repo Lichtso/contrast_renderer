@@ -72,14 +72,14 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
             ]);
             let mut messengers = Vec::new();
             if let Value::TextualProjection(textual_projection) = context.get_attribute("textual_projection") {
-                let text_content = if context.was_attribute_of_child_touched(&NodeOrObservableIdentifier::Named("textual"), &["text_content"]) {
-                    context.inspect_child(&NodeOrObservableIdentifier::Named("textual"), |node: &Node| {
-                        match_option!(node.get_attribute("text_content"), Value::TextString).unwrap()
-                    })
-                } else {
-                    None
-                };
-                if let Some(text_content) = text_content {
+                let text_content = context.inspect_child(&NodeOrObservableIdentifier::Named("textual"), |node: &Node| {
+                    if context.was_attribute_of_child_touched(node, &["text_content"]) {
+                        Some(match_option!(node.get_attribute("text_content"), Value::TextString).unwrap())
+                    } else {
+                        None
+                    }
+                });
+                if let Some(Some(text_content)) = text_content {
                     if let Some(mut new_numeric_value) = (textual_projection.backward)(text_content) {
                         let numeric_value = match_option!(context.get_attribute("numeric_value"), Value::Float1)
                             .map(|value| value.unwrap())
@@ -97,6 +97,8 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                                 messengers.push(Messenger::new(
                                     &message::USER_INPUT,
                                     hash_map! {
+                                        "input_state" => messenger.get_attribute("input_state").clone(),
+                                        "input_source" => messenger.get_attribute("input_source").clone(),
                                         "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
                                         "value" => context.get_attribute("numeric_value"),
                                     },
@@ -212,6 +214,8 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                             return vec![Messenger::new(
                                 &message::USER_INPUT,
                                 hash_map! {
+                                    "input_state" => messenger.get_attribute("input_state").clone(),
+                                    "input_source" => messenger.get_attribute("input_source").clone(),
                                     "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
                                     "value" => context.get_attribute("numeric_value"),
                                 },
