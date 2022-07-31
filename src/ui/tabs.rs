@@ -42,7 +42,10 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
                 return Vec::new();
             }
             let half_extent = context.get_half_extent(false);
-            if context.get_number_of_children() == 1 {
+            if context
+                .inspect_child(&NodeOrObservableIdentifier::Named("content"), |_node: &Node| ())
+                .is_some()
+            {
                 context.configure_child(
                     NodeOrObservableIdentifier::Named("content"),
                     Some(|node: &mut Node| {
@@ -198,14 +201,32 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
     }
 }
 
+fn get_tab_count(context: &NodeMessengerContext) -> usize {
+    let mut tab_count = 0;
+    while context
+        .inspect_child(&NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_count), |_node: &Node| ())
+        .is_some()
+    {
+        tab_count += 1;
+    }
+    tab_count
+}
+
 /// Tab container
 pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.get_kind() {
         "Reconfigure" => {
             let mut unaffected = !context.was_attribute_touched(&["child_count", "half_extent", "orientation"]);
             if let Value::Vec(entries) = context.get_attribute("entries") {
-                for child_index in 0..context.get_number_of_children() {
-                    context.remove_child(NodeOrObservableIdentifier::Indexed(child_index), true);
+                let mut tab_index = 0;
+                while context
+                    .remove_child(NodeOrObservableIdentifier::NamedAndIndexed("tab", tab_index), true)
+                    .is_some()
+                {
+                    assert!(context
+                        .remove_child(NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_index), true)
+                        .is_some());
+                    tab_index += 1;
                 }
                 let weight = 1.0 / entries.len() as f32;
                 for (tab_index, entry) in entries.into_iter().enumerate() {
@@ -223,11 +244,11 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                 unaffected = false;
             }
             let mut active = None;
-            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, _node: &Node| {
-                if context.was_attribute_of_child_touched(local_child_id, &["weight"]) {
+            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, node: &mut Node| {
+                if context.was_attribute_of_child_touched(node, &["weight"]) {
                     unaffected = false;
                 }
-                if context.was_attribute_of_child_touched(local_child_id, &["active"]) {
+                if context.was_attribute_of_child_touched(node, &["active"]) {
                     unaffected = false;
                     active = Some(*local_child_id);
                 }
@@ -235,23 +256,26 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
             if unaffected {
                 return Vec::new();
             }
-            if let Some(NodeOrObservableIdentifier::NamedAndIndexed("handle", handle_index)) = active {
-                let tab_count = context.get_number_of_children() / 2;
-                let start_time = context.get_last_animation_time();
-                let duration = match_option!(context.derive_attribute("tab_animation_duration"), Value::Float1)
-                    .unwrap()
-                    .unwrap() as f64;
-                for child_index in 0..tab_count {
-                    let weight = if child_index == handle_index { 1.0 } else { 0.0 };
-                    context.configure_child(
-                        NodeOrObservableIdentifier::NamedAndIndexed("handle", child_index),
-                        Some(|node: &mut Node| {
-                            node.set_attribute_animated("weight", Value::Float1(weight.into()), start_time, duration, ANIMATION_FADE_IN_OUT);
-                        }),
-                    );
+            let start_time = context.get_last_animation_time();
+            let duration = match_option!(context.derive_attribute("tab_animation_duration"), Value::Float1)
+                .unwrap()
+                .unwrap() as f64;
+            let mut tab_count = 0usize;
+            let mut open_tab_count = 0usize;
+            context.iter_children(|local_child_id: &NodeOrObservableIdentifier, node: &mut Node| {
+                if !matches!(local_child_id, NodeOrObservableIdentifier::NamedAndIndexed("handle", _)) {
+                    return;
                 }
-            }
-            let tab_count = context.get_number_of_children() / 2;
+                tab_count += 1;
+                if active.is_some() {
+                    let weight = if Some(*local_child_id) == active { 1.0 } else { 0.0 };
+                    node.set_attribute_animated("weight", Value::Float1(weight.into()), start_time, duration, ANIMATION_FADE_IN_OUT);
+                }
+                let weight = match_option!(node.get_attribute("weight"), Value::Float1).unwrap().unwrap();
+                if weight > 0.0 {
+                    open_tab_count += 1;
+                }
+            });
             let tab_handle_margin = match_option!(context.derive_attribute("tab_handle_margin"), Value::Float1)
                 .unwrap()
                 .unwrap();
@@ -268,25 +292,30 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
             let mut half_extent = context.get_half_extent(false).unwrap();
             half_extent[0] -= padding[0];
             half_extent[1] -= padding[1];
-            let weights: Vec<f32> = (0..tab_count)
-                .map(|tab_index| {
-                    context
-                        .inspect_child(&NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_index), |node: &Node| {
-                            match_option!(node.get_attribute("weight"), Value::Float1).unwrap().unwrap()
-                        })
-                        .unwrap()
-                })
-                .collect();
-            let open_tab_count = weights
-                .iter()
-                .fold(0usize, |counter, weight| if *weight > 0.0 { counter + 1 } else { counter });
             let mut major_axis_offset = -half_extent[major_axis];
             half_extent[major_axis] -= margin * 0.5 * open_tab_count.saturating_sub(1) as f32;
-            for (child_index, weight) in weights.iter().enumerate() {
+            for tab_index in 0..tab_count {
+                let weight = context
+                    .configure_child(
+                        NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_index),
+                        Some(|node: &mut Node| {
+                            node.set_attribute_privately("layer_index", Value::Natural1(1));
+                            let mut translation = [0.0; 2];
+                            translation[major_axis] = (tab_handle_half_extent[major_axis] * 2.0 + tab_handle_margin)
+                                * (tab_index as f32 - tab_count.saturating_sub(1) as f32 * 0.5);
+                            translation[minor_axis] = tab_handle_padding + tab_handle_half_extent[minor_axis] - half_extent[minor_axis];
+                            if major_axis == 0 {
+                                translation[minor_axis] = -translation[minor_axis];
+                            }
+                            node.set_attribute("motor", Value::Motor(translate2d(translation).into()));
+                            match_option!(node.get_attribute("weight"), Value::Float1).unwrap().unwrap()
+                        }),
+                    )
+                    .unwrap();
                 context.configure_child(
-                    NodeOrObservableIdentifier::NamedAndIndexed("tab", child_index),
+                    NodeOrObservableIdentifier::NamedAndIndexed("tab", tab_index),
                     Some(|node: &mut Node| {
-                        node.set_attribute("dormant", Value::Boolean(*weight == 0.0));
+                        node.set_attribute("dormant", Value::Boolean(weight == 0.0));
                         node.set_attribute_privately("layer_index", Value::Natural1(0));
                         let mut child_half_extent = [0.0; 2];
                         child_half_extent[major_axis] = half_extent[major_axis] * weight;
@@ -294,24 +323,10 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                         node.set_attribute("half_extent", Value::Float2(child_half_extent.into()));
                         let mut translation = [0.0; 2];
                         translation[major_axis] = major_axis_offset + child_half_extent[major_axis];
-                        if *weight > 0.0 {
+                        if weight > 0.0 {
                             major_axis_offset += child_half_extent[major_axis] * 2.0 + margin;
                         } else {
                             translation[major_axis] -= margin * 0.5;
-                        }
-                        node.set_attribute("motor", Value::Motor(translate2d(translation).into()));
-                    }),
-                );
-                context.configure_child(
-                    NodeOrObservableIdentifier::NamedAndIndexed("handle", child_index),
-                    Some(|node: &mut Node| {
-                        node.set_attribute_privately("layer_index", Value::Natural1(1));
-                        let mut translation = [0.0; 2];
-                        translation[major_axis] = (tab_handle_half_extent[major_axis] * 2.0 + tab_handle_margin)
-                            * (child_index as f32 - tab_count.saturating_sub(1) as f32 * 0.5);
-                        translation[minor_axis] = tab_handle_padding + tab_handle_half_extent[minor_axis] - half_extent[minor_axis];
-                        if major_axis == 0 {
-                            translation[minor_axis] = -translation[minor_axis];
                         }
                         node.set_attribute("motor", Value::Motor(translate2d(translation).into()));
                     }),
@@ -320,7 +335,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
             Vec::new()
         }
         "AdoptNode" => {
-            let tab_index = context.get_number_of_children();
+            let tab_index = get_tab_count(context);
             let tab_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
             context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("tab", tab_index), tab_node);
             let handle_node = Node::new(
@@ -342,7 +357,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                 let margin = match_option!(context.derive_attribute("tabs_margin"), Value::Float1).unwrap().unwrap();
                 let major_axis = match_option!(context.get_attribute("orientation"), Value::Orientation).unwrap_or(Orientation::Horizontal) as usize;
                 let motor_factor = if major_axis == 0 { 2.0 } else { -2.0 };
-                let tab_count = context.get_number_of_children() / 2;
+                let tab_count = get_tab_count(context);
                 if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
                     if *pressed {
                         let tabs_splitter_width = match_option!(context.derive_attribute("tabs_splitter_width"), Value::Float1)
@@ -466,7 +481,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
             if !input_state.pressed_keycodes.contains(&changed_keycode) {
                 return Vec::new();
             }
-            let tab_count = context.get_number_of_children() / 2;
+            let tab_count = get_tab_count(context);
             let mut focus_child_id = None;
             match changed_keycode {
                 '⇥' => {

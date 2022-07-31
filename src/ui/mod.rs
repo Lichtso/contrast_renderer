@@ -45,7 +45,7 @@ pub enum NodeOrObservableIdentifier {
     /// Useful for dynamic lists
     Indexed(usize),
     /// Useful for dynamic tables
-    Indexed2D(usize),
+    Indexed2D(usize, usize),
     /// Useful for multiple dynamic lists
     NamedAndIndexed(&'static str, usize),
     /// Captured button input source

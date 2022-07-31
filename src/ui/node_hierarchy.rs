@@ -180,25 +180,18 @@ impl<'a> NodeMessengerContext<'a> {
     }
 
     /// Returns true if the child node touched one of the given `attributes`
-    pub fn was_attribute_of_child_touched(&self, local_child_id: &NodeOrObservableIdentifier, attributes: &[&'static str]) -> bool {
-        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
-        node.children
-            .get(local_child_id)
-            .map(|global_child_id| {
-                let child_node = self.node_hierarchy.nodes.get(global_child_id).unwrap().borrow();
-                for (_local_child_id, global_parent_id, touched_attributes) in child_node.parents.iter() {
-                    if *global_parent_id == self.global_node_id {
-                        for attribute in attributes {
-                            if touched_attributes.contains(attribute) {
-                                return true;
-                            }
-                        }
-                        return false;
+    pub fn was_attribute_of_child_touched(&self, node: &Node, attributes: &[&'static str]) -> bool {
+        for (_local_child_id, global_parent_id, touched_attributes) in node.parents.iter() {
+            if *global_parent_id == self.global_node_id {
+                for attribute in attributes {
+                    if touched_attributes.contains(attribute) {
+                        return true;
                     }
                 }
-                panic!();
-            })
-            .unwrap_or(false)
+                return false;
+            }
+        }
+        panic!();
     }
 
     /// Returns true if one of the given `attributes` was touched by either the parent, an animation or the node itself
@@ -272,12 +265,6 @@ impl<'a> NodeMessengerContext<'a> {
         node.parents.len()
     }
 
-    /// Returns how many child [Node]s this [Node] has
-    pub fn get_number_of_children(&self) -> usize {
-        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
-        node.children.len()
-    }
-
     /// Iterates the parent [Node]s of this [Node]
     pub fn iter_parents<F: FnMut(usize, &Node)>(&self, mut callback: F) {
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
@@ -288,11 +275,11 @@ impl<'a> NodeMessengerContext<'a> {
     }
 
     /// Iterates the child [Node]s of this [Node]
-    pub fn iter_children<F: FnMut(&NodeOrObservableIdentifier, &Node)>(&self, mut callback: F) {
+    pub fn iter_children<F: FnMut(&NodeOrObservableIdentifier, &mut Node)>(&self, mut callback: F) {
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
         for (local_child_id, global_child_id) in node.children.iter() {
-            let child_node = self.node_hierarchy.nodes.get(global_child_id).unwrap().borrow();
-            callback(local_child_id, &child_node);
+            let mut child_node = self.node_hierarchy.nodes.get(global_child_id).unwrap().borrow_mut();
+            callback(local_child_id, &mut child_node);
         }
     }
 
@@ -338,21 +325,25 @@ impl<'a> NodeMessengerContext<'a> {
     ///
     /// If `callback` is `Some` the child [Node] is added if it did not exist before.
     /// Otherwise, if `callback` is `None` the child [Node] is removed if it did exist.
-    pub fn configure_child<F: FnOnce(&mut Node)>(&mut self, local_child_id: NodeOrObservableIdentifier, callback: Option<F>) {
+    pub fn configure_child<R, F: FnOnce(&mut Node) -> R>(&mut self, local_child_id: NodeOrObservableIdentifier, callback: Option<F>) -> Option<R> {
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
         if let Some(global_child_id) = node.children.get(&local_child_id).cloned() {
             drop(node);
             if let Some(callback) = callback {
                 let mut child_node = self.node_hierarchy.nodes.get(&global_child_id).unwrap().borrow_mut();
-                callback(&mut child_node);
+                Some(callback(&mut child_node))
             } else {
                 self.remove_child(local_child_id, false);
+                None
             }
         } else if let Some(callback) = callback {
             drop(node);
             let mut child_node = Node::default();
-            callback(&mut child_node);
+            let result = callback(&mut child_node);
             self.add_child(local_child_id, Rc::new(RefCell::new(child_node)));
+            Some(result)
+        } else {
+            None
         }
     }
 

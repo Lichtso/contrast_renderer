@@ -36,7 +36,11 @@ pub fn button(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 context.set_attribute("content", Value::Void);
                 unaffected = false;
             }
-            unaffected &= !context.was_attribute_of_child_touched(&NodeOrObservableIdentifier::Named("content"), &["proposed_half_extent"]);
+            unaffected &= !context
+                .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
+                    context.was_attribute_of_child_touched(content, &["proposed_half_extent"])
+                })
+                .unwrap_or(false);
             if unaffected {
                 return Vec::new();
             }
@@ -79,6 +83,8 @@ pub fn button(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                             messengers.push(Messenger::new(
                                 &message::USER_INPUT,
                                 hash_map! {
+                                    "input_state" => messenger.get_attribute("input_state").clone(),
+                                    "input_source" => messenger.get_attribute("input_source").clone(),
                                     "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
                                 },
                             ));
@@ -115,6 +121,8 @@ pub fn button(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                         vec![Messenger::new(
                             &message::USER_INPUT,
                             hash_map! {
+                                "input_state" => messenger.get_attribute("input_state").clone(),
+                                "input_source" => messenger.get_attribute("input_source").clone(),
                                 "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
                             },
                         )]
