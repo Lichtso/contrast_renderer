@@ -59,7 +59,6 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
         "AdoptNode" => {
             let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
             context.add_child(NodeOrObservableIdentifier::Named("content"), content_node, true);
-            context.pointer_and_button_input_focus(messenger);
             Vec::new()
         }
         "PointerInput" => {
