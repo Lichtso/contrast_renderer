@@ -30,26 +30,6 @@ fn toggle_overlay(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         to_overlay_container.propagation_direction = PropagationDirection::Observers(NodeOrObservableIdentifier::Named("root"));
         return vec![to_overlay_container];
     }
-    let overlay_node = Node::new(
-        speech_balloon,
-        hash_map! {
-            "track_half_extent" => context.get_attribute("half_extent"),
-            "track_alignment" => Value::Float1((-1.0).into()),
-            "track_offset" => context.derive_attribute("dropdown_button_corner_radius"),
-            "speech_balloon_round_top_left" => Value::Boolean(false),
-            "speech_balloon_arrow_extent" => Value::Float1(0.0.into()),
-        },
-    );
-    context.add_child(NodeOrObservableIdentifier::Named("overlay"), overlay_node.clone(), false);
-    let mut to_overlay_container = Messenger::new(
-        &message::ADOPT_NODE,
-        hash_map! {
-            "node" => Value::Node(overlay_node),
-            "input_state" => messenger.get_attribute("input_state").clone(),
-            "input_source" => messenger.get_attribute("input_source").clone(),
-        },
-    );
-    to_overlay_container.propagation_direction = PropagationDirection::Observers(NodeOrObservableIdentifier::Named("root"));
     let options = match_option!(context.get_attribute("options"), Value::Vec).unwrap();
     let list_entries = options
         .into_iter()
@@ -73,24 +53,43 @@ fn toggle_overlay(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             ))
         })
         .collect();
-    let mut to_overlay_node = Messenger::new(
+    let list_node = Node::new(
+        list,
+        hash_map! {
+            "entries" => Value::Vec(list_entries),
+            "orientation" => Value::Orientation(Orientation::Vertical),
+            "reverse" => Value::Boolean(true),
+            "list_margin" => context.derive_attribute("dropdown_overlay_list_marging"),
+            "list_padding" => context.derive_attribute("dropdown_overlay_list_padding"),
+            "list_minor_axis_alignment" => Value::Void,
+            "proposed_half_extent" => Value::Float2([0.0, 0.0].into()),
+        },
+    );
+    let overlay_node = Node::new(
+        speech_balloon,
+        hash_map! {
+            "content" => Value::Node(list_node),
+            "track_half_extent" => context.get_attribute("half_extent"),
+            "track_alignment" => Value::Float1((-1.0).into()),
+            "track_offset" => context.derive_attribute("dropdown_button_corner_radius"),
+            "speech_balloon_round_top_left" => Value::Boolean(false),
+            "speech_balloon_arrow_extent" => Value::Float1(0.0.into()),
+        },
+    );
+    context.add_child(NodeOrObservableIdentifier::Named("overlay"), overlay_node.clone(), false);
+    let mut to_overlay_container = Messenger::new(
         &message::ADOPT_NODE,
         hash_map! {
-            "node" => Value::Node(Node::new(list, hash_map! {
-                "entries" => Value::Vec(list_entries),
-                "orientation" => Value::Orientation(Orientation::Vertical),
-                "reverse" => Value::Boolean(true),
-                "list_margin" => context.derive_attribute("dropdown_overlay_list_marging"),
-                "list_padding" => context.derive_attribute("dropdown_overlay_list_padding"),
-                "list_minor_axis_alignment" => Value::Void,
-                "proposed_half_extent" => Value::Float2([0.0, 0.0].into()),
-            })),
+            "node" => Value::Node(overlay_node),
             "input_state" => messenger.get_attribute("input_state").clone(),
             "input_source" => messenger.get_attribute("input_source").clone(),
         },
     );
-    to_overlay_node.propagation_direction = PropagationDirection::Child(NodeOrObservableIdentifier::Named("overlay"));
-    vec![to_overlay_container, to_overlay_node]
+    to_overlay_container.propagation_direction = PropagationDirection::Observers(NodeOrObservableIdentifier::Named("root"));
+    vec![
+        context.input_focus_parent_or_child(messenger, Some(NodeOrObservableIdentifier::Named("overlay"))),
+        to_overlay_container,
+    ]
 }
 
 /// Drop down selection with overlay
