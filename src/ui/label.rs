@@ -4,7 +4,7 @@ use crate::{
     path::Path,
     text::{byte_offset_of_char_index, half_extent_of_text, index_of_char_at, paths_of_text, Layout},
     ui::{
-        message::{self, input_focus_parent_or_child, Messenger, PropagationDirection},
+        message::{self, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering, TextInteraction,
@@ -157,7 +157,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     if messenger.get_attribute("origin") != &Value::Void {
                         context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
-                        return vec![input_focus_parent_or_child(messenger, None)];
+                        return vec![context.input_focus_parent_or_child(messenger, None)];
                     }
                     Vec::new()
                 }
