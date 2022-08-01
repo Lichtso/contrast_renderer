@@ -302,12 +302,24 @@ impl<'a> NodeMessengerContext<'a> {
     }
 
     /// Adds and links a given child [Node]
-    pub fn add_child(&mut self, local_child_id: NodeOrObservableIdentifier, child_node: Rc<RefCell<Node>>) {
+    pub fn add_child(&mut self, local_child_id: NodeOrObservableIdentifier, child_node: Rc<RefCell<Node>>, unlink_from_all_parents: bool) {
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
         let global_child_id = node.children.get(&local_child_id).cloned();
         drop(node);
         if let Some(global_child_id) = global_child_id {
             self.node_hierarchy.unlink_node(global_child_id, None);
+        }
+        if unlink_from_all_parents {
+            let mut node = child_node.borrow_mut();
+            for local_and_global_ids in node.parents.iter() {
+                if let Some(parent) = self.node_hierarchy.nodes.get(&local_and_global_ids.1) {
+                    let mut parent = parent.borrow_mut();
+                    parent.touch_attribute("child_count");
+                    parent.children.remove(&local_and_global_ids.0);
+                    reconfigure_node!(self.node_hierarchy, parent);
+                }
+            }
+            node.parents.clear();
         }
         let _global_child_id = self.node_hierarchy.link_node(child_node, Some((local_child_id, self.global_node_id)));
     }
@@ -319,6 +331,14 @@ impl<'a> NodeMessengerContext<'a> {
         drop(node);
         let global_parent_id = if unlink_from_all_parents { None } else { Some(self.global_node_id) };
         global_child_id.and_then(|global_child_id| self.node_hierarchy.unlink_node(global_child_id, global_parent_id))
+    }
+
+    /// Returns the child [Node] given by `local_child_id`
+    pub fn get_child(&self, local_child_id: &NodeOrObservableIdentifier) -> Option<Rc<RefCell<Node>>> {
+        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
+        node.children
+            .get(local_child_id)
+            .map(|global_child_id| self.node_hierarchy.nodes.get(global_child_id).unwrap().clone())
     }
 
     /// Adds, modifies or removes a child [Node]
@@ -340,7 +360,7 @@ impl<'a> NodeMessengerContext<'a> {
             drop(node);
             let mut child_node = Node::default();
             let result = callback(&mut child_node);
-            self.add_child(local_child_id, Rc::new(RefCell::new(child_node)));
+            self.add_child(local_child_id, Rc::new(RefCell::new(child_node)), false);
             Some(result)
         } else {
             None
@@ -388,6 +408,38 @@ impl<'a> NodeMessengerContext<'a> {
         } else {
             self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), false, false);
         }
+    }
+
+    /// Helper send the focus to the parent [Node] or a child [Node]
+    pub fn input_focus_parent_or_child(&self, messenger: &Messenger, child_id: Option<NodeOrObservableIdentifier>) -> Messenger {
+        let mut input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap().clone();
+        if child_id.is_some() {
+            input_state.pressed_keycodes.remove(&'⇧');
+        } else {
+            input_state.pressed_keycodes.insert('⇧');
+        }
+        input_state.pressed_keycodes.insert('⇥');
+        let mut messenger = Messenger::new(
+            &message::BUTTON_INPUT,
+            hash_map! {
+                "input_source" => messenger.get_attribute("input_source").clone(),
+                "input_state" => Value::InputState(input_state),
+                "changed_keycode" => Value::Character('⇥'),
+            },
+        );
+        if let Some(child_id) = child_id {
+            messenger.propagation_direction = PropagationDirection::Child(child_id);
+        } else {
+            messenger.propagation_direction = PropagationDirection::Parent(0);
+        }
+        messenger
+    }
+
+    /// Helper redirect focus navigation to the parent [Node]
+    pub fn redirect_input_focus_navigation_to_parent(&self, messenger: &Messenger) -> Messenger {
+        let mut messenger = messenger.clone();
+        messenger.propagation_direction = PropagationDirection::Parent(0);
+        messenger
     }
 
     /// Helper to handle the "PrepareRendering" message
