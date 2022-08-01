@@ -3,7 +3,7 @@ use crate::{
     match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{input_focus_parent_or_child, Messenger, PropagationDirection},
+        message::{Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation, Rendering, ScrollBarType,
@@ -113,7 +113,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         "Reconfigure" => {
             let mut unaffected = !context.was_attribute_touched(&["child_count", "half_extent", "content_motor", "content_scale"]);
             if let Value::Node(content_node) = context.get_attribute("content") {
-                context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
+                context.add_child(NodeOrObservableIdentifier::Named("content"), content_node, true);
                 context.set_attribute("content", Value::Void);
                 unaffected = false;
             }
@@ -212,7 +212,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         }
         "AdoptNode" => {
             let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
-            context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
+            context.add_child(NodeOrObservableIdentifier::Named("content"), content_node, true);
             Vec::new()
         }
         "PointerInput" => {
@@ -278,13 +278,9 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                         }
                         _ => panic!(),
                     };
-                    vec![input_focus_parent_or_child(messenger, focus_child_id)]
+                    vec![context.input_focus_parent_or_child(messenger, focus_child_id)]
                 }
-                '←' | '→' | '↑' | '↓' => {
-                    let mut messenger = messenger.clone();
-                    messenger.propagation_direction = PropagationDirection::Parent(0);
-                    vec![messenger]
-                }
+                '←' | '→' | '↑' | '↓' => vec![context.redirect_input_focus_navigation_to_parent(messenger)],
                 _ => Vec::new(),
             }
         }

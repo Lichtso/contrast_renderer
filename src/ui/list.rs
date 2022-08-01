@@ -2,7 +2,7 @@
 use crate::{
     hash_map, match_option,
     ui::{
-        message::{self, input_focus_parent_or_child, Messenger, PropagationDirection},
+        message::{self, Messenger},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation,
@@ -35,7 +35,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 }
                 for (child_index, entry) in entries.into_iter().enumerate() {
                     let child_node = match_option!(entry, Value::Node).unwrap();
-                    context.add_child(NodeOrObservableIdentifier::Indexed(child_index), child_node);
+                    context.add_child(NodeOrObservableIdentifier::Indexed(child_index), child_node, true);
                 }
                 context.set_attribute("entries", Value::Void);
                 unaffected = false;
@@ -136,7 +136,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
         }
         "AdoptNode" => {
             let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
-            context.add_child(NodeOrObservableIdentifier::Indexed(get_child_count(context)), content_node);
+            context.add_child(NodeOrObservableIdentifier::Indexed(get_child_count(context)), content_node, true);
             Vec::new()
         }
         "PointerInput" => {
@@ -157,7 +157,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                         }
                         _ => panic!(),
                     };
-                    vec![input_focus_parent_or_child(messenger, focus_child_id)]
+                    vec![context.input_focus_parent_or_child(messenger, focus_child_id)]
                 }
                 '←' | '→' | '↑' | '↓' => {
                     if let Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Indexed(child_index)) = messenger.get_attribute("origin") {
@@ -180,17 +180,13 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                             }
                             let focus_child_index = *child_index as isize + direction;
                             if focus_child_index >= 0 && focus_child_index < get_child_count(context) as isize {
-                                return vec![input_focus_parent_or_child(
-                                    messenger,
-                                    Some(NodeOrObservableIdentifier::Indexed(focus_child_index as usize)),
-                                )];
+                                return vec![context
+                                    .input_focus_parent_or_child(messenger, Some(NodeOrObservableIdentifier::Indexed(focus_child_index as usize)))];
                             }
                         }
                         Vec::new()
                     } else {
-                        let mut messenger = messenger.clone();
-                        messenger.propagation_direction = PropagationDirection::Parent(0);
-                        vec![messenger]
+                        vec![context.redirect_input_focus_navigation_to_parent(messenger)]
                     }
                 }
                 _ => Vec::new(),

@@ -3,7 +3,7 @@ use crate::{
     hash_map, match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{input_focus_parent_or_child, Messenger, PropagationDirection},
+        message::{Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation, Rendering, ANIMATION_FADE_IN_OUT,
@@ -34,7 +34,7 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
         "Reconfigure" => {
             let mut unaffected = !context.was_attribute_touched(&["child_count", "half_extent"]);
             if let Value::Node(content_node) = context.get_attribute("content") {
-                context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
+                context.add_child(NodeOrObservableIdentifier::Named("content"), content_node, true);
                 context.set_attribute("content", Value::Void);
                 unaffected = false;
             }
@@ -58,7 +58,7 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
         }
         "AdoptNode" => {
             let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
-            context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
+            context.add_child(NodeOrObservableIdentifier::Named("content"), content_node, true);
             context.pointer_and_button_input_focus(messenger);
             Vec::new()
         }
@@ -84,13 +84,9 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
                     } else {
                         Some(NodeOrObservableIdentifier::Named("content"))
                     };
-                    vec![input_focus_parent_or_child(messenger, focus_child_id)]
+                    vec![context.input_focus_parent_or_child(messenger, focus_child_id)]
                 }
-                '←' | '→' | '↑' | '↓' => {
-                    let mut messenger = messenger.clone();
-                    messenger.propagation_direction = PropagationDirection::Parent(0);
-                    vec![messenger]
-                }
+                '←' | '→' | '↑' | '↓' => vec![context.redirect_input_focus_navigation_to_parent(messenger)],
                 _ => Vec::new(),
             }
         }
@@ -181,15 +177,11 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     if messenger.get_attribute("origin") != &Value::Void {
                         context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
-                        return vec![input_focus_parent_or_child(messenger, None)];
+                        return vec![context.input_focus_parent_or_child(messenger, None)];
                     }
                     Vec::new()
                 }
-                '←' | '→' | '↑' | '↓' => {
-                    let mut messenger = messenger.clone();
-                    messenger.propagation_direction = PropagationDirection::Parent(0);
-                    vec![messenger]
-                }
+                '←' | '→' | '↑' | '↓' => vec![context.redirect_input_focus_navigation_to_parent(messenger)],
                 '⏎' => {
                     context.touch_attribute("active");
                     Vec::new()
@@ -231,14 +223,14 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                 let weight = 1.0 / entries.len() as f32;
                 for (tab_index, entry) in entries.into_iter().enumerate() {
                     let tab_node = match_option!(entry, Value::Node).unwrap();
-                    context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("tab", tab_index), tab_node);
+                    context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("tab", tab_index), tab_node, true);
                     let handle_node = Node::new(
                         tab_handle,
                         hash_map! {
                             "weight" => Value::Float1(weight.into()),
                         },
                     );
-                    context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_index), handle_node);
+                    context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_index), handle_node, false);
                 }
                 context.set_attribute("entries", Value::Void);
                 unaffected = false;
@@ -337,14 +329,14 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
         "AdoptNode" => {
             let tab_index = get_tab_count(context);
             let tab_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
-            context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("tab", tab_index), tab_node);
+            context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("tab", tab_index), tab_node, true);
             let handle_node = Node::new(
                 tab_handle,
                 hash_map! {
                     "weight" => Value::Float1(0.0.into()),
                 },
             );
-            context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_index), handle_node);
+            context.add_child(NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_index), handle_node, false);
             Vec::new()
         }
         "PointerInput" => {
@@ -489,7 +481,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                         context.pointer_and_button_input_focus(messenger);
                         return Vec::new();
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
-                        return vec![input_focus_parent_or_child(messenger, None)];
+                        return vec![context.input_focus_parent_or_child(messenger, None)];
                     } else {
                         focus_child_id = Some(NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_count / 2));
                     }
@@ -548,15 +540,13 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                             _ => None,
                         };
                     } else {
-                        let mut messenger = messenger.clone();
-                        messenger.propagation_direction = PropagationDirection::Parent(0);
-                        return vec![messenger];
+                        return vec![context.redirect_input_focus_navigation_to_parent(messenger)];
                     }
                 }
                 _ => {}
             }
             if focus_child_id.is_some() {
-                vec![input_focus_parent_or_child(messenger, focus_child_id)]
+                vec![context.input_focus_parent_or_child(messenger, focus_child_id)]
             } else {
                 Vec::new()
             }

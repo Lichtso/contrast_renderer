@@ -3,7 +3,7 @@ use crate::{
     hash_map, match_option,
     path::Path,
     ui::{
-        message::{self, input_focus_parent_or_child, Messenger, PropagationDirection},
+        message::{self, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering,
@@ -32,7 +32,7 @@ pub fn button(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         "Reconfigure" => {
             let mut unaffected = !context.was_attribute_touched(&["child_count", "half_extent", "observes"]);
             if let Value::Node(content_node) = context.get_attribute("content") {
-                context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
+                context.add_child(NodeOrObservableIdentifier::Named("content"), content_node, true);
                 context.set_attribute("content", Value::Void);
                 unaffected = false;
             }
@@ -106,15 +106,11 @@ pub fn button(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     if messenger.get_attribute("origin") != &Value::Void {
                         context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
-                        return vec![input_focus_parent_or_child(messenger, None)];
+                        return vec![context.input_focus_parent_or_child(messenger, None)];
                     }
                     Vec::new()
                 }
-                '←' | '→' | '↑' | '↓' => {
-                    let mut messenger = messenger.clone();
-                    messenger.propagation_direction = PropagationDirection::Parent(0);
-                    vec![messenger]
-                }
+                '←' | '→' | '↑' | '↓' => vec![context.redirect_input_focus_navigation_to_parent(messenger)],
                 '⏎' => {
                     context.touch_attribute("active");
                     if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {

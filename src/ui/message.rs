@@ -116,31 +116,6 @@ impl Messenger {
     }
 }
 
-/// Helper send the focus to the parent [Node] or a child [Node]
-pub fn input_focus_parent_or_child(messenger: &Messenger, child_id: Option<NodeOrObservableIdentifier>) -> Messenger {
-    let mut input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap().clone();
-    if child_id.is_some() {
-        input_state.pressed_keycodes.remove(&'⇧');
-    } else {
-        input_state.pressed_keycodes.insert('⇧');
-    }
-    input_state.pressed_keycodes.insert('⇥');
-    let mut messenger = Messenger::new(
-        &BUTTON_INPUT,
-        hash_map! {
-            "input_source" => messenger.get_attribute("input_source").clone(),
-            "input_state" => Value::InputState(input_state),
-            "changed_keycode" => Value::Character('⇥'),
-        },
-    );
-    if let Some(child_id) = child_id {
-        messenger.propagation_direction = PropagationDirection::Child(child_id);
-    } else {
-        messenger.propagation_direction = PropagationDirection::Parent(0);
-    }
-    messenger
-}
-
 /// The node should reevaluate itself and answer with Configured and ConfigureChild
 pub const RECONFIGURE: MessengerBehavior = MessengerBehavior {
     label: "Reconfigure",

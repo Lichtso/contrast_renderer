@@ -4,7 +4,7 @@ use crate::{
     path::Path,
     ui::{
         label::text_label,
-        message::{self, input_focus_parent_or_child, Messenger, PropagationDirection},
+        message::{self, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation, Rendering, TextInteraction,
@@ -242,13 +242,9 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                     } else {
                         Some(NodeOrObservableIdentifier::Named("textual"))
                     };
-                    vec![input_focus_parent_or_child(messenger, focus_child_id)]
+                    vec![context.input_focus_parent_or_child(messenger, focus_child_id)]
                 }
-                '←' | '→' | '↑' | '↓' => {
-                    let mut messenger = messenger.clone();
-                    messenger.propagation_direction = PropagationDirection::Parent(0);
-                    vec![messenger]
-                }
+                '←' | '→' | '↑' | '↓' => vec![context.redirect_input_focus_navigation_to_parent(messenger)],
                 _ => Vec::new(),
             }
         }
