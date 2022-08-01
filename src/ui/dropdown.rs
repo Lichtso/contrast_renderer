@@ -7,7 +7,7 @@ use crate::{
         label::text_label,
         list::list,
         message,
-        message::{input_focus_parent_or_child, Messenger, PropagationDirection},
+        message::{Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         overlay::speech_balloon,
         wrapped_values::Value,
@@ -40,7 +40,7 @@ fn toggle_overlay(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             "speech_balloon_arrow_extent" => Value::Float1(0.0.into()),
         },
     );
-    context.add_child(NodeOrObservableIdentifier::Named("overlay"), overlay_node.clone());
+    context.add_child(NodeOrObservableIdentifier::Named("overlay"), overlay_node.clone(), false);
     let mut to_overlay_container = Messenger::new(
         &message::ADOPT_NODE,
         hash_map! {
@@ -223,15 +223,11 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                     if messenger.get_attribute("origin") != &Value::Void {
                         context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
-                        return vec![input_focus_parent_or_child(messenger, None)];
+                        return vec![context.input_focus_parent_or_child(messenger, None)];
                     }
                     Vec::new()
                 }
-                '←' | '→' | '↑' | '↓' => {
-                    let mut messenger = messenger.clone();
-                    messenger.propagation_direction = PropagationDirection::Parent(0);
-                    vec![messenger]
-                }
+                '←' | '→' | '↑' | '↓' => vec![context.redirect_input_focus_navigation_to_parent(messenger)],
                 '⏎' if match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false) => {
                     toggle_overlay(context, messenger)
                 }

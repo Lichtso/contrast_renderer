@@ -3,7 +3,7 @@ use crate::{
     hash_map, match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, LineSegment, Path, StrokeOptions},
     ui::{
-        message::{self, input_focus_parent_or_child, Messenger, PropagationDirection},
+        message::{self, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering, Side,
@@ -181,7 +181,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
         "Reconfigure" => {
             let mut unaffected = !context.was_attribute_touched(&["parents", "child_count", "track_half_extent", "dormant_parent_count"]);
             if let Value::Node(content_node) = context.get_attribute("content") {
-                context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
+                context.add_child(NodeOrObservableIdentifier::Named("content"), content_node, true);
                 context.set_attribute("content", Value::Void);
                 unaffected = false;
             }
@@ -255,7 +255,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
         }
         "AdoptNode" => {
             let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
-            context.add_child(NodeOrObservableIdentifier::Named("content"), content_node);
+            context.add_child(NodeOrObservableIdentifier::Named("content"), content_node, true);
             context.pointer_and_button_input_focus(messenger);
             Vec::new()
         }
@@ -290,11 +290,11 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                                     "overlay_index" => context.get_attribute("overlay_index"),
                                 },
                             ),
-                            input_focus_parent_or_child(messenger, None),
+                            context.input_focus_parent_or_child(messenger, None),
                         ]
                     } else {
                         let focus_child_id = Some(NodeOrObservableIdentifier::Named("content"));
-                        vec![input_focus_parent_or_child(messenger, focus_child_id)]
+                        vec![context.input_focus_parent_or_child(messenger, focus_child_id)]
                     }
                 }
                 _ => Vec::new(),
@@ -353,7 +353,7 @@ pub fn overlay_container(context: &mut NodeMessengerContext, messenger: &Messeng
             borrowed_node.set_attribute("input_source", Value::Natural1(input_source));
             borrowed_node.set_attribute("overlay_index", Value::Natural1(overlay_index));
             drop(borrowed_node);
-            context.add_child(NodeOrObservableIdentifier::Indexed2D(0, overlay_index), overlay_node);
+            context.add_child(NodeOrObservableIdentifier::Indexed2D(0, overlay_index), overlay_node, false);
             Vec::new()
         }
         "CloseOverlay" => {
