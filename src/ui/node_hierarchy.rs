@@ -395,7 +395,7 @@ impl<'a> NodeMessengerContext<'a> {
     }
 
     /// Helper to focus this [Node]
-    pub fn pointer_and_button_input_focus(&mut self, messenger: &Messenger) {
+    pub fn pointer_and_button_input_focus(&mut self, messenger: &Messenger) -> Vec<Messenger> {
         let input_source = *match messenger.get_attribute("input_source") {
             Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::ButtonInput(input_source)) => input_source,
             Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::AxisInput(input_source)) => input_source,
@@ -408,6 +408,7 @@ impl<'a> NodeMessengerContext<'a> {
         } else {
             self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), false, false);
         }
+        Vec::new()
     }
 
     /// Helper send the focus to the parent [Node] or a child [Node]
