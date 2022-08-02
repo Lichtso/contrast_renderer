@@ -203,10 +203,11 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                 if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
                     let action = !*pressed
                         && context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap());
-                    context.pointer_and_button_input_focus(messenger);
+                    let mut messengers = context.pointer_and_button_input_focus(messenger);
                     if action {
-                        return toggle_overlay(context, messenger);
+                        messengers.append(&mut toggle_overlay(context, messenger));
                     }
+                    return messengers;
                 }
             }
             Vec::new()
@@ -220,7 +221,7 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             match changed_keycode {
                 '⇥' => {
                     if messenger.get_attribute("origin") != &Value::Void {
-                        context.pointer_and_button_input_focus(messenger);
+                        return context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
                         return vec![context.input_focus_parent_or_child(messenger, None)];
                     }
