@@ -62,10 +62,11 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
             Vec::new()
         }
         "PointerInput" => {
+            let mut messengers = vec![messenger.clone()];
             if messenger.propagation_direction == PropagationDirection::Parent(-1) {
-                context.pointer_and_button_input_focus(messenger);
+                messengers.append(&mut context.pointer_and_button_input_focus(messenger));
             }
-            vec![messenger.clone()]
+            messengers
         }
         "ButtonInput" => {
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
@@ -76,8 +77,7 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
             match changed_keycode {
                 '⇥' => {
                     let focus_child_id = if messenger.get_attribute("origin") != &Value::Void {
-                        context.pointer_and_button_input_focus(messenger);
-                        return Vec::new();
+                        return context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
                         None
                     } else {
@@ -160,7 +160,7 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     {
                         context.touch_attribute("active");
                     }
-                    context.pointer_and_button_input_focus(messenger);
+                    return context.pointer_and_button_input_focus(messenger);
                 }
             }
             Vec::new()
@@ -174,7 +174,7 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             match changed_keycode {
                 '⇥' => {
                     if messenger.get_attribute("origin") != &Value::Void {
-                        context.pointer_and_button_input_focus(messenger);
+                        return context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
                         return vec![context.input_focus_parent_or_child(messenger, None)];
                     }
@@ -386,15 +386,16 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                             }
                             context.set_attribute("splitter_index", Value::Natural1(splitter_index));
                             context.set_attribute("pointer_start", Value::Float3(*input_state.absolute_positions.get(&0).unwrap()));
-                            context.pointer_and_button_input_focus(messenger);
+                            return context.pointer_and_button_input_focus(messenger);
                         } else {
                             return Vec::new();
                         }
                     } else {
-                        if context.get_attribute("pointer_start") != Value::Void {
-                            context.pointer_and_button_input_focus(messenger);
-                        }
+                        let focus = context.get_attribute("pointer_start") != Value::Void;
                         context.set_attribute("pointer_start", Value::Void);
+                        if focus {
+                            return context.pointer_and_button_input_focus(messenger);
+                        }
                     }
                 } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
                     let padding = match_option!(context.derive_attribute("tabs_padding"), Value::Float2).unwrap().unwrap();
@@ -477,8 +478,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
             match changed_keycode {
                 '⇥' => {
                     if messenger.get_attribute("origin") != &Value::Void {
-                        context.pointer_and_button_input_focus(messenger);
-                        return Vec::new();
+                        return context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
                         return vec![context.input_focus_parent_or_child(messenger, None)];
                     } else {

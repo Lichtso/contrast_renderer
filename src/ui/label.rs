@@ -131,7 +131,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                         context.set_attribute("cursor_a", Value::Natural1(index));
                         context.set_attribute("cursor_b", Value::Natural1(index));
                     }
-                    context.pointer_and_button_input_focus(messenger);
+                    return context.pointer_and_button_input_focus(messenger);
                 } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
                     context.set_attribute("cursor_b", Value::Natural1(index));
                 }
@@ -155,7 +155,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             match changed_keycode {
                 '⇥' => {
                     if messenger.get_attribute("origin") != &Value::Void {
-                        context.pointer_and_button_input_focus(messenger);
+                        return context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
                         return vec![context.input_focus_parent_or_child(messenger, None)];
                     }
