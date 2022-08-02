@@ -168,23 +168,29 @@ impl ApplicationManager {
         }
     }
 
-    fn resize(&mut self) -> wgpu::SurfaceConfiguration {
-        self.window.request_redraw();
-        let surface_configuration = wgpu::SurfaceConfiguration {
+    fn generate_surface_configuration(&self) -> wgpu::SurfaceConfiguration {
+        wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: self.surface.get_supported_formats(&self.adapter)[0],
+            format: wgpu::TextureFormat::Bgra8Unorm, // self.surface.get_supported_formats(&self.adapter)[0],
             width: self.size.width,
             height: self.size.height,
             present_mode: wgpu::PresentMode::Fifo, // self.surface.get_supported_modes(&self.adapter)[0],
-        };
+        }
+    }
+
+    fn resize<A: 'static + Application>(&mut self, application: &mut A, size: winit::dpi::PhysicalSize<u32>) {
+        self.size.width = size.width.max(1);
+        self.size.height = size.height.max(1);
+        self.window.request_redraw();
+        let surface_configuration = self.generate_surface_configuration();
         self.surface.configure(&self.device, &surface_configuration);
-        surface_configuration
+        application.resize(&self.device, &mut self.queue, &surface_configuration);
     }
 
     fn start_loop<A: 'static + Application>(mut self, event_loop: winit::event_loop::EventLoop<()>) {
-        let surface_configuration = self.resize();
+        let surface_configuration = self.generate_surface_configuration();
         let mut application = A::new(&self.device, &mut self.queue, &surface_configuration);
-        application.resize(&self.device, &mut self.queue, &surface_configuration);
+        self.resize(&mut application, self.size);
         #[cfg(not(target_arch = "wasm32"))]
         let start_time = std::time::Instant::now();
         #[cfg(target_arch = "wasm32")]
@@ -203,17 +209,20 @@ impl ApplicationManager {
             let _ = (&self.instance, &self.adapter);
             *control_flow = winit::event_loop::ControlFlow::Wait;
             match event {
-                winit::event::Event::MainEventsCleared => {
+                winit::event::Event::RedrawEventsCleared => {
                     spawner.run_until_stalled();
                 }
                 winit::event::Event::WindowEvent {
-                    event: winit::event::WindowEvent::Resized(size),
+                    event: winit::event::WindowEvent::Resized(new_inner_size),
                     ..
                 } => {
-                    self.size.width = size.width.max(1);
-                    self.size.height = size.height.max(1);
-                    let surface_configuration = self.resize();
-                    application.resize(&self.device, &mut self.queue, &surface_configuration);
+                    self.resize(&mut application, new_inner_size);
+                }
+                winit::event::Event::WindowEvent {
+                    event: winit::event::WindowEvent::ScaleFactorChanged { new_inner_size, .. },
+                    ..
+                } => {
+                    self.resize(&mut application, *new_inner_size);
                 }
                 winit::event::Event::WindowEvent { event, .. } => match event {
                     winit::event::WindowEvent::KeyboardInput {
