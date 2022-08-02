@@ -187,7 +187,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                     } else {
                         context.set_attribute("pointer_start", Value::Void);
                     }
-                    context.pointer_and_button_input_focus(messenger);
+                    return context.pointer_and_button_input_focus(messenger);
                 } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
                     let absolute_position: ppga2d::Point = (*input_state.absolute_positions.get(&0).unwrap()).into();
                     let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
@@ -235,8 +235,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
             match changed_keycode {
                 '⇥' => {
                     let focus_child_id = if messenger.get_attribute("origin") != &Value::Void {
-                        context.pointer_and_button_input_focus(messenger);
-                        return Vec::new();
+                        return context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
                         None
                     } else {
