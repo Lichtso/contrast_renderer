@@ -102,6 +102,13 @@ impl application_framework::Application for Application {
             "speech_balloon_arrow_origin" => Value::Float1(0.0.into()),
             "speech_balloon_arrow_side" => Value::Side(contrast_renderer::ui::Side::Top),
 
+            "navigation_cursor_fill_color" => Value::Float4([0.15170372, 0.15170372, 0.15170372, 1.0].into()),
+            "navigation_cursor_stroke_color" => Value::Float4([0.9063317, 0.9063317, 0.9063317, 1.0].into()),
+            "navigation_cursor_stroke_width" => Value::Float1(2.0.into()),
+            "navigation_cursor_radius" => Value::Float1(20.0.into()),
+            "navigation_cursor_arrow_extent" => Value::Float1(10.0.into()),
+            "navigation_cursor_arrow_side" => Value::Side(contrast_renderer::ui::Side::Top),
+
             "scroll_bar_fill_color" => Value::Float4([0.8543058, 0.8543058, 0.8543058, 1.0].into()),
             "scroll_bar_active_fill_color" => Value::Float4([0.95468706, 0.95468706, 0.95468706, 1.0].into()),
             "scroll_bar_stroke_color" => Value::Float4([0.9063317, 0.9063317, 0.9063317, 1.0].into()),
