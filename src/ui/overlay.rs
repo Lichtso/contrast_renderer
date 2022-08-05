@@ -194,13 +194,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 return Vec::new();
             }
             if match_option!(context.derive_attribute("dormant_parent_count"), Value::Natural1).unwrap_or(0) > 0 {
-                return vec![Messenger::new(
-                    &message::CLOSE_OVERLAY,
-                    hash_map! {
-                        "input_source" => context.get_attribute("input_source"),
-                        "overlay_index" => context.get_attribute("overlay_index"),
-                    },
-                )];
+                return vec![Messenger::new(&message::CLOSE_OVERLAY, hash_map! {})];
             }
             let mut half_extent = context.get_half_extent(false).unwrap();
             if let Some(content_half_extent) =
@@ -280,16 +274,13 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                     if messenger.get_attribute("origin") != &Value::Void {
                         context.pointer_and_button_input_focus(messenger)
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
-                        vec![
-                            Messenger::new(
-                                &message::CLOSE_OVERLAY,
-                                hash_map! {
-                                    "input_source" => context.get_attribute("input_source"),
-                                    "overlay_index" => context.get_attribute("overlay_index"),
-                                },
-                            ),
-                            context.input_focus_parent_or_child(messenger, None),
-                        ]
+                        vec![Messenger::new(
+                            &message::CLOSE_OVERLAY,
+                            hash_map! {
+                                "input_source" => messenger.get_attribute("input_source").clone(),
+                                "input_state" => messenger.get_attribute("input_state").clone(),
+                            },
+                        )]
                     } else {
                         let focus_child_id = Some(NodeOrObservableIdentifier::Named("content"));
                         vec![context.input_focus_parent_or_child(messenger, focus_child_id)]
@@ -297,6 +288,21 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 }
                 _ => Vec::new(),
             }
+        }
+        "CloseOverlay" => {
+            let mut to_overlay_container = Messenger::new(
+                &message::CLOSE_OVERLAY,
+                hash_map! {
+                    "input_source" => context.get_attribute("input_source"),
+                    "overlay_index" => context.get_attribute("overlay_index"),
+                },
+            );
+            to_overlay_container.propagation_direction = PropagationDirection::Observers(NodeOrObservableIdentifier::Named("root"));
+            let mut messengers = vec![to_overlay_container];
+            if matches!(messenger.get_attribute("input_state"), Value::InputState(_)) {
+                messengers.push(context.input_focus_parent_or_child(messenger, None));
+            }
+            messengers
         }
         "UserInput" => {
             vec![messenger.clone()]
@@ -338,20 +344,30 @@ pub fn overlay_container(context: &mut NodeMessengerContext, messenger: &Messeng
                 Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::PointerInput(input_source)) => input_source,
                 _ => panic!(),
             };
-            let mut overlay_index = 0;
-            while context
-                .inspect_child(&NodeOrObservableIdentifier::Indexed2D(input_source, overlay_index), |_node: &Node| ())
-                .is_some()
-            {
-                overlay_index += 1;
+            let overlay_node = match_option!(messenger.get_attribute("node"), Value::Node);
+            let local_child_id = if let Some(new_cursor) = match_option!(messenger.get_attribute("new_cursor"), Value::Boolean) {
+                if *new_cursor {
+                    context.remove_child(NodeOrObservableIdentifier::NamedAndIndexed("cursor", input_source), true);
+                }
+                NodeOrObservableIdentifier::NamedAndIndexed("cursor", input_source)
+            } else {
+                let mut overlay_index = 0;
+                while context
+                    .inspect_child(&NodeOrObservableIdentifier::Indexed2D(input_source, overlay_index), |_node: &Node| ())
+                    .is_some()
+                {
+                    overlay_index += 1;
+                }
+                let mut borrowed_node = overlay_node.as_ref().unwrap().borrow_mut();
+                borrowed_node.set_attribute("track_node", Value::Natural1(messenger.get_source_node_id()));
+                borrowed_node.set_attribute("input_source", Value::Natural1(input_source));
+                borrowed_node.set_attribute("overlay_index", Value::Natural1(overlay_index));
+                drop(borrowed_node);
+                NodeOrObservableIdentifier::Indexed2D(input_source, overlay_index)
+            };
+            if let Some(overlay_node) = overlay_node {
+                context.add_child(local_child_id, overlay_node.clone(), false);
             }
-            let overlay_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
-            let mut borrowed_node = overlay_node.borrow_mut();
-            borrowed_node.set_attribute("track_node", Value::Natural1(messenger.get_source_node_id()));
-            borrowed_node.set_attribute("input_source", Value::Natural1(input_source));
-            borrowed_node.set_attribute("overlay_index", Value::Natural1(overlay_index));
-            drop(borrowed_node);
-            context.add_child(NodeOrObservableIdentifier::Indexed2D(0, overlay_index), overlay_node, false);
             Vec::new()
         }
         "CloseOverlay" => {

@@ -17,18 +17,19 @@ use crate::{
 };
 
 fn toggle_overlay(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
-    if let Some((input_source, overlay_index)) = context.inspect_child(&NodeOrObservableIdentifier::Named("overlay"), |node: &Node| {
-        (node.get_attribute("input_source"), node.get_attribute("overlay_index"))
-    }) {
-        let mut to_overlay_container = Messenger::new(
+    if context
+        .inspect_child(&NodeOrObservableIdentifier::Named("overlay"), |_node: &Node| ())
+        .is_some()
+    {
+        let mut to_overlay = Messenger::new(
             &message::CLOSE_OVERLAY,
             hash_map! {
-                "input_source" => input_source,
-                "overlay_index" => overlay_index,
+                "input_source" => messenger.get_attribute("input_source").clone(),
+                "input_state" => messenger.get_attribute("input_state").clone(),
             },
         );
-        to_overlay_container.propagation_direction = PropagationDirection::Observers(NodeOrObservableIdentifier::Named("root"));
-        return vec![to_overlay_container];
+        to_overlay.propagation_direction = PropagationDirection::Child(NodeOrObservableIdentifier::Named("overlay"));
+        return vec![to_overlay];
     }
     let options = match_option!(context.get_attribute("options"), Value::Vec).unwrap();
     let list_entries = options
@@ -238,20 +239,7 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             let input_field_id = match_option!(messenger.get_attribute("input_field_id"), Value::NodeOrObservableIdentifier).unwrap();
             let option_index = match_option!(input_field_id, NodeOrObservableIdentifier::Indexed).unwrap();
             context.set_attribute("option_index", Value::Natural1(*option_index));
-            let (input_source, overlay_index) = context
-                .inspect_child(&NodeOrObservableIdentifier::Named("overlay"), |node: &Node| {
-                    (node.get_attribute("input_source"), node.get_attribute("overlay_index"))
-                })
-                .unwrap();
-            let mut to_overlay_container = Messenger::new(
-                &message::CLOSE_OVERLAY,
-                hash_map! {
-                    "input_source" => input_source,
-                    "overlay_index" => overlay_index,
-                },
-            );
-            to_overlay_container.propagation_direction = PropagationDirection::Observers(NodeOrObservableIdentifier::Named("root"));
-            let mut result = vec![to_overlay_container];
+            let mut result = Vec::new();
             if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {
                 result.push(Messenger::new(
                     &message::USER_INPUT,
@@ -263,6 +251,15 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                     },
                 ));
             }
+            let mut to_overlay = Messenger::new(
+                &message::CLOSE_OVERLAY,
+                hash_map! {
+                    "input_source" => messenger.get_attribute("input_source").clone(),
+                    "input_state" => messenger.get_attribute("input_state").clone(),
+                },
+            );
+            to_overlay.propagation_direction = PropagationDirection::Child(NodeOrObservableIdentifier::Named("overlay"));
+            result.push(to_overlay);
             result
         }
         _ => Vec::new(),
