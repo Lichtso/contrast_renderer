@@ -5,6 +5,7 @@ use crate::{
     safe_float::SafeFloat,
     ui::{
         message::{self, Messenger, PropagationDirection},
+        overlay::navigation_cursor,
         renderer::Renderer,
         wrapped_values::Value,
         GlobalNodeIdentifier, Node, NodeOrObservableIdentifier,
@@ -171,7 +172,7 @@ impl<'a> NodeMessengerContext<'a> {
             if let Some(value) = node.properties.get(attribute) {
                 return value.clone();
             }
-            if let Some((_local_child_id, global_parent_id, _touched_attributes)) = node.parents.first() {
+            if let Some((_local_child_id, global_parent_id, _touched_attributes)) = node.parents.last() {
                 global_node_id = *global_parent_id;
             } else {
                 return self.node_hierarchy.theme_properties.get(attribute).cloned().unwrap_or(Value::Void);
@@ -403,12 +404,40 @@ impl<'a> NodeMessengerContext<'a> {
             _ => panic!(),
         };
         self.configure_observe(NodeOrObservableIdentifier::ButtonInput(input_source), true, true);
+        let mut new_cursor = true;
+        let mut cursor_node = None;
+        if let Some(adopt_cursor) = match_option!(messenger.get_attribute("cursor").clone(), Value::Node) {
+            new_cursor = false;
+            cursor_node = Some(adopt_cursor.clone());
+            self.add_child(NodeOrObservableIdentifier::Named("cursor"), adopt_cursor, true);
+        }
+        if self
+            .inspect_child(&NodeOrObservableIdentifier::Named("cursor"), |_node: &Node| ())
+            .is_some()
+        {
+            new_cursor = false;
+        }
         if messenger.get_attribute("pressed_or_released") == &Value::Boolean(true) {
             self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), true, true);
         } else {
             self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), false, false);
         }
-        Vec::new()
+        if new_cursor && matches!(messenger.get_attribute("input_state"), Value::InputState(_)) {
+            let new_cursor_node = Node::new(navigation_cursor, hash_map! {});
+            self.add_child(NodeOrObservableIdentifier::Named("cursor"), new_cursor_node.clone(), false);
+            cursor_node = Some(new_cursor_node);
+        }
+        let mut to_overlay_container = Messenger::new(
+            &message::ADOPT_NODE,
+            hash_map! {
+                "new_cursor" => Value::Boolean(new_cursor),
+                "node" => if let Some(cursor_node) = cursor_node { Value::Node(cursor_node) } else { Value::Void },
+                "input_state" => messenger.get_attribute("input_state").clone(),
+                "input_source" => messenger.get_attribute("input_source").clone(),
+            },
+        );
+        to_overlay_container.propagation_direction = PropagationDirection::Observers(NodeOrObservableIdentifier::Named("root"));
+        vec![to_overlay_container]
     }
 
     /// Helper send the focus to the parent [Node] or a child [Node]
@@ -420,12 +449,17 @@ impl<'a> NodeMessengerContext<'a> {
             input_state.pressed_keycodes.insert('⇧');
         }
         input_state.pressed_keycodes.insert('⇥');
+        let cursor_node = self
+            .get_child(&NodeOrObservableIdentifier::Named("cursor"))
+            .map(Value::Node)
+            .unwrap_or_else(|| messenger.get_attribute("cursor").clone());
         let mut messenger = Messenger::new(
             &message::BUTTON_INPUT,
             hash_map! {
                 "input_source" => messenger.get_attribute("input_source").clone(),
                 "input_state" => Value::InputState(input_state),
                 "changed_keycode" => Value::Character('⇥'),
+                "cursor" => cursor_node,
             },
         );
         if let Some(child_id) = child_id {
@@ -438,7 +472,12 @@ impl<'a> NodeMessengerContext<'a> {
 
     /// Helper redirect focus navigation to the parent [Node]
     pub fn redirect_input_focus_navigation_to_parent(&self, messenger: &Messenger) -> Messenger {
+        let cursor_node = self
+            .get_child(&NodeOrObservableIdentifier::Named("cursor"))
+            .map(Value::Node)
+            .unwrap_or_else(|| messenger.get_attribute("cursor").clone());
         let mut messenger = messenger.clone();
+        messenger.set_attribute("cursor", cursor_node);
         messenger.propagation_direction = PropagationDirection::Parent(0);
         messenger
     }
