@@ -74,11 +74,11 @@ To get started, checkout the [showcase example](examples/showcase/main.rs).
         - Rational (Weighted)
             - Quadratic ✓
             - Cubic ✓
-    - Arc ✓
     - Rect ✓
     - Rounded Rect ✓
     - Ellipse ✓
     - Circle ✓
+    - Circle Arc ✓
     - [Optional] Font (TTF)
         - Glyph ✓
         - Text ◯

@@ -3,9 +3,9 @@
 use crate::{
     error::ERROR_MARGIN,
     safe_float::SafeFloat,
-    utils::{motor2d_to_mat3, point_to_vec, vec_to_point, weighted_vec_to_point},
+    utils::{line_line_intersection, motor2d_to_mat3, point_to_vec, vec_to_point, weighted_vec_to_point},
 };
-use geometric_algebra::{ppga2d, InnerProduct, RegressiveProduct, Signum, SquaredMagnitude, Zero};
+use geometric_algebra::{epga1d, ppga2d, Dual, InnerProduct, Powi, RegressiveProduct, Signum, SquaredMagnitude, Zero};
 
 /// A line
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -624,21 +624,73 @@ impl Path {
         });
     }
 
-    /// "arc to" command
-    pub fn push_arc(&mut self, tangent_crossing: [f32; 2], to: [f32; 2]) {
-        let inner_product = tangent_from_points(tangent_crossing, self.get_end()).inner_product(tangent_from_points(tangent_crossing, to));
+    /// "arc to" command for angles up to `std::f32::consts::FRAC_PI_2` (90°) defined by the point where the start and end tangents of the arc cross
+    pub fn push_tangent_crossing_circle_arc(&mut self, tangent_crossing: [f32; 2], to: [f32; 2]) {
+        let inner_product = tangent_from_points(tangent_crossing, self.get_end())
+            .signum()
+            .inner_product(tangent_from_points(tangent_crossing, to).signum());
         self.push_rational_quadratic_curve(RationalQuadraticCurveSegment {
             weight: (inner_product.g0.acos() * 0.5).sin().into(),
             control_points: [tangent_crossing.into(), to.into()],
         });
     }
 
-    /// Similar to [Path::push_arc] but constrainted to rectangular angles
+    /// Similar to [Path::push_tangent_crossing_circle_arc] but constrainted to rectangular angles
     pub fn push_quarter_ellipse(&mut self, tangent_crossing: [f32; 2], to: [f32; 2]) {
         self.push_rational_quadratic_curve(RationalQuadraticCurveSegment {
             weight: std::f32::consts::FRAC_1_SQRT_2.into(),
             control_points: [tangent_crossing.into(), to.into()],
         });
+    }
+
+    /// "arc to" command for general circle arcs defined by the circle radius, side and direction
+    pub fn push_circle_arc(&mut self, radius: f32, left_hand_side: bool, clockwise: bool, to: [f32; 2]) {
+        let from = self.get_end();
+        let half_tangent = (vec_to_point(to) - vec_to_point(from)) * ppga2d::Scalar { g0: 0.5 };
+        let plane = tangent_from_points(from, to);
+        let distance_squared = plane.squared_magnitude().g0;
+        let mut normal = plane.dual()
+            * ppga2d::Scalar {
+                g0: 1.0 / distance_squared.sqrt(),
+            };
+        normal.g0[0] = 0.0;
+        let mut center_offset = radius * (1.0 - (distance_squared * 0.25) / (radius * radius)).sqrt();
+        if left_hand_side {
+            center_offset *= -1.0;
+        }
+        let circle_center = vec_to_point(from) + half_tangent + normal * ppga2d::Scalar { g0: center_offset };
+        let start_normal = vec_to_point(from) - circle_center;
+        let end_normal = vec_to_point(to) - circle_center;
+        let polar_start = epga1d::ComplexNumber::new(start_normal.g0[2], start_normal.g0[1]);
+        let polar_end = epga1d::ComplexNumber::new(end_normal.g0[2], end_normal.g0[1]);
+        let mut polar_angle = (polar_end / polar_start).arg();
+        if (polar_angle < 0.0) == clockwise {
+            if clockwise {
+                polar_angle += std::f32::consts::TAU;
+            } else {
+                polar_angle -= std::f32::consts::TAU;
+            }
+        }
+        let steps = (polar_angle / std::f32::consts::FRAC_PI_2).abs().ceil() as usize;
+        let polar_step = epga1d::ComplexNumber::from_polar(1.0, polar_angle / (steps as f32));
+        let mut prev_tangent = ppga2d::Plane {
+            g0: [0.0, -start_normal.g0[2], start_normal.g0[1]].into(),
+        }
+        .inner_product(vec_to_point(from));
+        for i in 1..=steps {
+            let interpolated = polar_start * polar_step.powi(i as isize);
+            let normal = ppga2d::Point {
+                g0: [0.0, interpolated.imaginary(), interpolated.real()].into(),
+            };
+            let vertex = circle_center + normal;
+            let tangent = ppga2d::Plane {
+                g0: [0.0, -interpolated.real(), interpolated.imaginary()].into(),
+            }
+            .inner_product(vertex);
+            let tangent_crossing = line_line_intersection(prev_tangent, tangent);
+            self.push_tangent_crossing_circle_arc(point_to_vec(tangent_crossing), point_to_vec(vertex));
+            prev_tangent = tangent;
+        }
     }
 
     /// Construct a polygon [Path] from a sequence of points.
