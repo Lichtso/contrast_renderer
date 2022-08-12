@@ -1,21 +1,21 @@
-//! User Interface Events
+//! Messages sent between ui [Node]s
 
 use crate::{
     error::Error,
     hash_map, match_option,
     safe_float::SafeFloat,
-    ui::{wrapped_values::Value, InputState, Node, NodeOrObservableIdentifier, Orientation},
+    ui::{wrapped_values::Value, InputState, Node, NodeOrObservableIdentifier},
 };
 use geometric_algebra::{ppga2d, Dual, Inverse, One, SquaredMagnitude, Transformation, Zero};
 use std::{collections::HashMap, hash::Hash};
 
-/// How to route a [Messenger].
+/// How to route a [Messenger]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PropagationDirection {
     /// No propagation should ever be attemted.
     None,
-    /// Sends the [Messenger] to the framework.
-    Return,
+    /// Propagates to the node itself.
+    Itself,
     /// Propagates to parent.
     Parent,
     /// Propagates to a specific child.
@@ -28,19 +28,13 @@ pub enum PropagationDirection {
     Observers(NodeOrObservableIdentifier),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ChangeLayoutDirection {
-    MoveLeft,
-    MoveRight,
-    MoveUp,
-    MoveDown,
-    Split(Orientation),
-    Merge,
-}
-
+/// Used for [MessengerBehavior::get_captured_observable]
 pub type GetCapturedObservable = fn(&Messenger) -> Option<NodeOrObservableIdentifier>;
+/// Used for [MessengerBehavior::do_reflect]
 pub type DoReflect = fn(&mut Messenger) -> bool;
+/// Used for [MessengerBehavior::update_at_node_edge]
 pub type UpdateAtNodeEdge = fn(&mut Messenger, SafeFloat<f32, 2>, &Node, Option<NodeOrObservableIdentifier>) -> (bool, bool);
+/// Used for [MessengerBehavior::reset_at_node_edge]
 pub type ResetAtNodeEdge = fn(&mut Messenger, bool);
 
 const GET_CAPTURED_OBSERVABLE: GetCapturedObservable = |_messenger| None;
@@ -48,7 +42,7 @@ const DO_REFLECT: DoReflect = |_messenger| false;
 const UPDATE_AT_NODE_EDGE: UpdateAtNodeEdge = |_messenger, _half_extent, _node, _from_child_to_parent| (true, false);
 const RESET_AT_NODE_EDGE: ResetAtNodeEdge = |_messenger, _to_absolute_position| {};
 
-/// Messenger Trait
+/// [Messenger] Trait
 #[derive(Clone, Copy)]
 pub struct MessengerBehavior {
     /// Label for debugging
@@ -88,6 +82,7 @@ impl std::fmt::Debug for Messenger {
 }
 
 impl Messenger {
+    /// Creates a new [Messenger]
     pub fn new(behavior: &'static MessengerBehavior, properties: HashMap<&'static str, Value>) -> Self {
         Self {
             properties,
@@ -96,28 +91,24 @@ impl Messenger {
         }
     }
 
+    /// Gets a reference to the [Value] of the given `attribute`
     pub fn get_attribute(&self, attribute: &'static str) -> &Value {
         self.properties.get(attribute).unwrap_or(&Value::Void)
     }
 
+    /// Gets a mutable reference to the [Value] of the given `attribute`
     pub fn get_attribute_mut(&mut self, attribute: &'static str) -> &mut Value {
         self.properties.get_mut(attribute).unwrap()
     }
 
+    /// Sets the [Value] of the given `attribute`
     pub fn set_attribute(&mut self, attribute: &'static str, value: Value) {
         self.properties.insert(attribute, value);
     }
 }
 
-pub fn rendering_default_behavior(_messenger: &Messenger) -> Vec<Messenger> {
-    vec![
-        Messenger::new(&RENDER_UNCLIP, HashMap::new()),
-        Messenger::new(&RENDER, HashMap::new()),
-        Messenger::new(&RENDER_AND_CLIP, HashMap::new()),
-    ]
-}
-
-pub fn focus_parent_or_child(messenger: &Messenger, child_id: Option<NodeOrObservableIdentifier>) -> Messenger {
+/// Helper send the focus to the parent [Node] or a child [Node]
+pub fn input_focus_parent_or_child(messenger: &Messenger, child_id: Option<NodeOrObservableIdentifier>) -> Messenger {
     let mut input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap().clone();
     if child_id.is_some() {
         input_state.pressed_keycodes.remove(&'⇧');
@@ -144,7 +135,7 @@ pub fn focus_parent_or_child(messenger: &Messenger, child_id: Option<NodeOrObser
 /// The node should reevaluate itself and answer with Configured and ConfigureChild
 pub const RECONFIGURE: MessengerBehavior = MessengerBehavior {
     label: "Reconfigure",
-    default_propagation_direction: PropagationDirection::Return,
+    default_propagation_direction: PropagationDirection::Itself,
     get_captured_observable: GET_CAPTURED_OBSERVABLE,
     do_reflect: DO_REFLECT,
     update_at_node_edge: UPDATE_AT_NODE_EDGE,
@@ -164,37 +155,7 @@ pub const PREPARE_RENDERING: MessengerBehavior = MessengerBehavior {
 /// Lets the framework know the new transform of the node, optionally also a new clip shape and new colored shapes
 pub const UPDATE_RENDERING: MessengerBehavior = MessengerBehavior {
     label: "UpdateRendering",
-    default_propagation_direction: PropagationDirection::Return,
-    get_captured_observable: GET_CAPTURED_OBSERVABLE,
-    do_reflect: DO_REFLECT,
-    update_at_node_edge: UPDATE_AT_NODE_EDGE,
-    reset_at_node_edge: RESET_AT_NODE_EDGE,
-};
-
-/// The node should render itself and then direct this [Messenger] to its children
-pub const RENDER: MessengerBehavior = MessengerBehavior {
-    label: "Render",
-    default_propagation_direction: PropagationDirection::Children,
-    get_captured_observable: GET_CAPTURED_OBSERVABLE,
-    do_reflect: DO_REFLECT,
-    update_at_node_edge: UPDATE_AT_NODE_EDGE,
-    reset_at_node_edge: RESET_AT_NODE_EDGE,
-};
-
-/// Have the framework render and clip the node
-pub const RENDER_AND_CLIP: MessengerBehavior = MessengerBehavior {
-    label: "RenderAndClip",
-    default_propagation_direction: PropagationDirection::Return,
-    get_captured_observable: GET_CAPTURED_OBSERVABLE,
-    do_reflect: DO_REFLECT,
-    update_at_node_edge: UPDATE_AT_NODE_EDGE,
-    reset_at_node_edge: RESET_AT_NODE_EDGE,
-};
-
-/// Have the framework undo the clipping of the node
-pub const RENDER_UNCLIP: MessengerBehavior = MessengerBehavior {
-    label: "RenderUnclip",
-    default_propagation_direction: PropagationDirection::Return,
+    default_propagation_direction: PropagationDirection::None,
     get_captured_observable: GET_CAPTURED_OBSERVABLE,
     do_reflect: DO_REFLECT,
     update_at_node_edge: UPDATE_AT_NODE_EDGE,
@@ -307,14 +268,22 @@ pub const PROPERTY_CHANGED: MessengerBehavior = MessengerBehavior {
     reset_at_node_edge: RESET_AT_NODE_EDGE,
 };
 
+/// Used to translate winit events into [Messenger]s
 #[cfg(feature = "winit")]
 pub struct WinitEventTranslator {
+    /// The size of the screen in pixels
     pub viewport_size: ppga2d::Point,
+    /// Registered modifier keys such as shift, option, control, command, etc.
     pub modifiers: Vec<char>,
+    /// Maps from scancodes to keycodes
     pub keymap: HashMap<u32, char>,
+    /// State of each input source
     pub input_sources: HashMap<usize, InputState>,
+    /// Last position of each mouse pointer
     pub mouse_positions: HashMap<winit::event::DeviceId, ppga2d::Point>,
+    /// Groups devices into input sources
     pub source_by_device: HashMap<winit::event::DeviceId, usize>,
+    /// Set tu true to automatically record the `keymap`
     pub record_keymap: bool,
     last_scancode: u32,
 }
@@ -429,7 +398,7 @@ impl WinitEventTranslator {
         Ok(())
     }
 
-    /// Translates winit events to [Messenger]s which can be sent to the root nodes of a [NodeHierarchy]
+    /// Translates winit events to [Messenger]s which can be sent to the root nodes of a [NodeHierarchy](crate::ui::node_hierarchy::NodeHierarchy)
     pub fn translate(&mut self, event: winit::event::WindowEvent) -> Vec<Messenger> {
         fn translate_keycode(keymap: &HashMap<u32, char>, pressed_modifiers: u32, scancode: u32) -> Option<char> {
             keymap.get(&(scancode << 8 | pressed_modifiers)).cloned()
