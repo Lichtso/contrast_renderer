@@ -7,7 +7,7 @@ use crate::{
     ui::{Node, Rendering},
 };
 use geometric_algebra::{ppga3d, Zero};
-use std::{cmp::Ordering, collections::BinaryHeap, ops::Range, rc::Rc};
+use std::{cmp::Ordering, collections::BinaryHeap, ops::Range};
 
 struct RenderCommand {
     render_layer: usize,
@@ -42,7 +42,6 @@ impl PartialEq for RenderCommand {
 
 /// Used to render [Node](crate::ui::Node)s of a [NodeHierarchy](crate::ui::node_hierarchy::NodeHierarchy)
 pub struct Renderer {
-    renderer: Rc<renderer::Renderer>,
     instance_buffers: [Buffer; 2],
     /// This matrix is applied to all transformations in the entire [NodeHierarchy](crate::ui::node_hierarchy::NodeHierarchy)
     pub projection_matrix: [ppga3d::Point; 4],
@@ -53,9 +52,8 @@ pub struct Renderer {
 
 impl Renderer {
     /// Constructs a new ui [Renderer]
-    pub fn new(renderer: Rc<renderer::Renderer>, device: &wgpu::Device) -> Self {
+    pub fn new(device: &wgpu::Device) -> Self {
         Renderer {
-            renderer,
             instance_buffers: [
                 Buffer::new(device, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, &[]),
                 Buffer::new(device, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, &[]),
@@ -69,8 +67,8 @@ impl Renderer {
 
     pub(super) fn set_node_rendering(
         &self,
+        contrast_renderer: &renderer::Renderer,
         device: &wgpu::Device,
-        _queue: &wgpu::Queue,
         node: &mut Node,
         rendering: &Rendering,
     ) -> Result<(), Error> {
@@ -79,7 +77,7 @@ impl Renderer {
         } else {
             Some(Box::new(Shape::from_paths(
                 device,
-                &self.renderer,
+                contrast_renderer,
                 &rendering.dynamic_stroke_options,
                 &rendering.clip_paths,
                 None,
@@ -89,7 +87,7 @@ impl Renderer {
             .colored_paths
             .iter()
             .map(|(color, paths)| {
-                Shape::from_paths(device, &self.renderer, &rendering.dynamic_stroke_options, paths, None).map(|shape| (*color, shape))
+                Shape::from_paths(device, contrast_renderer, &rendering.dynamic_stroke_options, paths, None).map(|shape| (*color, shape))
             })
             .collect::<Result<Vec<_>, Error>>()?;
         Ok(())
@@ -165,7 +163,7 @@ impl Renderer {
     /// Encodes the rendering commands with the given attachments
     ///
     /// [NodeHierarchy::prepare_rendering](crate::ui::node_hierarchy::NodeHierarchy::prepare_rendering) needs to be called first.
-    pub fn encode_commands<'a, 'b: 'a>(&'b mut self, render_pass: &mut wgpu::RenderPass<'a>) {
+    pub fn encode_commands<'a, 'b: 'a>(&'b mut self, contrast_renderer: &'a renderer::Renderer, render_pass: &mut wgpu::RenderPass<'a>) {
         let command_count = self.command_stream.len();
         let mut used_render_passes = 0;
         let mut prev_entry: Option<RenderCommand> = None;
@@ -177,9 +175,9 @@ impl Renderer {
                     render_pass.set_vertex_buffer(1, self.instance_buffers[1].buffer.slice(..));
                 }
             }
-            self.renderer.set_clip_depth(render_pass, entry.clip_depth as usize).unwrap();
+            contrast_renderer.set_clip_depth(render_pass, entry.clip_depth as usize).unwrap();
             entry.shape.render(
-                &self.renderer,
+                contrast_renderer,
                 render_pass,
                 entry.instance_index..entry.instance_index + 1,
                 entry.operation,

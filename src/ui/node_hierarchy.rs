@@ -1,7 +1,7 @@
 //! Scene graph of ui [Node]s
 
 use crate::{
-    hash_map, match_option,
+    hash_map, match_option, renderer,
     safe_float::SafeFloat,
     ui::{
         message::{self, Messenger, PropagationDirection},
@@ -795,9 +795,9 @@ impl NodeHierarchy {
     #[allow(clippy::too_many_arguments)]
     fn prepare_node_rendering(
         &mut self,
+        contrast_renderer: &renderer::Renderer,
         renderer: &mut Renderer,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
         global_node_id: GlobalNodeIdentifier,
         global_parent_id: Option<GlobalNodeIdentifier>,
         parent_layer_range: &mut Range<usize>,
@@ -818,7 +818,7 @@ impl NodeHierarchy {
             assert_eq!(messenger.behavior.label, "UpdateRendering");
             if let Value::Rendering(rendering) = messenger.get_attribute("rendering") {
                 let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
-                renderer.set_node_rendering(device, queue, &mut node, rendering).unwrap();
+                renderer.set_node_rendering(contrast_renderer, device, &mut node, rendering).unwrap();
             }
         }
         let node = self.nodes.get(&global_node_id).unwrap().borrow();
@@ -846,9 +846,9 @@ impl NodeHierarchy {
                 child_layer_range.start = child_layer_range.end;
             }
             self.prepare_node_rendering(
+                contrast_renderer,
                 renderer,
                 device,
-                queue,
                 *global_child_id,
                 Some(global_node_id),
                 &mut child_layer_range,
@@ -864,7 +864,14 @@ impl NodeHierarchy {
     /// Preparation step to be called before [Renderer::encode_commands]
     ///
     /// `current_time` is measured in seconds.
-    pub fn prepare_rendering(&mut self, renderer: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue, current_time: f64) {
+    pub fn prepare_rendering(
+        &mut self,
+        contrast_renderer: &renderer::Renderer,
+        renderer: &mut Renderer,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        current_time: f64,
+    ) {
         self.last_animation_time = current_time;
         for node in self.nodes.values() {
             let mut node = node.borrow_mut();
@@ -877,7 +884,7 @@ impl NodeHierarchy {
         let roots = self.observer_channels.get(&NodeOrObservableIdentifier::Named("root")).unwrap().clone();
         let mut layer_range = 0..0;
         for global_node_id in roots {
-            self.prepare_node_rendering(renderer, device, queue, global_node_id, None, &mut layer_range, 0);
+            self.prepare_node_rendering(contrast_renderer, renderer, device, global_node_id, None, &mut layer_range, 0);
             self.instanciate_node_rendering(renderer, global_node_id, None, layer_range.clone(), 0);
             layer_range.start = layer_range.end;
         }
