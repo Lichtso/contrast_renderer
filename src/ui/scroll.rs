@@ -1,8 +1,9 @@
+//! Scroll
 use crate::{
     match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{focus_parent_or_child, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{input_focus_parent_or_child, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation, Rendering, ScrollBarType,
@@ -51,7 +52,6 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             }
             vec![update_rendering]
         }
-        "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
             if !context.was_attribute_touched(&["half_extent"]) {
                 return Vec::new();
@@ -93,6 +93,7 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
     }
 }
 
+/// Scroll
 pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
         "PrepareRendering" => {
@@ -107,9 +108,8 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 rendering.clip_paths = vec![Path::from_rounded_rect([0.0, 0.0], half_extent, corner_radius)];
                 update_rendering.set_attribute("rendering", Value::Rendering(Box::new(rendering)));
             }
-            vec![messenger.clone(), update_rendering]
+            vec![update_rendering]
         }
-        "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
             let mut unaffected = !context.was_attribute_touched(&["child_count", "half_extent", "content_motor", "content_scale"]);
             let mut content_motor = None;
@@ -268,7 +268,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                         }
                         _ => panic!(),
                     };
-                    vec![focus_parent_or_child(messenger, focus_child_id)]
+                    vec![input_focus_parent_or_child(messenger, focus_child_id)]
                 }
                 '←' | '→' | '↑' | '↓' => {
                     let mut messenger = messenger.clone();
