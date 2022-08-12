@@ -391,6 +391,7 @@ macro_rules! render_pipeline_descriptor {
     ($pipeline_layout:expr,
      $shader_module:expr, $vertex_entry:expr, $fragment_entry:expr,
      $primitive_topology:ident, $primitive_index_format:expr,
+     $cull_mode:expr,
      $color_states:expr, $stencil_state:expr,
      [$($vertex_buffer:expr),*], $msaa_sample_count:expr $(,)?) => {
         wgpu::RenderPipelineDescriptor {
@@ -415,7 +416,7 @@ macro_rules! render_pipeline_descriptor {
                 strip_index_format: $primitive_index_format,
                 front_face: wgpu::FrontFace::Ccw,
                 unclipped_depth: false,
-                cull_mode: None,
+                cull_mode: $cull_mode,
                 conservative: false,
                 polygon_mode: wgpu::PolygonMode::Fill,
             },
@@ -472,6 +473,7 @@ impl Renderer {
     pub fn new(
         device: &wgpu::Device,
         blending: wgpu::ColorTargetState,
+        cull_mode: Option<wgpu::Face>,
         color_attachment_in_stencil_pass: bool,
         msaa_sample_count: u32,
         clip_nesting_counter_bits: usize,
@@ -581,6 +583,7 @@ impl Renderer {
             "stencil_stroke_line",
             TriangleStrip,
             Some(wgpu::IndexFormat::Uint16),
+            None,
             &[phony_color_state.clone()],
             stroke_stencil_state.clone(),
             [segment_2f1i_vertex_buffer_layout.clone()],
@@ -593,6 +596,7 @@ impl Renderer {
             "stencil_stroke_joint",
             TriangleStrip,
             Some(wgpu::IndexFormat::Uint16),
+            None,
             &[phony_color_state.clone()],
             stroke_stencil_state,
             [segment_3f1i_vertex_buffer_layout.clone()],
@@ -605,6 +609,7 @@ impl Renderer {
             "stencil_solid",
             TriangleStrip,
             Some(wgpu::IndexFormat::Uint16),
+            None,
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
             [segment_0f_vertex_buffer_layout.clone()],
@@ -616,6 +621,7 @@ impl Renderer {
             "vertex2f",
             "stencil_integral_quadratic_curve",
             TriangleList,
+            None,
             None,
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
@@ -629,6 +635,7 @@ impl Renderer {
             "stencil_integral_cubic_curve",
             TriangleList,
             None,
+            None,
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
             [segment_3f_vertex_buffer_layout.clone()],
@@ -641,6 +648,7 @@ impl Renderer {
             "stencil_rational_quadratic_curve",
             TriangleList,
             None,
+            None,
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
             [segment_3f_vertex_buffer_layout.clone()],
@@ -652,6 +660,7 @@ impl Renderer {
             "vertex4f",
             "stencil_rational_cubic_curve",
             TriangleList,
+            None,
             None,
             &[phony_color_state.clone()],
             fill_stencil_state,
@@ -666,6 +675,7 @@ impl Renderer {
             "stencil_solid",
             TriangleStrip,
             Some(wgpu::IndexFormat::Uint16),
+            None,
             &[phony_color_state.clone()],
             wgpu::StencilState {
                 front: stencil_descriptor!(NotEqual, Keep, Replace),
@@ -683,6 +693,7 @@ impl Renderer {
             "stencil_solid",
             TriangleStrip,
             Some(wgpu::IndexFormat::Uint16),
+            None,
             &[phony_color_state],
             wgpu::StencilState {
                 front: stencil_descriptor!(Less, Keep, Replace),
@@ -706,10 +717,11 @@ impl Renderer {
             "color_cover",
             TriangleStrip,
             Some(wgpu::IndexFormat::Uint16),
+            cull_mode,
             &[Some(blending.clone())],
             wgpu::StencilState {
                 front: stencil_descriptor!(Less, Zero, Zero),
-                back: stencil_descriptor!(Never, Zero, Zero),
+                back: stencil_descriptor!(Less, Zero, Zero),
                 read_mask: clip_nesting_counter_mask | winding_counter_mask,
                 write_mask: winding_counter_mask,
             },
@@ -724,7 +736,7 @@ impl Renderer {
         });
         let alpha_context_cover_stencil_state = wgpu::StencilState {
             front: stencil_descriptor!(LessEqual, Zero, Zero),
-            back: stencil_descriptor!(Never, Zero, Zero),
+            back: stencil_descriptor!(LessEqual, Zero, Zero),
             read_mask: clip_nesting_counter_mask | winding_counter_mask,
             write_mask: 0,
         };
@@ -739,6 +751,7 @@ impl Renderer {
             },
             TriangleStrip,
             Some(wgpu::IndexFormat::Uint16),
+            None,
             &[Some(wgpu::ColorTargetState {
                 format: wgpu::TextureFormat::R8Unorm,
                 blend: Some(wgpu::BlendState {
@@ -766,6 +779,7 @@ impl Renderer {
             "scale_alpha_context_cover",
             TriangleStrip,
             Some(wgpu::IndexFormat::Uint16),
+            None,
             &[Some(wgpu::ColorTargetState {
                 format: blending.format,
                 blend: Some(wgpu::BlendState {
@@ -797,6 +811,7 @@ impl Renderer {
             },
             TriangleStrip,
             Some(wgpu::IndexFormat::Uint16),
+            None,
             &[Some(wgpu::ColorTargetState {
                 format: blending.format,
                 blend: Some(wgpu::BlendState {

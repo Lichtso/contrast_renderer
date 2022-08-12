@@ -40,7 +40,8 @@ impl application_framework::Application for Application {
             }),
             write_mask: wgpu::ColorWrites::ALL,
         };
-        let renderer = contrast_renderer::renderer::Renderer::new(&device, blending, true, MSAA_SAMPLE_COUNT, 4, 4, 0).unwrap();
+        let renderer =
+            contrast_renderer::renderer::Renderer::new(&device, blending, Some(wgpu::Face::Back), true, MSAA_SAMPLE_COUNT, 4, 4, 0).unwrap();
 
         let dynamic_stroke_options = [contrast_renderer::path::DynamicStrokeOptions::Dashed {
             join: contrast_renderer::path::Join::Miter,
@@ -202,8 +203,8 @@ impl application_framework::Application for Application {
         match event {
             winit::event::WindowEvent::CursorMoved { position, .. } => {
                 let position = [
-                    std::f32::consts::PI * (position.x as f32 / self.viewport_size.width as f32 - 0.5),
-                    std::f32::consts::PI * (position.y as f32 / self.viewport_size.height as f32 - 0.5),
+                    std::f32::consts::PI * 1.2 * (position.x as f32 / self.viewport_size.width as f32 - 0.5),
+                    std::f32::consts::PI * 1.2 * (position.y as f32 / self.viewport_size.height as f32 - 0.5),
                 ];
                 self.view_rotation = contrast_renderer::utils::rotate_around_axis(position[0], &[0.0, 1.0, 0.0]);
                 self.view_rotation *= contrast_renderer::utils::rotate_around_axis(position[1], &[1.0, 0.0, 0.0]);
