@@ -3,7 +3,7 @@ use crate::{
     safe_float::SafeFloat,
     ui::{
         message::{self, Messenger, PropagationDirection},
-        renderer::Renderer,
+        renderer::{FrameContext, Renderer},
         wrapped_values::Value,
         GlobalNodeIdentifier, Node, NodeOrObservableIdentifier,
     },
@@ -37,19 +37,17 @@ let mut children = node
     .map(|(_local_child_id, global_child_id)| NodeLayer { index: self.nodes.get(global_child_id).unwrap().borrow().layer_index, global_node_id: *global_child_id })
     .collect::<std::collections::BinaryHeap<NodeLayer>>();*/
 
-pub struct NodeMessengerContext<'a, 'b> {
+pub struct NodeMessengerContext<'a> {
     global_node_id: GlobalNodeIdentifier,
     nodes: &'a mut HashMap<GlobalNodeIdentifier, Rc<RefCell<Node>>>,
     theme_properties: &'a HashMap<&'static str, Value>,
-    _renderer: &'a Option<&'a mut Renderer<'b>>,
 }
 
-impl<'a, 'b> NodeMessengerContext<'a, 'b> {
+impl<'a> NodeMessengerContext<'a> {
     fn invoke_handler(
         global_node_id: GlobalNodeIdentifier,
         nodes: &'a mut HashMap<GlobalNodeIdentifier, Rc<RefCell<Node>>>,
         theme_properties: &'a HashMap<&'static str, Value>,
-        _renderer: &'a Option<&'a mut Renderer<'b>>,
         messenger_stack: &mut Vec<(GlobalNodeIdentifier, Messenger)>,
         messenger: &mut Messenger,
     ) -> bool {
@@ -63,7 +61,6 @@ impl<'a, 'b> NodeMessengerContext<'a, 'b> {
             global_node_id,
             nodes,
             theme_properties,
-            _renderer,
         };
         let messengers = messenger_handler(&mut context, messenger);
         let reflect = messengers.is_empty();
@@ -244,7 +241,13 @@ impl NodeHierarchy {
         node: Node,
     ) -> GlobalNodeIdentifier {
         let global_node_id = self.insert_node(parent_link, Rc::new(RefCell::new(node)));
-        self.process_messengers(vec![(global_node_id, Messenger::new(&message::RECONFIGURE, hash_map! {}))], None, None);
+        self.process_messengers(
+            vec![(global_node_id, Messenger::new(&message::RECONFIGURE, hash_map! {}))],
+            None,
+            None,
+            None,
+            None,
+        );
         global_node_id
     }
 
@@ -265,22 +268,26 @@ impl NodeHierarchy {
     }
 
     /// Sends a [Messenger] to a set of UI nodes observing the given observable.
-    pub fn notify_observers<'a>(
+    pub fn notify_observers(
         &mut self,
-        renderer: Option<&mut Renderer<'a>>,
-        encoder: Option<&mut wgpu::CommandEncoder>,
+        renderer: Option<&mut Renderer>,
+        device: Option<&wgpu::Device>,
+        queue: Option<&wgpu::Queue>,
+        frame_context: Option<&mut FrameContext>,
         observable: NodeOrObservableIdentifier,
         mut messenger: Messenger,
     ) {
         messenger.propagation_direction = PropagationDirection::Observers(observable);
-        self.process_messengers(vec![(0, messenger)], renderer, encoder);
+        self.process_messengers(vec![(0, messenger)], renderer, device, queue, frame_context);
     }
 
-    fn process_messengers<'a>(
+    fn process_messengers(
         &mut self,
         mut messenger_stack: Vec<(GlobalNodeIdentifier, Messenger)>,
-        mut renderer: Option<&mut Renderer<'a>>,
-        mut encoder: Option<&mut wgpu::CommandEncoder>,
+        mut renderer: Option<&mut Renderer>,
+        device: Option<&wgpu::Device>,
+        queue: Option<&wgpu::Queue>,
+        mut frame_context: Option<&mut FrameContext>,
     ) {
         while let Some((global_node_id, mut messenger)) = messenger_stack.pop() {
             println!(
@@ -302,7 +309,6 @@ impl NodeHierarchy {
                             global_node_id,
                             &mut self.nodes,
                             &self.theme_properties,
-                            &None,
                             &mut messenger_stack,
                             &mut messenger,
                         );
@@ -384,7 +390,11 @@ impl NodeHierarchy {
                     "UpdateRendering" => {
                         let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
                         if let Value::Rendering(rendering) = messenger.get_attribute("rendering") {
-                            renderer.as_ref().unwrap().set_node_rendering(&mut node, rendering).unwrap();
+                            renderer
+                                .as_ref()
+                                .unwrap()
+                                .set_node_rendering(device.as_ref().unwrap(), queue.as_ref().unwrap(), &mut node, rendering)
+                                .unwrap();
                         }
                         let model_matrix = match_option!(messenger.get_attribute("model_matrix"), Value::Float4x4).unwrap();
                         let model_matrix = [
@@ -398,12 +408,12 @@ impl NodeHierarchy {
                     }
                     "RenderAndClip" => {
                         let node = self.nodes.get(&global_node_id).unwrap().borrow();
-                        renderer.as_mut().unwrap().render_node(encoder.as_mut().unwrap(), &node);
-                        renderer.as_mut().unwrap().push_clipping_of_node(encoder.as_mut().unwrap(), &node);
+                        renderer.as_mut().unwrap().render_node(frame_context.as_mut().unwrap(), &node);
+                        renderer.as_mut().unwrap().push_clipping_of_node(frame_context.as_mut().unwrap(), &node);
                     }
                     "RenderUnclip" => {
                         let node = self.nodes.get(&global_node_id).unwrap().borrow();
-                        renderer.as_mut().unwrap().pop_clipping_of_node(encoder.as_mut().unwrap(), &node);
+                        renderer.as_mut().unwrap().pop_clipping_of_node(frame_context.as_mut().unwrap(), &node);
                     }
                     _ => {
                         panic!();
@@ -423,7 +433,6 @@ impl NodeHierarchy {
                                 global_parent_id,
                                 &mut self.nodes,
                                 &self.theme_properties,
-                                &renderer,
                                 &mut messenger_stack,
                                 &mut messenger,
                             );
@@ -452,7 +461,6 @@ impl NodeHierarchy {
                                     *global_child_id,
                                     &mut self.nodes,
                                     &self.theme_properties,
-                                    &renderer,
                                     &mut messenger_stack,
                                     &mut messenger,
                                 );
@@ -478,7 +486,6 @@ impl NodeHierarchy {
                                 *global_child_id,
                                 &mut self.nodes,
                                 &self.theme_properties,
-                                &renderer,
                                 &mut messenger_stack,
                                 &mut messenger,
                             );
@@ -493,7 +500,6 @@ impl NodeHierarchy {
                             global_node_id,
                             &mut self.nodes,
                             &self.theme_properties,
-                            &renderer,
                             &mut messenger_stack,
                             &mut messenger,
                         );
@@ -530,7 +536,6 @@ impl NodeHierarchy {
                             *global_node_id,
                             &mut self.nodes,
                             &self.theme_properties,
-                            &renderer,
                             &mut messenger_stack,
                             &mut messenger,
                         );
@@ -541,7 +546,8 @@ impl NodeHierarchy {
     }
 
     /// Preparation step to be called before [render].
-    pub fn prepare_rendering(&mut self, renderer: &mut Renderer) {
+    pub fn prepare_rendering(&mut self, renderer: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue) {
+        renderer.reset_rendering();
         let messenger = Messenger::new(
             &message::PREPARE_RENDERING,
             hash_map! {
@@ -553,13 +559,27 @@ impl NodeHierarchy {
                 "opacity_in_parent" => Value::Float1(1.0.into()),
             },
         );
-        self.notify_observers(Some(renderer), None, NodeOrObservableIdentifier::Named("root"), messenger);
+        self.notify_observers(
+            Some(renderer),
+            Some(device),
+            Some(queue),
+            None,
+            NodeOrObservableIdentifier::Named("root"),
+            messenger,
+        );
+        renderer.prepare_rendering(device, queue);
     }
 
     /// Renders UI nodes.
-    pub fn render(&mut self, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, renderer: &mut Renderer) {
-        renderer.prepare_rendering(queue);
+    pub fn render(&mut self, renderer: &mut Renderer, frame_context: &mut FrameContext) {
         let messenger = Messenger::new(&message::RENDER, hash_map! {});
-        self.notify_observers(Some(renderer), Some(encoder), NodeOrObservableIdentifier::Named("root"), messenger);
+        self.notify_observers(
+            Some(renderer),
+            None,
+            None,
+            Some(frame_context),
+            NodeOrObservableIdentifier::Named("root"),
+            messenger,
+        );
     }
 }
