@@ -1,3 +1,5 @@
+//! (Optional) [Node]s and [Messenger]s to build user interfaces
+
 use crate::{
     match_option,
     path::{DynamicStrokeOptions, Path},
@@ -26,9 +28,10 @@ pub mod speech_balloon;
 pub mod tabs;
 pub mod wrapped_values;
 
+/// Identifies a [Node] in a [node_hierarchy::NodeHierarchy]
 pub type GlobalNodeIdentifier = usize;
 
-/// Children are matched by this identifier when the parent reconfigures them.
+/// Children are matched by this identifier when the parent reconfigures them
 ///
 /// Useful for retaining internal state and tracking animations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -51,35 +54,35 @@ pub enum NodeOrObservableIdentifier {
     NodeAttribute(GlobalNodeIdentifier, &'static str),
 }
 
-/// Geometric orientation.
+/// Geometric orientation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Orientation {
     /// X axis
     Horizontal = 0,
     /// Y axis
     Vertical = 1,
-    // Z axis
+    /// Z axis
     Lateral = 2,
 }
 
-/// Geometric side.
+/// Geometric side
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Side {
-    // -X
+    /// -X
     Left,
-    // +X
+    /// +X
     Right,
-    // -Y
+    /// -Y
     Bottom,
-    // +Y
+    /// +Y
     Top,
-    // -Z
+    /// -Z
     Back,
-    // +Z
+    /// +Z
     Front,
 }
 
-/// Scroll bar behavior per axis.
+/// Scroll bar behavior per axis
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScrollBarType {
     /// Always show
@@ -92,7 +95,7 @@ pub enum ScrollBarType {
     Infinite,
 }
 
-/// User interaction with a text label.
+/// User interaction with a text label
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TextInteraction {
     /// Read only
@@ -103,7 +106,7 @@ pub enum TextInteraction {
     Editing,
 }
 
-/// Converts user inputs between text and numeric values.
+/// Converts user inputs between text and numeric values
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TextualProjection {
     /// From numeric value to text
@@ -112,9 +115,10 @@ pub struct TextualProjection {
     pub backward: fn(String) -> Option<f32>,
 }
 
-/// Snap and clamp numeric value in a given range.
+/// Snap and clamp numeric value in a given range
 #[derive(Clone)]
 pub struct SnapClampFunction {
+    /// First parameter is the value the second the range to clamp it to
     pub handler: fn(f32, &[f32; 2]) -> f32,
 }
 
@@ -160,7 +164,7 @@ pub struct InputState {
     pub is_inside_bounds: HashMap<usize, bool>,
 }
 
-/// Defines the shape, colors and clipping of a [Node].
+/// Defines the shape, colors and clipping of a [Node]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Rendering {
     /// Clipping geometry
@@ -178,13 +182,14 @@ pub struct AnimationFrame {
     pub timestamp: SafeFloat<f64, 1>,
     /// 1D cubic integral bezier curve to remap the time parameter
     ///
-    /// y = c[0] (1-x)^3 + c[1] x (1-x)^2 + c[2] x^2 (1-x) + c[3] x^3
+    /// `y = c[0] (1-x)^3 + c[1] x (1-x)^2 + c[2] x^2 (1-x) + c[3] x^3`
     pub interpolation_control_points: SafeFloat<f32, 4>,
     /// The value that will be reached at the end of this frame
     pub value: Value,
 }
 
 impl AnimationFrame {
+    /// Returns an interpolated [Value]
     pub fn interpolate(&self, previous_frame: &Self, current_time: f64) -> Value {
         let t = ((self.timestamp.unwrap() - current_time) / (self.timestamp.unwrap() - previous_frame.timestamp.unwrap())) as f32;
         let s = 1.0 - t;
@@ -244,10 +249,10 @@ impl AnimationFrame {
     }
 }
 
-/// Trait of a node, which defines its behavior
+/// Trait of a [Node], which defines its behavior
 pub type MessengerHandler = for<'a> fn(context: &mut NodeMessengerContext, message: &Messenger) -> Vec<Messenger>;
 
-/// Common body of all nodes.
+/// An user interface node
 pub struct Node {
     messenger_handler: MessengerHandler,
     properties: HashMap<&'static str, Value>,
@@ -266,8 +271,6 @@ pub struct Node {
     in_reconfigure_queue: bool,
     colored_shapes: Vec<(SafeFloat<f32, 4>, Shape)>,
     clip_shape: Option<Box<Shape>>,
-    colored_shapes_instance: u32,
-    clip_shape_instance: u32,
 }
 
 impl std::fmt::Debug for Node {
@@ -304,13 +307,12 @@ impl Default for Node {
             in_reconfigure_queue: false,
             colored_shapes: Vec::new(),
             clip_shape: None,
-            colored_shapes_instance: 0,
-            clip_shape_instance: 0,
         }
     }
 }
 
 impl Node {
+    /// Creates a new [Node]
     pub fn new(messenger_handler: MessengerHandler, properties: HashMap<&'static str, Value>) -> Rc<RefCell<Self>> {
         let in_touched_attributes = properties.keys().cloned().collect();
         Rc::new(RefCell::new(Self {
@@ -350,6 +352,7 @@ impl Node {
         result
     }
 
+    /// Changes the [MessengerHandler]
     pub fn set_messenger_handler(&mut self, messenger_handler: MessengerHandler) -> bool {
         if std::ptr::eq(self.messenger_handler as *const u8, messenger_handler as *const u8) {
             return false;
@@ -359,6 +362,7 @@ impl Node {
         true
     }
 
+    /// Returns true if the node touched one of the given `attributes`
     pub fn was_attribute_touched(&self, attributes: &[&'static str]) -> bool {
         for attribute in attributes {
             if self.out_touched_attributes.contains(attribute) {
@@ -368,18 +372,22 @@ impl Node {
         false
     }
 
+    /// Lets the node know that the given `attribute` was touched
     pub fn touch_attribute(&mut self, attribute: &'static str) {
         self.in_touched_attributes.insert(attribute);
     }
 
+    /// Get the [Value] of the property by the given `attribute`
     pub fn get_attribute(&self, attribute: &'static str) -> Value {
         self.properties.get(attribute).cloned().unwrap_or(Value::Void)
     }
 
+    /// Set the [Value] of the property by the given `attribute` without touching it
     pub fn set_attribute_privately(&mut self, attribute: &'static str, value: Value) {
         self.properties.insert(attribute, value);
     }
 
+    /// Set the [Value] of the property by the given `attribute` and touches it
     pub fn set_attribute(&mut self, attribute: &'static str, value: Value) -> bool {
         if self.properties.get(attribute) == Some(&value) {
             return false;
@@ -389,6 +397,7 @@ impl Node {
         true
     }
 
+    /// Have the [Value] of the property by the given `attribute` be animated
     pub fn set_attribute_animated(&mut self, attribute: &'static str, value: Value, start_time: f64, duration: f64) -> bool {
         if self.properties.get(attribute) == Some(&value) {
             return false;
@@ -411,6 +420,7 @@ impl Node {
         true
     }
 
+    /// Optionally gets "proposed_half_extent" first, and if it is not available returns "half_extent"
     pub fn get_half_extent(&self, proposed: bool) -> SafeFloat<f32, 2> {
         let value = if proposed { self.properties.get("proposed_half_extent") } else { None };
         value

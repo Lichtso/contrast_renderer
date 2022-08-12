@@ -1,7 +1,8 @@
+//! List
 use crate::{
     hash_map, match_option,
     ui::{
-        message::{self, focus_parent_or_child, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{self, input_focus_parent_or_child, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Orientation,
@@ -9,12 +10,9 @@ use crate::{
     utils::translate2d,
 };
 
+/// List
 pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
-        "PrepareRendering" => {
-            vec![messenger.clone()]
-        }
-        "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
             let first_phase = match_option!(context.get_attribute("first_phase"), Value::Boolean).unwrap_or(true);
             context.set_attribute_privately("first_phase", Value::Boolean(!first_phase));
@@ -124,7 +122,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                     } else {
                         Some(NodeOrObservableIdentifier::Indexed(context.get_number_of_children() / 2))
                     };
-                    vec![focus_parent_or_child(messenger, focus_child_id)]
+                    vec![input_focus_parent_or_child(messenger, focus_child_id)]
                 }
                 '←' | '→' | '↑' | '↓' => {
                     if let Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Indexed(child_index)) = messenger.get_attribute("origin") {
@@ -144,7 +142,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                         if let Some(direction) = direction {
                             let focus_child_index = *child_index as isize + direction;
                             if focus_child_index >= 0 && focus_child_index < context.get_number_of_children() as isize {
-                                return vec![focus_parent_or_child(
+                                return vec![input_focus_parent_or_child(
                                     messenger,
                                     Some(NodeOrObservableIdentifier::Indexed(focus_child_index as usize)),
                                 )];
