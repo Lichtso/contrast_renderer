@@ -285,6 +285,7 @@ pub struct Node {
     in_reconfigure_queue: bool,
     observes: HashSet<NodeOrObservableIdentifier>,
     colored_shapes: Vec<(SafeFloat<f32, 4>, Shape)>,
+    alpha_cover_shape: Option<Box<Shape>>,
     clip_shape: Option<Box<Shape>>,
 }
 
@@ -319,6 +320,7 @@ impl Default for Node {
             in_reconfigure_queue: false,
             observes: HashSet::new(),
             colored_shapes: Vec::new(),
+            alpha_cover_shape: None,
             clip_shape: None,
         }
     }

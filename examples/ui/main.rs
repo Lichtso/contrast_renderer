@@ -51,7 +51,7 @@ impl application_framework::Application for Application {
                 msaa_sample_count: MSAA_SAMPLE_COUNT,
                 clip_nesting_counter_bits: 7,
                 winding_counter_bits: 1,
-                alpha_layer_count: 0,
+                alpha_layer_count: 1,
             },
         )
         .unwrap();
@@ -289,7 +289,7 @@ impl application_framework::Application for Application {
                 sample_count: MSAA_SAMPLE_COUNT,
                 dimension: wgpu::TextureDimension::D2,
                 format: surface_configuration.format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
                 label: None,
             };
             let msaa_color_texture = device.create_texture(&msaa_color_texture_descriptor);
@@ -298,6 +298,8 @@ impl application_framework::Application for Application {
                 ..wgpu::TextureViewDescriptor::default()
             }));
         }
+        self.renderer
+            .resize_internal_buffers(device, self.viewport_size, self.msaa_color_texture_view.as_ref().unwrap());
     }
 
     fn render(&mut self, device: &wgpu::Device, queue: &mut wgpu::Queue, frame: &wgpu::SurfaceTexture, animation_time: f64) {
@@ -317,36 +319,49 @@ impl application_framework::Application for Application {
         );
         self.ui_node_hierarchy
             .prepare_rendering(&self.renderer, &mut self.ui_renderer, device, queue, animation_time);
+        let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let msaa_frame_view = if MSAA_SAMPLE_COUNT == 1 {
+            &frame_view
+        } else {
+            &self.msaa_color_texture_view.as_ref().unwrap()
+        };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        {
-            let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        self.ui_renderer.encode_commands(
+            &self.renderer,
+            &mut encoder,
+            wgpu::RenderPassColorAttachment {
+                view: msaa_frame_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: true,
+                },
+            },
+            wgpu::RenderPassDepthStencilAttachment {
+                view: &self.depth_stencil_texture_view.as_ref().unwrap(),
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(0.0),
+                    store: false,
+                }),
+                stencil_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(0),
+                    store: true,
+                }),
+            },
+        );
+        if MSAA_SAMPLE_COUNT > 1 {
+            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: if MSAA_SAMPLE_COUNT == 1 {
-                        &frame_view
-                    } else {
-                        &self.msaa_color_texture_view.as_ref().unwrap()
-                    },
+                    view: &self.msaa_color_texture_view.as_ref().unwrap(),
                     resolve_target: if MSAA_SAMPLE_COUNT == 1 { None } else { Some(&frame_view) },
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: true,
+                        load: wgpu::LoadOp::Load,
+                        store: false,
                     },
                 })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_stencil_texture_view.as_ref().unwrap(),
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0.0),
-                        store: false,
-                    }),
-                    stencil_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0),
-                        store: true,
-                    }),
-                }),
+                depth_stencil_attachment: None,
             });
-            self.ui_renderer.encode_commands(&self.renderer, &mut render_pass);
         }
         queue.submit(Some(encoder.finish()));
     }
