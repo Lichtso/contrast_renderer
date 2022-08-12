@@ -84,14 +84,10 @@ impl<'a> NodeMessengerContext<'a> {
         if messenger.behavior.label == "Reconfigure" {
             let absolute_motor_changed = node.touched_attributes.contains(&"absolute_motor");
             let absolute_scale_changed = node.touched_attributes.contains(&"absolute_scale");
-            let absolute_opacity_changed = node.touched_attributes.contains(&"absolute_opacity");
             let absolute_motor: ppga2d::Motor = match_option!(node.get_attribute("absolute_motor"), Value::Motor)
                 .map(|value| value.into())
                 .unwrap_or_else(ppga2d::Motor::one);
             let absolute_scale: f32 = match_option!(node.get_attribute("absolute_scale"), Value::Float1)
-                .map(|value| value.into())
-                .unwrap_or(1.0);
-            let absolute_opacity: f32 = match_option!(node.get_attribute("absolute_opacity"), Value::Float1)
                 .map(|value| value.into())
                 .unwrap_or(1.0);
             let mut children_order_changed = node.touched_attributes.contains(&"child_count");
@@ -109,7 +105,6 @@ impl<'a> NodeMessengerContext<'a> {
                 }
                 let absolute_motor_changed = parents_changed || absolute_motor_changed || touched_attributes.contains(&"motor");
                 let absolute_scale_changed = parents_changed || absolute_scale_changed || touched_attributes.contains(&"scale");
-                let absolute_opacity_changed = parents_changed || absolute_opacity_changed || touched_attributes.contains(&"opacity");
                 if parent_index == 0 && absolute_motor_changed {
                     let child_motor = match_option!(child_node.get_attribute("motor"), Value::Motor)
                         .map(|value| value.into())
@@ -121,12 +116,6 @@ impl<'a> NodeMessengerContext<'a> {
                         .map(|value| value.into())
                         .unwrap_or(1.0);
                     child_node.set_attribute("absolute_scale", Value::Float1((child_scale * absolute_scale).into()));
-                }
-                if parent_index + 1 == child_node.parents.len() && absolute_opacity_changed {
-                    let child_opacity = match_option!(child_node.get_attribute("opacity"), Value::Float1)
-                        .map(|value| value.into())
-                        .unwrap_or(1.0);
-                    child_node.set_attribute("absolute_opacity", Value::Float1((child_opacity * absolute_opacity).into()));
                 }
                 child_node.parents[parent_index].2.clear();
             }
@@ -754,11 +743,12 @@ impl NodeHierarchy {
         global_parent_id: Option<GlobalNodeIdentifier>,
         layer_range: Range<usize>,
         clip_depth: u8,
+        alpha_layer: u8,
     ) {
         let node = self.nodes.get(&global_node_id).unwrap().borrow();
         if (global_parent_id.is_some() && Some(node.parents.last().unwrap().1) != global_parent_id)
             || node.get_attribute("dormant") == Value::Boolean(true)
-            || node.get_attribute("absolute_opacity") == Value::Float1(0.0.into())
+            || node.get_attribute("opacity") == Value::Float1(0.0.into())
         {
             return;
         }
@@ -789,7 +779,7 @@ impl NodeHierarchy {
                 model_matrix
             });
         let model_projection_matrix = matrix_multiplication(&renderer.projection_matrix, &model_matrix);
-        renderer.instanciate_node(&node, layer_range, clip_depth, &model_projection_matrix);
+        renderer.instanciate_node(&node, layer_range, clip_depth, alpha_layer, &model_projection_matrix);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -802,11 +792,15 @@ impl NodeHierarchy {
         global_parent_id: Option<GlobalNodeIdentifier>,
         parent_layer_range: &mut Range<usize>,
         mut clip_depth: u8,
+        mut alpha_layer: u8,
     ) {
         let node = self.nodes.get(&global_node_id).unwrap().borrow();
+        let opacity: f32 = match_option!(node.get_attribute("opacity"), Value::Float1)
+            .map(|value| value.into())
+            .unwrap_or(1.0);
         if (global_parent_id.is_some() && Some(node.parents.last().unwrap().1) != global_parent_id)
             || node.get_attribute("dormant") == Value::Boolean(true)
-            || node.get_attribute("absolute_opacity") == Value::Float1(0.0.into())
+            || opacity == 0.0
         {
             return;
         }
@@ -822,12 +816,16 @@ impl NodeHierarchy {
             }
         }
         let node = self.nodes.get(&global_node_id).unwrap().borrow();
-        let has_clip_shape = node.clip_shape.is_some();
-        let mut child_layer_range = parent_layer_range.start + node.colored_shapes.len()..0;
-        if has_clip_shape {
-            child_layer_range.start += 1;
+        let mut additional_layers = 0;
+        if opacity < 1.0 {
+            additional_layers = 1;
+            alpha_layer += 1;
+        }
+        if node.clip_shape.is_some() {
+            additional_layers = 1;
             clip_depth += 1;
         }
+        let mut child_layer_range = parent_layer_range.start + additional_layers + node.colored_shapes.len()..0;
         child_layer_range.end = child_layer_range.start;
         let mut prev_child_index = 0;
         let mut prev_layer_index = 0;
@@ -840,7 +838,14 @@ impl NodeHierarchy {
             if prev_layer_index != layer_index {
                 prev_layer_index = layer_index;
                 for global_child_id in ordered_children[prev_child_index..child_index].iter() {
-                    self.instanciate_node_rendering(renderer, *global_child_id, Some(global_node_id), child_layer_range.clone(), clip_depth);
+                    self.instanciate_node_rendering(
+                        renderer,
+                        *global_child_id,
+                        Some(global_node_id),
+                        child_layer_range.clone(),
+                        clip_depth,
+                        alpha_layer,
+                    );
                 }
                 prev_child_index = child_index;
                 child_layer_range.start = child_layer_range.end;
@@ -853,12 +858,20 @@ impl NodeHierarchy {
                 Some(global_node_id),
                 &mut child_layer_range,
                 clip_depth,
+                alpha_layer,
             );
         }
         for global_child_id in ordered_children[prev_child_index..].iter() {
-            self.instanciate_node_rendering(renderer, *global_child_id, Some(global_node_id), child_layer_range.clone(), clip_depth);
+            self.instanciate_node_rendering(
+                renderer,
+                *global_child_id,
+                Some(global_node_id),
+                child_layer_range.clone(),
+                clip_depth,
+                alpha_layer,
+            );
         }
-        parent_layer_range.end = parent_layer_range.end.max(child_layer_range.end + if has_clip_shape { 1 } else { 0 });
+        parent_layer_range.end = parent_layer_range.end.max(child_layer_range.end + additional_layers);
     }
 
     /// Preparation step to be called before [Renderer::encode_commands]
@@ -884,8 +897,8 @@ impl NodeHierarchy {
         let roots = self.observer_channels.get(&NodeOrObservableIdentifier::Named("root")).unwrap().clone();
         let mut layer_range = 0..0;
         for global_node_id in roots {
-            self.prepare_node_rendering(contrast_renderer, renderer, device, global_node_id, None, &mut layer_range, 0);
-            self.instanciate_node_rendering(renderer, global_node_id, None, layer_range.clone(), 0);
+            self.prepare_node_rendering(contrast_renderer, renderer, device, global_node_id, None, &mut layer_range, 0, 0);
+            self.instanciate_node_rendering(renderer, global_node_id, None, layer_range.clone(), 0, 0);
             layer_range.start = layer_range.end;
         }
         renderer.update_instance_buffers(device, queue);
