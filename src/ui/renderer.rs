@@ -19,9 +19,8 @@ struct RenderCommand {
 
 impl Ord for RenderCommand {
     fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .render_layer
-            .cmp(&self.render_layer)
+        self.render_layer
+            .cmp(&other.render_layer)
             .then_with(|| other.operation.cmp(&self.operation))
     }
 }
@@ -125,21 +124,21 @@ impl Renderer {
             let shape: &'static Shape = unsafe { std::mem::transmute(shape) };
             self.command_stream.push(RenderCommand {
                 operation: RenderOperation::Stencil,
-                render_layer: layer_range.start + node.colored_shapes.len(),
+                render_layer: layer_range.end - 1,
                 clip_depth,
                 instance_index,
                 shape,
             });
             self.command_stream.push(RenderCommand {
                 operation: RenderOperation::Clip,
-                render_layer: layer_range.start + node.colored_shapes.len(),
+                render_layer: layer_range.end - 1,
                 clip_depth: clip_depth + 1,
                 instance_index,
                 shape,
             });
             self.command_stream.push(RenderCommand {
                 operation: RenderOperation::UnClip,
-                render_layer: layer_range.end - 1,
+                render_layer: layer_range.start + node.colored_shapes.len(),
                 clip_depth,
                 instance_index,
                 shape,
