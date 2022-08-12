@@ -22,9 +22,14 @@ To get started, checkout the [showcase example](examples/showcase/main.rs).
 - Rendering
     - Anti Aliasing ◯
         - MSAA ✓
-    - Custom (User Defined) Shaders ✓
     - Instancing ✓
-    - Depth Test ✗
+    - Customizable (User Defined)
+        - Shaders ✓
+        - Blending ✓
+        - Depth Test ✓
+        - Back Face Culling ✓
+    - Nestable Clipping ✓
+    - Nestable Transparency Layers (Group Opacity) ✓
 - Filling
     - Paths
         - Polygons ✓
@@ -36,9 +41,6 @@ To get started, checkout the [showcase example](examples/showcase/main.rs).
                 - Quadratic ✓
                 - Cubic ✓
     - Winding Fill Rules ✓
-    - Nestable Clipping ✓
-    - Nestable Group Opacity ✓
-    - Custom (User Defined) Blending ✓
 - Stroking
     - Paths
         - Polygons ✓

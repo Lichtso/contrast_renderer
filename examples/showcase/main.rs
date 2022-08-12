@@ -3,7 +3,7 @@ mod application_framework;
 
 use contrast_renderer::renderer::RenderOperation;
 use geometric_algebra::{
-    ppga3d::{Rotor, Translator},
+    ppga3d::{Motor, Rotor, Translator},
     One,
 };
 
@@ -40,8 +40,19 @@ impl application_framework::Application for Application {
             }),
             write_mask: wgpu::ColorWrites::ALL,
         };
-        let renderer =
-            contrast_renderer::renderer::Renderer::new(&device, blending, Some(wgpu::Face::Back), true, MSAA_SAMPLE_COUNT, 4, 4, 0).unwrap();
+        let renderer = contrast_renderer::renderer::Renderer::new(
+            &device,
+            blending,
+            Some(wgpu::Face::Back),
+            wgpu::CompareFunction::LessEqual,
+            true,
+            true,
+            MSAA_SAMPLE_COUNT,
+            4,
+            4,
+            0,
+        )
+        .unwrap();
 
         let dynamic_stroke_options = [contrast_renderer::path::DynamicStrokeOptions::Dashed {
             join: contrast_renderer::path::Join::Miter,
@@ -157,10 +168,36 @@ impl application_framework::Application for Application {
                 } * self.view_rotation),
             ),
         );
-        let instances_transform: &[[geometric_algebra::ppga3d::Point; 4]] = &[projection_matrix];
-        let instances_color: &[contrast_renderer::renderer::Color] = &[[1.0, 1.0, 1.0, 1.0].into()];
-        self.instance_buffers[0].update(device, queue, &contrast_renderer::concat_buffers!([instances_transform]).1);
-        self.instance_buffers[1].update(device, queue, &contrast_renderer::concat_buffers!([instances_color]).1);
+        const ROWS: usize = 9;
+        const COLUMNS: usize = 5;
+        let mut instances_transform: Vec<[geometric_algebra::ppga3d::Point; 4]> = Vec::with_capacity(1 + ROWS * COLUMNS);
+        let mut instances_color: Vec<contrast_renderer::renderer::Color> = Vec::with_capacity(1 + ROWS * COLUMNS);
+        instances_transform.push(projection_matrix);
+        instances_color.push([1.0, 1.0, 1.0, 1.0].into());
+        for y in 0..ROWS {
+            for x in 0..COLUMNS {
+                instances_transform.push(contrast_renderer::utils::matrix_multiplication(
+                    &projection_matrix,
+                    &contrast_renderer::utils::motor3d_to_mat4(
+                        &(Motor {
+                            g0: [1.0, 0.0, 0.0, 0.0].into(),
+                            g1: [
+                                0.0,
+                                (x as f32 + 0.5 - COLUMNS as f32 * 0.5) * 7.0,
+                                (y as f32 + 0.5 - ROWS as f32 * 0.5) * 3.0,
+                                -5.0,
+                            ]
+                            .into(),
+                        }),
+                    ),
+                ));
+                let red = x as f32 / COLUMNS as f32;
+                let green = y as f32 / ROWS as f32;
+                instances_color.push([red, green, 1.0 - red - green, 1.0].into());
+            }
+        }
+        self.instance_buffers[0].update(device, queue, &contrast_renderer::concat_buffers!([&instances_transform]).1);
+        self.instance_buffers[1].update(device, queue, &contrast_renderer::concat_buffers!([&instances_color]).1);
         let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let msaa_frame_view = if MSAA_SAMPLE_COUNT == 1 {
             &frame_view
@@ -182,8 +219,8 @@ impl application_framework::Application for Application {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_stencil_texture_view.as_ref().unwrap(),
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0.0),
-                        store: false,
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: true,
                     }),
                     stencil_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(0),
@@ -192,9 +229,21 @@ impl application_framework::Application for Application {
                 }),
             });
             render_pass.set_vertex_buffer(0, self.instance_buffers[0].buffer.slice(..));
-            self.shape.render(&self.renderer, &mut render_pass, 0..1, RenderOperation::Stencil);
-            render_pass.set_vertex_buffer(1, self.instance_buffers[1].buffer.slice(..));
-            self.shape.render(&self.renderer, &mut render_pass, 0..1, RenderOperation::Color);
+            for instance_index in 0..(1 + ROWS * COLUMNS) as u32 {
+                self.shape.render(
+                    &self.renderer,
+                    &mut render_pass,
+                    instance_index..instance_index + 1,
+                    RenderOperation::Stencil,
+                );
+                render_pass.set_vertex_buffer(1, self.instance_buffers[1].buffer.slice(..));
+                self.shape.render(
+                    &self.renderer,
+                    &mut render_pass,
+                    instance_index..instance_index + 1,
+                    RenderOperation::Color,
+                );
+            }
         }
         queue.submit(Some(encoder.finish()));
     }
