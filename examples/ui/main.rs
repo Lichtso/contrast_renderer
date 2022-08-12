@@ -6,7 +6,6 @@ use contrast_renderer::{
     ui::{wrapped_values::Value, Node, NodeOrObservableIdentifier},
 };
 use geometric_algebra::{ppga2d, ppga3d};
-use std::rc::Rc;
 
 const MSAA_SAMPLE_COUNT: u32 = 4;
 
@@ -16,6 +15,7 @@ const KEYMAP: &str = include_str!("../../examples/keymaps/de_macos.txt");
 struct Application {
     depth_stencil_texture_view: Option<wgpu::TextureView>,
     msaa_color_texture_view: Option<wgpu::TextureView>,
+    renderer: contrast_renderer::renderer::Renderer,
     ui_renderer: contrast_renderer::ui::renderer::Renderer,
     ui_node_hierarchy: contrast_renderer::ui::node_hierarchy::NodeHierarchy,
     ui_event_translator: contrast_renderer::ui::message::WinitEventTranslator,
@@ -24,39 +24,38 @@ struct Application {
 
 impl application_framework::Application for Application {
     fn new(device: &wgpu::Device, _queue: &mut wgpu::Queue, surface_configuration: &wgpu::SurfaceConfiguration) -> Self {
-        let renderer = Rc::new(
-            contrast_renderer::renderer::Renderer::new(
-                &device,
-                contrast_renderer::renderer::Configuration {
-                    blending: wgpu::ColorTargetState {
-                        format: surface_configuration.format,
-                        blend: Some(wgpu::BlendState {
-                            color: wgpu::BlendComponent {
-                                src_factor: wgpu::BlendFactor::One,
-                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                                operation: wgpu::BlendOperation::Add,
-                            },
-                            alpha: wgpu::BlendComponent {
-                                src_factor: wgpu::BlendFactor::One,
-                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                                operation: wgpu::BlendOperation::Add,
-                            },
-                        }),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    },
-                    cull_mode: None,
-                    depth_compare: wgpu::CompareFunction::Always,
-                    depth_write_enabled: false,
-                    color_attachment_in_stencil_pass: true,
-                    msaa_sample_count: MSAA_SAMPLE_COUNT,
-                    clip_nesting_counter_bits: 7,
-                    winding_counter_bits: 1,
-                    alpha_layer_count: 0,
+        let renderer = contrast_renderer::renderer::Renderer::new(
+            &device,
+            contrast_renderer::renderer::Configuration {
+                blending: wgpu::ColorTargetState {
+                    format: surface_configuration.format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
                 },
-            )
-            .unwrap(),
-        );
-        let ui_renderer = contrast_renderer::ui::renderer::Renderer::new(renderer, device);
+                cull_mode: None,
+                depth_stencil_format: application_framework::get_depth_stencil_format(device),
+                depth_compare: wgpu::CompareFunction::Always,
+                depth_write_enabled: false,
+                color_attachment_in_stencil_pass: true,
+                msaa_sample_count: MSAA_SAMPLE_COUNT,
+                clip_nesting_counter_bits: 7,
+                winding_counter_bits: 1,
+                alpha_layer_count: 0,
+            },
+        )
+        .unwrap();
+        let ui_renderer = contrast_renderer::ui::renderer::Renderer::new(device);
         let mut ui_node_hierarchy = contrast_renderer::ui::node_hierarchy::NodeHierarchy::default();
         ui_node_hierarchy.theme_properties = hash_map! {
             "font_face" => Value::TextFont(std::rc::Rc::new(contrast_renderer::text::Font::new("OpenSans-Regular".to_string(), OPEN_SANS_TTF))),
@@ -252,6 +251,7 @@ impl application_framework::Application for Application {
         Self {
             depth_stencil_texture_view: None,
             msaa_color_texture_view: None,
+            renderer,
             ui_renderer,
             ui_node_hierarchy,
             ui_event_translator,
@@ -273,7 +273,7 @@ impl application_framework::Application for Application {
             mip_level_count: 1,
             sample_count: MSAA_SAMPLE_COUNT,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32FloatStencil8,
+            format: self.renderer.get_config().depth_stencil_format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             label: None,
         };
@@ -316,7 +316,7 @@ impl application_framework::Application for Application {
             ),
         );
         self.ui_node_hierarchy
-            .prepare_rendering(&mut self.ui_renderer, device, queue, animation_time);
+            .prepare_rendering(&self.renderer, &mut self.ui_renderer, device, queue, animation_time);
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -346,7 +346,7 @@ impl application_framework::Application for Application {
                     }),
                 }),
             });
-            self.ui_renderer.encode_commands(&mut render_pass);
+            self.ui_renderer.encode_commands(&self.renderer, &mut render_pass);
         }
         queue.submit(Some(encoder.finish()));
     }
