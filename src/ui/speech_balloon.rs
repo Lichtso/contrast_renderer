@@ -1,8 +1,9 @@
+//! Overlays
 use crate::{
     hash_set, match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, LineSegment, Path, StrokeOptions},
     ui::{
-        message::{focus_parent_or_child, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{input_focus_parent_or_child, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering, Side,
@@ -11,6 +12,7 @@ use crate::{
 };
 use geometric_algebra::{ppga2d, One};
 
+/// Speech balloon overlay
 pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
         "PrepareRendering" => {
@@ -135,9 +137,8 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 }];
                 update_rendering.set_attribute("rendering", Value::Rendering(Box::new(rendering)));
             }
-            vec![messenger.clone(), update_rendering]
+            vec![update_rendering]
         }
-        "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
             let mut unaffected = !context.was_attribute_touched(&["child_count", "track_node", "track_motor"]);
             context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &Node| {
@@ -216,7 +217,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                         }
                         _ => panic!(),
                     };
-                    vec![focus_parent_or_child(messenger, focus_child_id)]
+                    vec![input_focus_parent_or_child(messenger, focus_child_id)]
                 }
                 '←' | '→' | '↑' | '↓' => {
                     let mut messenger = messenger.clone();

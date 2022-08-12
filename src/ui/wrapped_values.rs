@@ -1,3 +1,4 @@
+//! Dynamic values for the properties of [Node]s and [Messenger](crate::ui::message::Messenger)s
 use crate::{
     safe_float::SafeFloat,
     text,
@@ -8,7 +9,9 @@ use crate::{
 };
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
+/// Dynamic value encoding
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(missing_docs)]
 pub enum Value {
     Void,
     Boolean(bool),

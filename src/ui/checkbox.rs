@@ -1,14 +1,16 @@
+//! Checkbox
 use crate::{
     match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, Path, StrokeOptions},
     ui::{
-        message::{focus_parent_or_child, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{input_focus_parent_or_child, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Rendering,
     },
 };
 
+/// Checkbox
 pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
         "PrepareRendering" => {
@@ -58,7 +60,6 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             }
             vec![update_rendering]
         }
-        "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
             if !context.was_attribute_touched(&["is_checked"]) {
                 return Vec::new();
@@ -99,7 +100,7 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                     if messenger.get_attribute("origin") != &Value::Void {
                         context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
-                        return vec![focus_parent_or_child(messenger, None)];
+                        return vec![input_focus_parent_or_child(messenger, None)];
                     }
                     Vec::new()
                 }

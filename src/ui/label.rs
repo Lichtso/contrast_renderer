@@ -1,9 +1,10 @@
+//! Text label
 use crate::{
     match_option,
     path::Path,
     text::{byte_offset_of_char_index, half_extent_of_text, index_of_char_at, paths_of_text, Layout},
     ui::{
-        message::{focus_parent_or_child, rendering_default_behavior, Messenger, PropagationDirection},
+        message::{input_focus_parent_or_child, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering, TextInteraction,
@@ -26,7 +27,6 @@ fn text_selection(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             }
             vec![update_rendering]
         }
-        "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
             let unaffected = !context.was_attribute_touched(&["half_extent"]);
             if unaffected {
@@ -50,6 +50,7 @@ macro_rules! layout {
     };
 }
 
+/// Text label
 pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.behavior.label {
         "PrepareRendering" => {
@@ -68,9 +69,8 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 }
                 update_rendering.set_attribute("rendering", Value::Rendering(Box::new(rendering)));
             }
-            vec![messenger.clone(), update_rendering]
+            vec![update_rendering]
         }
-        "Render" => rendering_default_behavior(messenger),
         "Reconfigure" => {
             if !context.was_attribute_touched(&["text_content", "cursor_a", "cursor_b", "text_interaction"]) {
                 return Vec::new();
@@ -157,7 +157,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     if messenger.get_attribute("origin") != &Value::Void {
                         context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
-                        return vec![focus_parent_or_child(messenger, None)];
+                        return vec![input_focus_parent_or_child(messenger, None)];
                     }
                     Vec::new()
                 }
