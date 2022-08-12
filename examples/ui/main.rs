@@ -3,6 +3,7 @@ mod application_framework;
 
 use contrast_renderer::ui::{wrapped_values::Value, Node, NodeOrObservableIdentifier};
 use geometric_algebra::{ppga2d, ppga3d};
+use std::rc::Rc;
 
 const MSAA_SAMPLE_COUNT: u32 = 4;
 
@@ -12,7 +13,7 @@ const KEYMAP: &str = include_str!("../../examples/keymaps/de_macos.txt");
 struct Application {
     depth_stencil_texture_view: Option<wgpu::TextureView>,
     msaa_color_texture_view: Option<wgpu::TextureView>,
-    renderer: contrast_renderer::renderer::Renderer,
+    ui_renderer: contrast_renderer::ui::renderer::Renderer,
     ui_node_hierarchy: contrast_renderer::ui::node_hierarchy::NodeHierarchy,
     ui_event_translator: contrast_renderer::ui::message::WinitEventTranslator,
     viewport_size: wgpu::Extent3d,
@@ -20,36 +21,39 @@ struct Application {
 
 impl application_framework::Application for Application {
     fn new(device: &wgpu::Device, _queue: &mut wgpu::Queue, surface_configuration: &wgpu::SurfaceConfiguration) -> Self {
-        let renderer = contrast_renderer::renderer::Renderer::new(
-            &device,
-            contrast_renderer::renderer::Configuration {
-                blending: wgpu::ColorTargetState {
-                    format: surface_configuration.format,
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
+        let renderer = Rc::new(
+            contrast_renderer::renderer::Renderer::new(
+                &device,
+                contrast_renderer::renderer::Configuration {
+                    blending: wgpu::ColorTargetState {
+                        format: surface_configuration.format,
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    },
+                    cull_mode: None,
+                    depth_compare: wgpu::CompareFunction::Always,
+                    depth_write_enabled: false,
+                    color_attachment_in_stencil_pass: true,
+                    msaa_sample_count: MSAA_SAMPLE_COUNT,
+                    clip_nesting_counter_bits: 4,
+                    winding_counter_bits: 4,
+                    alpha_layer_count: 0,
                 },
-                cull_mode: None,
-                depth_compare: wgpu::CompareFunction::Always,
-                depth_write_enabled: false,
-                color_attachment_in_stencil_pass: true,
-                msaa_sample_count: MSAA_SAMPLE_COUNT,
-                clip_nesting_counter_bits: 4,
-                winding_counter_bits: 4,
-                alpha_layer_count: 0,
-            },
-        )
-        .unwrap();
+            )
+            .unwrap(),
+        );
+        let ui_renderer = contrast_renderer::ui::renderer::Renderer::new(renderer, device);
         let mut ui_node_hierarchy = contrast_renderer::ui::node_hierarchy::NodeHierarchy::default();
         ui_node_hierarchy.theme_properties = contrast_renderer::hash_map! {
             "font_face" => Value::TextFont(std::rc::Rc::new(contrast_renderer::text::Font::new("OpenSans-Regular".to_string(), OPEN_SANS_TTF))),
@@ -150,7 +154,7 @@ impl application_framework::Application for Application {
         Self {
             depth_stencil_texture_view: None,
             msaa_color_texture_view: None,
-            renderer,
+            ui_renderer,
             ui_node_hierarchy,
             ui_event_translator,
             viewport_size: wgpu::Extent3d::default(),
@@ -205,6 +209,21 @@ impl application_framework::Application for Application {
         } else {
             &self.msaa_color_texture_view.as_ref().unwrap()
         };
+        self.ui_renderer.projection_matrix = contrast_renderer::utils::matrix_multiplication(
+            &contrast_renderer::utils::perspective_projection(
+                std::f32::consts::PI * 0.5,
+                self.viewport_size.width as f32 / self.viewport_size.height as f32,
+                1.0,
+                100000.0,
+            ),
+            &contrast_renderer::utils::motor3d_to_mat4(
+                &(ppga3d::Motor {
+                    g0: [1.0, 0.0, 0.0, 0.0].into(),
+                    g1: [0.0, 0.0, 0.0, -0.25 * (self.viewport_size.height as f32)].into(),
+                }),
+            ),
+        );
+        self.ui_node_hierarchy.prepare_rendering(&mut self.ui_renderer, device, queue);
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
@@ -228,7 +247,6 @@ impl application_framework::Application for Application {
                 }),
             }),
         });
-        let mut ui_renderer = contrast_renderer::ui::renderer::Renderer::new(&self.renderer, device);
         let color_attachments = &[wgpu::RenderPassColorAttachment {
             view: color_view,
             resolve_target: if MSAA_SAMPLE_COUNT == 1 { None } else { Some(&frame_view) },
@@ -237,8 +255,7 @@ impl application_framework::Application for Application {
                 store: true,
             },
         }];
-        ui_renderer.cover_render_pass_descriptor.color_attachments = color_attachments;
-        ui_renderer.cover_render_pass_descriptor.depth_stencil_attachment = Some(wgpu::RenderPassDepthStencilAttachment {
+        let depth_stencil_attachment = wgpu::RenderPassDepthStencilAttachment {
             view: &self.depth_stencil_texture_view.as_ref().unwrap(),
             depth_ops: Some(wgpu::Operations {
                 load: wgpu::LoadOp::Load,
@@ -248,30 +265,22 @@ impl application_framework::Application for Application {
                 load: wgpu::LoadOp::Load,
                 store: true,
             }),
-        });
-        ui_renderer.projection_matrix = contrast_renderer::utils::matrix_multiplication(
-            &contrast_renderer::utils::perspective_projection(
-                std::f32::consts::PI * 0.5,
-                self.viewport_size.width as f32 / self.viewport_size.height as f32,
-                1.0,
-                100000.0,
-            ),
-            &contrast_renderer::utils::motor3d_to_mat4(
-                &(ppga3d::Motor {
-                    g0: [1.0, 0.0, 0.0, 0.0].into(),
-                    g1: [0.0, 0.0, 0.0, -0.25 * (self.viewport_size.height as f32)].into(),
-                }),
-            ),
-        );
-        self.ui_node_hierarchy.prepare_rendering(&mut ui_renderer);
-        self.ui_node_hierarchy.render(queue, &mut encoder, &mut ui_renderer);
+        };
+        let mut frame_context = contrast_renderer::ui::renderer::FrameContext::new(&mut encoder, color_attachments, depth_stencil_attachment);
+        self.ui_node_hierarchy.render(&mut self.ui_renderer, &mut frame_context);
         queue.submit(Some(encoder.finish()));
     }
 
     fn window_event(&mut self, event: winit::event::WindowEvent) {
         for message in self.ui_event_translator.translate(event) {
-            self.ui_node_hierarchy
-                .notify_observers(None, None, contrast_renderer::ui::NodeOrObservableIdentifier::Named("root"), message);
+            self.ui_node_hierarchy.notify_observers(
+                None,
+                None,
+                None,
+                None,
+                contrast_renderer::ui::NodeOrObservableIdentifier::Named("root"),
+                message,
+            );
         }
     }
 }
