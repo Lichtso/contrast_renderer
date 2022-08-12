@@ -437,12 +437,35 @@ macro_rules! render_pipeline_descriptor {
     };
 }
 
+/// The configurable parameters of [Renderer]
+pub struct Configuration {
+    /// Defines the blending of the default color cover shader
+    pub blending: wgpu::ColorTargetState,
+    /// Defines the cull mode of the default color cover shader
+    pub cull_mode: Option<wgpu::Face>,
+    /// Defines the depth compare function of the default color cover shader
+    pub depth_compare: wgpu::CompareFunction,
+    /// Defines if the default color cover shader writes back into the depth buffer
+    pub depth_write_enabled: bool,
+    /// Creates a phony color attachment for stencil shaders so that they can be used in the same render pass as the cover shader
+    pub color_attachment_in_stencil_pass: bool,
+    /// Number of MSAA samples used by the frame buffer
+    pub msaa_sample_count: u32,
+    /// Up to 2 to the power of `clip_nesting_counter_bits` nested clip [Shape]s are possible
+    ///
+    /// Wgpu only supports 8 stencil bits so the sum of `clip_nesting_counter_bits` and `winding_counter_bits` can be 8 at most.
+    pub clip_nesting_counter_bits: usize,
+    /// The winding rule is: Non zero modulo 2 to the power of `winding_counter_bits`
+    ///
+    /// Thus, setting `winding_counter_bits` to 1 will result in the even-odd winding rule.
+    pub winding_counter_bits: usize,
+    /// Up to `alpha_layer_count` nested partially transparent layers of [Shape]s are possible
+    pub alpha_layer_count: usize,
+}
+
 /// The rendering interface for [wgpu]
 pub struct Renderer {
-    winding_counter_bits: usize,
-    clip_nesting_counter_bits: usize,
-    alpha_layer_count: usize,
-    msaa_sample_count: u32,
+    config: Configuration,
     stroke_bind_group_layout: wgpu::BindGroupLayout,
     alpha_context_cover_bind_group_layout: wgpu::BindGroupLayout,
     stroke_line_pipeline: wgpu::RenderPipeline,
@@ -465,24 +488,8 @@ pub struct Renderer {
 
 impl Renderer {
     /// Constructs a new [Renderer].
-    ///
-    /// Up to 2 to the power of `clip_nesting_counter_bits` nested clip [Shape]s are possible.
-    /// The winding rule is: Non zero modulo 2 to the power of `winding_counter_bits`.
-    /// Thus, setting `winding_counter_bits` to 1 will result in the even-odd winding rule.
-    /// Wgpu only supports 8 stencil bits so the sum of `clip_nesting_counter_bits` and `winding_counter_bits` can be 8 at most.
-    pub fn new(
-        device: &wgpu::Device,
-        blending: wgpu::ColorTargetState,
-        cull_mode: Option<wgpu::Face>,
-        depth_compare: wgpu::CompareFunction,
-        depth_write_enabled: bool,
-        color_attachment_in_stencil_pass: bool,
-        msaa_sample_count: u32,
-        clip_nesting_counter_bits: usize,
-        winding_counter_bits: usize,
-        alpha_layer_count: usize,
-    ) -> Result<Self, Error> {
-        if winding_counter_bits == 0 || clip_nesting_counter_bits + winding_counter_bits > 8 {
+    pub fn new(device: &wgpu::Device, config: Configuration) -> Result<Self, Error> {
+        if config.winding_counter_bits == 0 || config.clip_nesting_counter_bits + config.winding_counter_bits > 8 {
             return Err(Error::NumberOfStencilBitsIsUnsupported);
         }
 
@@ -544,17 +551,17 @@ impl Renderer {
                 ty: wgpu::BindingType::Texture {
                     sample_type: wgpu::TextureSampleType::Float { filterable: false },
                     view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: msaa_sample_count > 1,
+                    multisampled: config.msaa_sample_count > 1,
                 },
                 count: None,
             }],
         });
 
-        let winding_counter_mask = (1 << winding_counter_bits) - 1;
-        let clip_nesting_counter_mask = ((1 << clip_nesting_counter_bits) - 1) << winding_counter_bits;
-        let phony_color_state = color_attachment_in_stencil_pass.then_some(wgpu::ColorTargetState {
+        let winding_counter_mask = (1 << config.winding_counter_bits) - 1;
+        let clip_nesting_counter_mask = ((1 << config.clip_nesting_counter_bits) - 1) << config.winding_counter_bits;
+        let phony_color_state = config.color_attachment_in_stencil_pass.then_some(wgpu::ColorTargetState {
             write_mask: wgpu::ColorWrites::empty(),
-            ..blending
+            ..config.blending
         });
         let stroke_stencil_state = wgpu::StencilState {
             front: stencil_descriptor!(Equal, Keep, IncrementWrap),
@@ -591,7 +598,7 @@ impl Renderer {
             &[phony_color_state.clone()],
             stroke_stencil_state.clone(),
             [segment_2f1i_vertex_buffer_layout.clone()],
-            msaa_sample_count,
+            config.msaa_sample_count,
         ));
         let stroke_joint_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stroke_line_pipeline_layout,
@@ -606,7 +613,7 @@ impl Renderer {
             &[phony_color_state.clone()],
             stroke_stencil_state,
             [segment_3f1i_vertex_buffer_layout.clone()],
-            msaa_sample_count,
+            config.msaa_sample_count,
         ));
         let fill_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -621,7 +628,7 @@ impl Renderer {
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
             [segment_0f_vertex_buffer_layout.clone()],
-            msaa_sample_count,
+            config.msaa_sample_count,
         ));
         let fill_integral_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -636,7 +643,7 @@ impl Renderer {
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
             [segment_2f_vertex_buffer_layout],
-            msaa_sample_count,
+            config.msaa_sample_count,
         ));
         let fill_integral_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -651,7 +658,7 @@ impl Renderer {
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
             [segment_3f_vertex_buffer_layout.clone()],
-            msaa_sample_count,
+            config.msaa_sample_count,
         ));
         let fill_rational_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -666,7 +673,7 @@ impl Renderer {
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
             [segment_3f_vertex_buffer_layout.clone()],
-            msaa_sample_count,
+            config.msaa_sample_count,
         ));
         let fill_rational_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -681,7 +688,7 @@ impl Renderer {
             &[phony_color_state.clone()],
             fill_stencil_state,
             [segment_4f_vertex_buffer_layout],
-            msaa_sample_count,
+            config.msaa_sample_count,
         ));
 
         let increment_clip_nesting_counter_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -702,7 +709,7 @@ impl Renderer {
                 write_mask: clip_nesting_counter_mask | winding_counter_mask,
             },
             [segment_0f_vertex_buffer_layout.clone()],
-            msaa_sample_count,
+            config.msaa_sample_count,
         ));
         let decrement_clip_nesting_counter_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -722,7 +729,7 @@ impl Renderer {
                 write_mask: clip_nesting_counter_mask | winding_counter_mask,
             },
             [segment_0f_vertex_buffer_layout.clone()],
-            msaa_sample_count,
+            config.msaa_sample_count,
         ));
 
         let color_cover_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -737,10 +744,10 @@ impl Renderer {
             "color_cover",
             TriangleStrip,
             Some(wgpu::IndexFormat::Uint16),
-            cull_mode,
-            depth_compare,
-            depth_write_enabled,
-            &[Some(blending.clone())],
+            config.cull_mode,
+            config.depth_compare,
+            config.depth_write_enabled,
+            &[Some(config.blending.clone())],
             wgpu::StencilState {
                 front: stencil_descriptor!(Less, Zero, Zero),
                 back: stencil_descriptor!(Less, Zero, Zero),
@@ -748,7 +755,7 @@ impl Renderer {
                 write_mask: winding_counter_mask,
             },
             [color_instance_buffer_layout.clone(), segment_0f_vertex_buffer_layout.clone()],
-            msaa_sample_count,
+            config.msaa_sample_count,
         ));
 
         let alpha_context_cover_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -766,7 +773,7 @@ impl Renderer {
             &alpha_context_cover_pipeline_layout,
             &shader_module,
             "vertex0",
-            if msaa_sample_count == 1 {
+            if config.msaa_sample_count == 1 {
                 "save_alpha_context_cover"
             } else {
                 "multisampled_save_alpha_context_cover"
@@ -794,7 +801,7 @@ impl Renderer {
             })],
             alpha_context_cover_stencil_state.clone(),
             [segment_0f_vertex_buffer_layout.clone()],
-            msaa_sample_count,
+            config.msaa_sample_count,
         ));
         let scale_alpha_context_cover_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &color_cover_pipeline_layout,
@@ -807,7 +814,7 @@ impl Renderer {
             wgpu::CompareFunction::Always,
             false,
             &[Some(wgpu::ColorTargetState {
-                format: blending.format,
+                format: config.blending.format,
                 blend: Some(wgpu::BlendState {
                     color: wgpu::BlendComponent {
                         src_factor: wgpu::BlendFactor::Zero,
@@ -824,13 +831,13 @@ impl Renderer {
             })],
             alpha_context_cover_stencil_state.clone(),
             [color_instance_buffer_layout.clone(), segment_0f_vertex_buffer_layout.clone()],
-            msaa_sample_count,
+            config.msaa_sample_count,
         ));
         let restore_alpha_context_cover_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &alpha_context_cover_pipeline_layout,
             &shader_module,
             "vertex_color",
-            if msaa_sample_count == 1 {
+            if config.msaa_sample_count == 1 {
                 "restore_alpha_context_cover"
             } else {
                 "multisampled_restore_alpha_context_cover"
@@ -841,7 +848,7 @@ impl Renderer {
             wgpu::CompareFunction::Always,
             false,
             &[Some(wgpu::ColorTargetState {
-                format: blending.format,
+                format: config.blending.format,
                 blend: Some(wgpu::BlendState {
                     color: wgpu::BlendComponent {
                         src_factor: wgpu::BlendFactor::Zero,
@@ -858,14 +865,11 @@ impl Renderer {
             })],
             alpha_context_cover_stencil_state,
             [color_instance_buffer_layout, segment_0f_vertex_buffer_layout],
-            msaa_sample_count,
+            config.msaa_sample_count,
         ));
 
         Ok(Self {
-            winding_counter_bits,
-            clip_nesting_counter_bits,
-            alpha_layer_count,
-            msaa_sample_count,
+            config,
             stroke_bind_group_layout,
             alpha_context_cover_bind_group_layout,
             stroke_line_pipeline,
@@ -892,7 +896,7 @@ impl Renderer {
         let alpha_context_texture_descriptor = wgpu::TextureDescriptor {
             size: viewport_size,
             mip_level_count: 1,
-            sample_count: self.msaa_sample_count,
+            sample_count: self.config.msaa_sample_count,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
@@ -906,7 +910,7 @@ impl Renderer {
                 resource: wgpu::BindingResource::TextureView(msaa_frame_view),
             }],
         }));
-        (self.save_alpha_context_cover_render_targets, self.restore_alpha_context_cover_bind_groups) = (0..self.alpha_layer_count as u32)
+        (self.save_alpha_context_cover_render_targets, self.restore_alpha_context_cover_bind_groups) = (0..self.config.alpha_layer_count as u32)
             .map(|_layer_index| {
                 let alpha_context_texture = device.create_texture(&alpha_context_texture_descriptor);
                 let alpha_context_texture_view = alpha_context_texture.create_view(&wgpu::TextureViewDescriptor {
@@ -928,10 +932,10 @@ impl Renderer {
 
     /// Increment before [RenderOperation::Clip] and decrement again before [RenderOperation::UnClip].
     pub fn set_clip_depth(&self, render_pass: &mut wgpu::RenderPass, clip_depth: usize) -> Result<(), Error> {
-        if clip_depth >= (1 << self.clip_nesting_counter_bits) {
+        if clip_depth >= (1 << self.config.clip_nesting_counter_bits) {
             return Err(Error::ClipStackOverflow);
         }
-        render_pass.set_stencil_reference((clip_depth << self.winding_counter_bits) as u32);
+        render_pass.set_stencil_reference((clip_depth << self.config.winding_counter_bits) as u32);
         Ok(())
     }
 
@@ -942,7 +946,7 @@ impl Renderer {
         depth_stencil_texture_view: &'a wgpu::TextureView,
         alpha_layer: usize,
     ) -> Result<wgpu::RenderPass, Error> {
-        if alpha_layer >= self.alpha_layer_count {
+        if alpha_layer >= self.config.alpha_layer_count {
             return Err(Error::TooManyNestedOpacityGroups);
         }
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -973,7 +977,7 @@ impl Renderer {
 
     /// Call before [RenderOperation::RestoreAlphaContext].
     pub fn restore_alpha_context<'a, 'b: 'a>(&'b self, render_pass: &mut wgpu::RenderPass<'a>, alpha_layer: usize) -> Result<(), Error> {
-        if alpha_layer >= self.alpha_layer_count {
+        if alpha_layer >= self.config.alpha_layer_count {
             return Err(Error::TooManyNestedOpacityGroups);
         }
         render_pass.set_bind_group(0, &self.restore_alpha_context_cover_bind_groups[alpha_layer], &[]);

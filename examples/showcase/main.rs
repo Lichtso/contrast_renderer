@@ -24,33 +24,34 @@ struct Application {
 
 impl application_framework::Application for Application {
     fn new(device: &wgpu::Device, _queue: &mut wgpu::Queue, surface_configuration: &wgpu::SurfaceConfiguration) -> Self {
-        let blending = wgpu::ColorTargetState {
-            format: surface_configuration.format,
-            blend: Some(wgpu::BlendState {
-                color: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::One,
-                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                    operation: wgpu::BlendOperation::Add,
-                },
-                alpha: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::One,
-                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                    operation: wgpu::BlendOperation::Add,
-                },
-            }),
-            write_mask: wgpu::ColorWrites::ALL,
-        };
         let renderer = contrast_renderer::renderer::Renderer::new(
             &device,
-            blending,
-            Some(wgpu::Face::Back),
-            wgpu::CompareFunction::LessEqual,
-            true,
-            true,
-            MSAA_SAMPLE_COUNT,
-            4,
-            4,
-            0,
+            contrast_renderer::renderer::Configuration {
+                blending: wgpu::ColorTargetState {
+                    format: surface_configuration.format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                },
+                cull_mode: Some(wgpu::Face::Back),
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: true,
+                color_attachment_in_stencil_pass: true,
+                msaa_sample_count: MSAA_SAMPLE_COUNT,
+                clip_nesting_counter_bits: 4,
+                winding_counter_bits: 4,
+                alpha_layer_count: 0,
+            },
         )
         .unwrap();
 
