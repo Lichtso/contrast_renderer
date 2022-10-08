@@ -119,7 +119,7 @@ impl application_framework::Application for Application {
             mip_level_count: 1,
             sample_count: MSAA_SAMPLE_COUNT,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            format: wgpu::TextureFormat::Depth32FloatStencil8,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             label: None,
         };

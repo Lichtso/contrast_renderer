@@ -137,7 +137,7 @@ impl ApplicationManager {
         let adapter_info = adapter.get_info();
         log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
-        let required_features = wgpu::Features::default();
+        let required_features = wgpu::Features::default() | wgpu::Features::DEPTH32FLOAT_STENCIL8;
         let needed_limits = wgpu::Limits { ..wgpu::Limits::default() };
         let adapter_features = adapter.features();
         assert!(
@@ -174,7 +174,8 @@ impl ApplicationManager {
             format: wgpu::TextureFormat::Bgra8Unorm, // self.surface.get_supported_formats(&self.adapter)[0],
             width: self.size.width,
             height: self.size.height,
-            present_mode: wgpu::PresentMode::Fifo, // self.surface.get_supported_modes(&self.adapter)[0],
+            present_mode: wgpu::PresentMode::Fifo, // self.surface.get_supported_present_modes(&self.adapter)[0],
+            alpha_mode: wgpu::CompositeAlphaMode::Opaque, // self.surface.get_supported_alpha_modes(&adapter)[0],
         }
     }
 

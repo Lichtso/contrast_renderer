@@ -421,7 +421,7 @@ macro_rules! render_pipeline_descriptor {
                 polygon_mode: wgpu::PolygonMode::Fill,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24PlusStencil8,
+                format: wgpu::TextureFormat::Depth32FloatStencil8,
                 depth_write_enabled: $depth_write_enabled,
                 depth_compare: $depth_compare,
                 bias: wgpu::DepthBiasState::default(),
