@@ -570,9 +570,9 @@ dependencies = [
 
 [[package]]
 name = "geometric_algebra"
-version = "0.1.3"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "608292caf993ebfc5e1415bbb5be2d4cb045a59b98e89e3c097e4c231663f879"
+checksum = "55a8256fe49faf88fcff5ba241599f902e9b2a9322d1460648f279f6dbccdff8"
 
 [[package]]
 name = "getrandom"

@@ -186,42 +186,36 @@ implement!(f64, 4);
 
 impl std::convert::From<SafeFloat<f32, 3>> for ppga2d::Point {
     fn from(safe_float: SafeFloat<f32, 3>) -> Self {
-        Self {
-            g0: safe_float.unwrap().into(),
-        }
+        Self::from(safe_float.unwrap())
     }
 }
 
 impl std::convert::From<ppga2d::Point> for SafeFloat<f32, 3> {
     fn from(point: ppga2d::Point) -> Self {
-        [point.g0[0], point.g0[1], point.g0[2]].into()
+        [point[0], point[1], point[2]].into()
     }
 }
 
 impl std::convert::From<SafeFloat<f32, 4>> for ppga3d::Point {
     fn from(safe_float: SafeFloat<f32, 4>) -> Self {
-        Self {
-            g0: safe_float.unwrap().into(),
-        }
+        Self::from(safe_float.unwrap())
     }
 }
 
 impl std::convert::From<ppga3d::Point> for SafeFloat<f32, 4> {
     fn from(point: ppga3d::Point) -> Self {
-        [point.g0[0], point.g0[1], point.g0[2], point.g0[3]].into()
+        [point[0], point[1], point[2], point[3]].into()
     }
 }
 
 impl std::convert::From<SafeFloat<f32, 4>> for ppga2d::Motor {
     fn from(safe_float: SafeFloat<f32, 4>) -> Self {
-        Self {
-            g0: safe_float.unwrap().into(),
-        }
+        Self::from(safe_float.unwrap())
     }
 }
 
 impl std::convert::From<ppga2d::Motor> for SafeFloat<f32, 4> {
     fn from(motor: ppga2d::Motor) -> Self {
-        [motor.g0[0], motor.g0[1], motor.g0[2], motor.g0[3]].into()
+        [motor[0], motor[1], motor[2], motor[3]].into()
     }
 }

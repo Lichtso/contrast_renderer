@@ -239,7 +239,7 @@ pub fn paths_of_text(face: &ttf_parser::Face, layout: &Layout, text: &str, clipp
         } else {
             continue;
         }
-        let scalator = ppga2d::Scalar { g0: scale };
+        let scalator = ppga2d::Scalar::new(scale);
         let motor = translate2d([x * scale, y * scale]);
         let mut paths = paths_of_glyph(face, glyph_id);
         for path in &mut paths {
@@ -267,8 +267,8 @@ pub fn half_extent_of_text(face: &ttf_parser::Face, layout: &Layout, text: &str)
 /// Calculates, from a geometric position, the placement of the cursor as character index in the text.
 pub fn index_of_char_at(face: &ttf_parser::Face, layout: &Layout, text: &str, cursor: ppga2d::Point) -> usize {
     let (_major_offset, _minor_offset, glyph_positions) = calculate_aligned_positions!(face, layout, text);
-    let scale = face.height() as f32 / (layout.size.unwrap() * cursor.g0[0]);
-    let cursor = [cursor.g0[1] * scale, cursor.g0[2] * scale];
+    let scale = face.height() as f32 / (layout.size.unwrap() * cursor[0]);
+    let cursor = [cursor[1] * scale, cursor[2] * scale];
     match glyph_positions.binary_search_by(|([x, _y], glyph_id)| {
         (x + face.glyph_hor_advance(*glyph_id).unwrap_or(0) as f32 * 0.5)
             .partial_cmp(&cursor[0])

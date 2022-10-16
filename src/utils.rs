@@ -66,24 +66,16 @@ pub fn transmute_slice_mut<S, T>(slice: &mut [S]) -> &mut [T] {
 /// Returns the intersection point of two 2D lines (origin, direction).
 pub fn line_line_intersection(a: ppga2d::Plane, b: ppga2d::Plane) -> ppga2d::Point {
     let p = a.outer_product(b);
-    p / ppga2d::Scalar { g0: p.g0[0] }
+    p / ppga2d::Scalar::new(p[0])
 }
 
 /// Converts a axis aligned bounding box into 4 vertices.
 pub fn aabb_to_convex_polygon(bounding_box: &[f32; 4]) -> [ppga2d::Point; 4] {
     [
-        ppga2d::Point {
-            g0: [1.0, bounding_box[0], bounding_box[1]].into(),
-        },
-        ppga2d::Point {
-            g0: [1.0, bounding_box[0], bounding_box[3]].into(),
-        },
-        ppga2d::Point {
-            g0: [1.0, bounding_box[2], bounding_box[3]].into(),
-        },
-        ppga2d::Point {
-            g0: [1.0, bounding_box[2], bounding_box[1]].into(),
-        },
+        ppga2d::Point::new(1.0, bounding_box[0], bounding_box[1]),
+        ppga2d::Point::new(1.0, bounding_box[0], bounding_box[3]),
+        ppga2d::Point::new(1.0, bounding_box[2], bounding_box[3]),
+        ppga2d::Point::new(1.0, bounding_box[2], bounding_box[1]),
     ]
 }
 
@@ -95,7 +87,7 @@ pub fn do_convex_polygons_overlap(a: &[ppga2d::Point], b: &[ppga2d::Point]) -> b
         'outer: for index in 0..a.len() {
             let plane = a[(index + 1) % a.len()].regressive_product(a[index]);
             for point in b {
-                if point.regressive_product(plane).g0 <= 0.0 {
+                if point.regressive_product(plane)[0] <= 0.0 {
                     continue 'outer;
                 }
             }
@@ -107,73 +99,55 @@ pub fn do_convex_polygons_overlap(a: &[ppga2d::Point], b: &[ppga2d::Point]) -> b
 
 /// Rotates a [ppga2d::Plane] 90° clockwise.
 pub fn rotate_90_degree_clockwise(v: ppga2d::Plane) -> ppga2d::Plane {
-    ppga2d::Plane {
-        g0: [0.0, v.g0[2], -v.g0[1]].into(),
-    }
+    ppga2d::Plane::new(0.0, v[2], -v[1])
 }
 
 /// Projects a [ppga2d::Point].
 pub fn point_to_vec(p: ppga2d::Point) -> [f32; 2] {
-    [p.g0[1] / p.g0[0], p.g0[2] / p.g0[0]]
+    [p[1] / p[0], p[2] / p[0]]
 }
 
 /// Creates an unweighted [ppga2d::Point].
 pub fn vec_to_point(v: [f32; 2]) -> ppga2d::Point {
-    ppga2d::Point {
-        g0: [1.0, v[0], v[1]].into(),
-    }
+    ppga2d::Point::new(1.0, v[0], v[1])
 }
 
 /// Creates a weighted [ppga2d::Point].
 pub fn weighted_vec_to_point(w: f32, v: [f32; 2]) -> ppga2d::Point {
-    ppga2d::Point {
-        g0: [w, v[0] * w, v[1] * w].into(),
-    }
+    ppga2d::Point::new(w, v[0] * w, v[1] * w)
 }
 
 /// Creates a [ppga2d::Motor] from an angle in radians.
 pub fn rotate2d(mut angle: f32) -> ppga2d::Motor {
     angle *= 0.5;
-    ppga2d::Motor {
-        g0: [angle.cos(), angle.sin(), 0.0, 0.0].into(),
-    }
+    ppga2d::Motor::new(angle.cos(), angle.sin(), 0.0, 0.0)
 }
 
 /// Creates a [ppga2d::Motor] from a vector.
 pub fn translate2d(v: [f32; 2]) -> ppga2d::Motor {
-    ppga2d::Motor {
-        g0: [1.0, 0.0, -0.5 * v[1], 0.5 * v[0]].into(),
-    }
+    ppga2d::Motor::new(1.0, 0.0, -0.5 * v[1], 0.5 * v[0])
 }
 
 /// Returns the rotation angle in radians of the given [ppga2d::Motor].
 pub fn rotation2d(motor: ppga2d::Motor) -> f32 {
-    2.0 * motor.g0[1].atan2(motor.g0[0])
+    2.0 * motor[1].atan2(motor[0])
 }
 
 /// Returns the translation of the given [ppga2d::Motor].
 pub fn translation2d(mut motor: ppga2d::Motor) -> [f32; 2] {
-    motor = motor
-        / ppga2d::Rotor {
-            g0: [motor.g0[0], motor.g0[1]].into(),
-        };
-    [2.0 * motor.g0[3], -2.0 * motor.g0[2]]
+    motor = motor / ppga2d::Rotor::new(motor[0], motor[1]);
+    [2.0 * motor[3], -2.0 * motor[2]]
 }
 
 /// Creates a [ppga3d::Rotor] which represents a rotation by `angle` radians around `axis`.
 pub fn rotate_around_axis(angle: f32, axis: &[f32; 3]) -> ppga3d::Rotor {
     let sinus = (angle * 0.5).sin();
-    ppga3d::Rotor {
-        g0: [(angle * 0.5).cos(), axis[0] * sinus, axis[1] * sinus, axis[2] * sinus].into(),
-    }
+    ppga3d::Rotor::new((angle * 0.5).cos(), axis[0] * sinus, axis[1] * sinus, axis[2] * sinus)
 }
 
 /// Converts a [ppga2d::Motor] to a [ppga3d::Motor].
 pub fn motor2d_to_motor3d(motor: &ppga2d::Motor) -> ppga3d::Motor {
-    ppga3d::Motor {
-        g0: [motor.g0[0], 0.0, 0.0, motor.g0[1]].into(),
-        g1: [0.0, -motor.g0[3], motor.g0[2], 0.0].into(),
-    }
+    ppga3d::Motor::new(motor[0], 0.0, 0.0, motor[1], 0.0, -motor[3], motor[2], 0.0)
 }
 
 /// Converts a [ppga2d::Motor] to a 3x3 matrix for WebGPU.
@@ -182,11 +156,9 @@ pub fn motor2d_to_mat3(motor: &ppga2d::Motor) -> [ppga2d::Point; 3] {
         .iter()
         .map(|index| {
             let mut point = ppga2d::Point::zero();
-            point.g0[*index] = 1.0;
+            point[*index] = 1.0;
             let row = motor.transformation(point);
-            ppga2d::Point {
-                g0: [row.g0[1], row.g0[2], row.g0[0]].into(),
-            }
+            ppga2d::Point::new(row[1], row[2], row[0])
         })
         .collect::<Vec<_>>();
     result.try_into().unwrap()
@@ -198,11 +170,9 @@ pub fn motor3d_to_mat4(motor: &ppga3d::Motor) -> [ppga3d::Point; 4] {
         .iter()
         .map(|index| {
             let mut point = ppga3d::Point::zero();
-            point.g0[*index] = 1.0;
+            point[*index] = 1.0;
             let row = motor.transformation(point);
-            ppga3d::Point {
-                g0: [row.g0[1], row.g0[2], row.g0[3], row.g0[0]].into(),
-            }
+            ppga3d::Point::new(row[1], row[2], row[3], row[0])
         })
         .collect::<Vec<_>>();
     result.try_into().unwrap()
@@ -213,18 +183,10 @@ pub fn perspective_projection(field_of_view_y: f32, aspect_ratio: f32, near: f32
     let height = 1.0 / (field_of_view_y * 0.5).tan();
     let denominator = 1.0 / (near - far);
     [
-        ppga3d::Point {
-            g0: [height / aspect_ratio, 0.0, 0.0, 0.0].into(),
-        },
-        ppga3d::Point {
-            g0: [0.0, height, 0.0, 0.0].into(),
-        },
-        ppga3d::Point {
-            g0: [0.0, 0.0, -far * denominator, 1.0].into(),
-        },
-        ppga3d::Point {
-            g0: [0.0, 0.0, near * far * denominator, 0.0].into(),
-        },
+        ppga3d::Point::new(height / aspect_ratio, 0.0, 0.0, 0.0),
+        ppga3d::Point::new(0.0, height, 0.0, 0.0),
+        ppga3d::Point::new(0.0, 0.0, -far * denominator, 1.0),
+        ppga3d::Point::new(0.0, 0.0, near * far * denominator, 0.0),
     ]
 }
 
@@ -232,10 +194,10 @@ pub fn perspective_projection(field_of_view_y: f32, aspect_ratio: f32, near: f32
 pub fn matrix_multiplication(a: &[ppga3d::Point; 4], b: &[ppga3d::Point; 4]) -> [ppga3d::Point; 4] {
     use ppga3d::Scalar;
     [
-        Scalar { g0: b[0].g0[0] } * a[0] + Scalar { g0: b[0].g0[1] } * a[1] + Scalar { g0: b[0].g0[2] } * a[2] + Scalar { g0: b[0].g0[3] } * a[3],
-        Scalar { g0: b[1].g0[0] } * a[0] + Scalar { g0: b[1].g0[1] } * a[1] + Scalar { g0: b[1].g0[2] } * a[2] + Scalar { g0: b[1].g0[3] } * a[3],
-        Scalar { g0: b[2].g0[0] } * a[0] + Scalar { g0: b[2].g0[1] } * a[1] + Scalar { g0: b[2].g0[2] } * a[2] + Scalar { g0: b[2].g0[3] } * a[3],
-        Scalar { g0: b[3].g0[0] } * a[0] + Scalar { g0: b[3].g0[1] } * a[1] + Scalar { g0: b[3].g0[2] } * a[2] + Scalar { g0: b[3].g0[3] } * a[3],
+        Scalar::new(b[0][0]) * a[0] + Scalar::new(b[0][1]) * a[1] + Scalar::new(b[0][2]) * a[2] + Scalar::new(b[0][3]) * a[3],
+        Scalar::new(b[1][0]) * a[0] + Scalar::new(b[1][1]) * a[1] + Scalar::new(b[1][2]) * a[2] + Scalar::new(b[1][3]) * a[3],
+        Scalar::new(b[2][0]) * a[0] + Scalar::new(b[2][1]) * a[1] + Scalar::new(b[2][2]) * a[2] + Scalar::new(b[2][3]) * a[3],
+        Scalar::new(b[3][0]) * a[0] + Scalar::new(b[3][1]) * a[1] + Scalar::new(b[3][2]) * a[2] + Scalar::new(b[3][3]) * a[3],
     ]
 }
 

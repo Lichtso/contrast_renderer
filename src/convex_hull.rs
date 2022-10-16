@@ -15,8 +15,7 @@ pub fn andrew(input_points: &[SafeFloat<f32, 2>]) -> Vec<[f32; 2]> {
         while hull.len() > 1
             && vec_to_point(hull[hull.len() - 2])
                 .regressive_product(vec_to_point(hull[hull.len() - 1]))
-                .regressive_product(vec_to_point(input_point.unwrap()))
-                .g0
+                .regressive_product(vec_to_point(input_point.unwrap()))[0]
                 <= ERROR_MARGIN
         {
             hull.pop();
@@ -29,8 +28,7 @@ pub fn andrew(input_points: &[SafeFloat<f32, 2>]) -> Vec<[f32; 2]> {
         while hull.len() > t
             && vec_to_point(hull[hull.len() - 2])
                 .regressive_product(vec_to_point(hull[hull.len() - 1]))
-                .regressive_product(vec_to_point(input_point.unwrap()))
-                .g0
+                .regressive_product(vec_to_point(input_point.unwrap()))[0]
                 <= ERROR_MARGIN
         {
             hull.pop();

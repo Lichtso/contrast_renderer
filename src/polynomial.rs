@@ -2,7 +2,7 @@
 
 #![allow(clippy::many_single_char_names)]
 use crate::error::ERROR_MARGIN;
-use geometric_algebra::{epga1d::*, Reversal, SquaredMagnitude};
+use geometric_algebra::{epga1d::*, Powf, Reversal, SquaredMagnitude};
 
 /// Represents a complex root as homogeneous coordinates
 #[derive(Debug, Clone, Copy)]

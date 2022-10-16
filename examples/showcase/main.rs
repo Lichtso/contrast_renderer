@@ -163,11 +163,7 @@ impl application_framework::Application for Application {
                 1.0,
                 1000.0,
             ),
-            &contrast_renderer::utils::motor3d_to_mat4(
-                &(Translator {
-                    g0: [1.0, 0.0, 0.0, -0.5 * self.view_distance].into(),
-                } * self.view_rotation),
-            ),
+            &contrast_renderer::utils::motor3d_to_mat4(&(Translator::new(1.0, 0.0, 0.0, -0.5 * self.view_distance) * self.view_rotation)),
         );
         const ROWS: usize = 9;
         const COLUMNS: usize = 5;
@@ -180,16 +176,16 @@ impl application_framework::Application for Application {
                 instances_transform.push(contrast_renderer::utils::matrix_multiplication(
                     &projection_matrix,
                     &contrast_renderer::utils::motor3d_to_mat4(
-                        &(Motor {
-                            g0: [1.0, 0.0, 0.0, 0.0].into(),
-                            g1: [
-                                0.0,
-                                (x as f32 + 0.5 - COLUMNS as f32 * 0.5) * 7.0,
-                                (y as f32 + 0.5 - ROWS as f32 * 0.5) * 3.0,
-                                -5.0,
-                            ]
-                            .into(),
-                        }),
+                        &(Motor::new(
+                            1.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            (x as f32 + 0.5 - COLUMNS as f32 * 0.5) * 7.0,
+                            (y as f32 + 0.5 - ROWS as f32 * 0.5) * 3.0,
+                            -5.0,
+                        )),
                     ),
                 ));
                 let red = x as f32 / COLUMNS as f32;
