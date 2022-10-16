@@ -199,12 +199,11 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                     let numeric_value_range = match_option!(context.get_attribute("numeric_value_range"), Value::Float2)
                         .map(|value| value.unwrap())
                         .unwrap_or([0.0, 1.0]);
-                    let mut new_numeric_value = (absolute_position - pointer_start).g0[1 + axis] / half_extent[axis]
-                        * 0.5
-                        * (numeric_value_range[1] - numeric_value_range[0])
-                        + match_option!(context.get_attribute("previous_numeric_value"), Value::Float1)
-                            .unwrap()
-                            .unwrap();
+                    let mut new_numeric_value =
+                        (absolute_position - pointer_start)[1 + axis] / half_extent[axis] * 0.5 * (numeric_value_range[1] - numeric_value_range[0])
+                            + match_option!(context.get_attribute("previous_numeric_value"), Value::Float1)
+                                .unwrap()
+                                .unwrap();
                     if let Value::SnapClampFunction(snap_clamp_function) = context.get_attribute("snap_clamp_function") {
                         new_numeric_value = (snap_clamp_function.handler)(new_numeric_value, &numeric_value_range);
                     }

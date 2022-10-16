@@ -188,11 +188,11 @@ fn update_pointer_position(messenger: &mut Messenger, destination_node: &Node) -
     let changed_pointer = match_option!(*messenger.get_attribute("changed_pointer"), Value::InputChannel).unwrap();
     let input_state = match_option!(messenger.get_attribute_mut("input_state"), Value::InputState).unwrap();
     let mut relative_position: ppga2d::Point = (*input_state.absolute_positions.get(&changed_pointer).unwrap()).into();
-    relative_position.g0[1] *= absolute_scale;
-    relative_position.g0[2] *= absolute_scale;
+    relative_position[1] *= absolute_scale;
+    relative_position[2] *= absolute_scale;
     relative_position = absolute_motor.transformation(relative_position);
     let half_extent = destination_node.get_half_extent(false).unwrap();
-    let is_inside_bounds = relative_position.g0[1].abs() <= half_extent[0] && relative_position.g0[2].abs() <= half_extent[1];
+    let is_inside_bounds = relative_position[1].abs() <= half_extent[0] && relative_position[2].abs() <= half_extent[1];
     input_state.is_inside_bounds.insert(changed_pointer, is_inside_bounds);
     input_state.relative_positions.insert(changed_pointer, relative_position.into());
     is_inside_bounds
@@ -481,18 +481,15 @@ impl WinitEventTranslator {
                 let input_state = self.input_sources.entry(input_source).or_insert_with(InputState::default);
                 input_state.relative_positions.clear();
                 input_state.is_inside_bounds.clear();
-                let current_position = ppga2d::Point {
-                    g0: [
-                        1.0,
-                        position.x as f32 - self.viewport_size.g0[1] * 0.5,
-                        self.viewport_size.g0[2] * 0.5 - position.y as f32,
-                    ]
-                    .into(),
-                };
+                let current_position = ppga2d::Point::new(
+                    1.0,
+                    position.x as f32 - self.viewport_size[1] * 0.5,
+                    self.viewport_size[2] * 0.5 - position.y as f32,
+                );
                 let previous_position: ppga2d::Point = self.mouse_positions.get(&device_id).cloned().unwrap_or(current_position);
                 self.mouse_positions.insert(device_id, current_position);
                 let delta = current_position - previous_position;
-                if delta.dual().squared_magnitude().g0 == 0.0 {
+                if delta.dual().squared_magnitude() == 0.0 {
                     return Vec::new();
                 }
                 let mut result = Vec::new();

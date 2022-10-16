@@ -81,8 +81,8 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     let mut content_motor: ppga2d::Motor = match_option!(context.get_attribute("previous_content_motor"), Value::Motor)
                         .unwrap()
                         .into();
-                    content_motor.g0[3 - orientation as usize] += if orientation == Orientation::Horizontal { -0.5 } else { 0.5 }
-                        * (absolute_position - pointer_start).g0[1 + orientation as usize]
+                    content_motor[3 - orientation as usize] += if orientation == Orientation::Horizontal { -0.5 } else { 0.5 }
+                        * (absolute_position - pointer_start)[1 + orientation as usize]
                         * movement_scale;
                     context.set_attribute("content_motor", Value::Motor(content_motor.into()));
                 }
@@ -157,9 +157,9 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     let scroll_bar_type = match_option!(context.get_attribute(name), Value::ScrollBarType).unwrap_or(ScrollBarType::Overflow);
                     let content_half_extent = content_half_extent[axis] * content_scale;
                     let max_translation = (content_half_extent - half_extent[axis]).max(0.0);
-                    let content_translation = (sign * -2.0 * content_motor.g0[3 - axis]).clamp(-max_translation, max_translation);
+                    let content_translation = (sign * -2.0 * content_motor[3 - axis]).clamp(-max_translation, max_translation);
                     if scroll_bar_type != ScrollBarType::Infinite {
-                        content_motor.g0[3 - axis] = sign * -0.5 * content_translation;
+                        content_motor[3 - axis] = sign * -0.5 * content_translation;
                     }
                     let content_ratio = if content_half_extent == 0.0 { 1.0 } else { 1.0 / content_half_extent };
                     let mut max_half_extent = half_extent[axis] - 4.0 * scroll_bar_half_width;
@@ -238,7 +238,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                         .map(|value| 1.0 / value.unwrap())
                         .unwrap_or(1.0);
                     let delta = absolute_position - pointer_start;
-                    content_motor = translate2d([delta.g0[1] * scale, delta.g0[2] * scale]) * content_motor;
+                    content_motor = translate2d([delta[1] * scale, delta[2] * scale]) * content_motor;
                     context.set_attribute("content_motor", Value::Motor(content_motor.into()));
                 }
                 Vec::new()
@@ -257,7 +257,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     .map(|value| -1.0 / value.unwrap())
                     .unwrap_or(-1.0);
                 let delta: ppga2d::Point = match_option!(context.get_attribute("delta"), Value::Float3).unwrap().into();
-                content_motor = translate2d([delta.g0[1] * scale, delta.g0[2] * scale]) * content_motor;
+                content_motor = translate2d([delta[1] * scale, delta[2] * scale]) * content_motor;
                 context.set_attribute("content_motor", Value::Motor(content_motor.into()));
                 Vec::new()
             } else {

@@ -853,12 +853,12 @@ impl NodeHierarchy {
                     .unwrap_or(1.0);
                 let motor3d = motor2d_to_motor3d(&motor);
                 let mut model_matrix = motor3d_to_mat4(&motor3d);
-                model_matrix[0].g0[0] *= scale;
-                model_matrix[1].g0[1] *= scale;
-                model_matrix[2].g0[2] *= scale;
-                model_matrix[3].g0[0] *= scale;
-                model_matrix[3].g0[1] *= scale;
-                model_matrix[3].g0[2] *= scale;
+                model_matrix[0][0] *= scale;
+                model_matrix[1][1] *= scale;
+                model_matrix[2][2] *= scale;
+                model_matrix[3][0] *= scale;
+                model_matrix[3][1] *= scale;
+                model_matrix[3][2] *= scale;
                 model_matrix
             });
         let model_projection_matrix = matrix_multiplication(&renderer.projection_matrix, &model_matrix);

@@ -361,11 +361,11 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                             context.inspect_child(&NodeOrObservableIdentifier::NamedAndIndexed("tab", child_index), |node: &Node| {
                                 let child_motor: ppga2d::Motor = match_option!(node.get_attribute("motor"), Value::Motor).unwrap().into();
                                 let half_extent = node.get_half_extent(false).unwrap()[major_axis];
-                                let mut boundary = child_motor.g0[3 - major_axis] * motor_factor;
+                                let mut boundary = child_motor[3 - major_axis] * motor_factor;
                                 if node.get_attribute("dormant") != Value::Boolean(true) {
                                     boundary -= half_extent + margin * 0.5;
                                 }
-                                let dist = relative_position.g0[1 + major_axis] - boundary;
+                                let dist = relative_position[1 + major_axis] - boundary;
                                 if dist.abs() < tabs_splitter_width * 0.5 {
                                     break_the_loop = dist < 0.0;
                                     splitter_index = Some(child_index - 1);
@@ -421,7 +421,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                     let prev_weight_sum = weights[splitter_index] + weights[splitter_index + 1];
                     let weight_to_redistribute = margin * 0.5 / half_extent[major_axis] * (1.0 - prev_weight_sum);
                     let lower_limit = if both_were_open { 0.0 } else { weight_to_redistribute };
-                    let diff = (absolute_position - pointer_start).g0[1 + major_axis] / half_extent[major_axis] * 0.5;
+                    let diff = (absolute_position - pointer_start)[1 + major_axis] / half_extent[major_axis] * 0.5;
                     // max-min-clamping won't work here because of floating point imprecision
                     let hit_lower_limit = diff <= lower_limit - weights[splitter_index];
                     let hit_upper_limit = diff >= weights[splitter_index + 1];
