@@ -267,9 +267,7 @@ impl application_framework::Application for Application {
     }
 
     fn resize(&mut self, device: &wgpu::Device, _queue: &mut wgpu::Queue, surface_configuration: &wgpu::SurfaceConfiguration) {
-        self.ui_event_translator.viewport_size = ppga2d::Point {
-            g0: [0.0, surface_configuration.width as f32, surface_configuration.height as f32].into(),
-        };
+        self.ui_event_translator.viewport_size = ppga2d::Point::new(0.0, surface_configuration.width as f32, surface_configuration.height as f32);
         self.viewport_size = wgpu::Extent3d {
             width: surface_configuration.width,
             height: surface_configuration.height,
@@ -317,12 +315,16 @@ impl application_framework::Application for Application {
                 1.0,
                 100000.0,
             ),
-            &contrast_renderer::utils::motor3d_to_mat4(
-                &(ppga3d::Motor {
-                    g0: [1.0, 0.0, 0.0, 0.0].into(),
-                    g1: [0.0, 0.0, 0.0, -0.25 * (self.viewport_size.height as f32)].into(),
-                }),
-            ),
+            &contrast_renderer::utils::motor3d_to_mat4(&ppga3d::Motor::new(
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                -0.25 * (self.viewport_size.height as f32),
+            )),
         );
         self.ui_node_hierarchy
             .prepare_rendering(&self.renderer, &mut self.ui_renderer, device, queue, animation_time);
