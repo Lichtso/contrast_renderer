@@ -134,6 +134,9 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 Vec::new()
             }
         }
+        "ScrollIntoView" => {
+            vec![messenger.clone()]
+        }
         "AdoptNode" => {
             let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
             context.add_child(NodeOrObservableIdentifier::Indexed(get_child_count(context)), content_node, true);
