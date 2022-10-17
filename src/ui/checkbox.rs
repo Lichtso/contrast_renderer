@@ -112,27 +112,24 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                         return context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
                         return vec![context.input_focus_parent_or_child(messenger, None)];
+                    } else {
+                        let is_checked = !match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
+                        context.set_attribute("is_checked", Value::Boolean(is_checked));
+                        if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {
+                            return vec![Messenger::new(
+                                &message::USER_INPUT,
+                                hash_map! {
+                                    "input_state" => messenger.get_attribute("input_state").clone(),
+                                    "input_source" => messenger.get_attribute("input_source").clone(),
+                                    "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
+                                    "value" => context.get_attribute("is_checked"),
+                                },
+                            )];
+                        }
                     }
                     Vec::new()
                 }
                 '←' | '→' | '↑' | '↓' => vec![context.redirect_input_focus_navigation_to_parent(messenger)],
-                '⏎' => {
-                    let is_checked = !match_option!(context.get_attribute("is_checked"), Value::Boolean).unwrap_or(false);
-                    context.set_attribute("is_checked", Value::Boolean(is_checked));
-                    if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {
-                        vec![Messenger::new(
-                            &message::USER_INPUT,
-                            hash_map! {
-                                "input_state" => messenger.get_attribute("input_state").clone(),
-                                "input_source" => messenger.get_attribute("input_source").clone(),
-                                "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
-                                "value" => context.get_attribute("is_checked"),
-                            },
-                        )]
-                    } else {
-                        Vec::new()
-                    }
-                }
                 _ => Vec::new(),
             }
         }

@@ -180,14 +180,12 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                         return context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
                         return vec![context.input_focus_parent_or_child(messenger, None)];
+                    } else {
+                        context.touch_attribute("active");
                     }
                     Vec::new()
                 }
                 '←' | '→' | '↑' | '↓' => vec![context.redirect_input_focus_navigation_to_parent(messenger)],
-                '⏎' => {
-                    context.touch_attribute("active");
-                    Vec::new()
-                }
                 _ => Vec::new(),
             }
         }

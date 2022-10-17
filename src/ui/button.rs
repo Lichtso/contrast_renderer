@@ -107,25 +107,22 @@ pub fn button(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                         return context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
                         return vec![context.input_focus_parent_or_child(messenger, None)];
+                    } else {
+                        context.touch_attribute("active");
+                        if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {
+                            return vec![Messenger::new(
+                                &message::USER_INPUT,
+                                hash_map! {
+                                    "input_state" => messenger.get_attribute("input_state").clone(),
+                                    "input_source" => messenger.get_attribute("input_source").clone(),
+                                    "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
+                                },
+                            )];
+                        }
                     }
                     Vec::new()
                 }
                 '←' | '→' | '↑' | '↓' => vec![context.redirect_input_focus_navigation_to_parent(messenger)],
-                '⏎' => {
-                    context.touch_attribute("active");
-                    if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {
-                        vec![Messenger::new(
-                            &message::USER_INPUT,
-                            hash_map! {
-                                "input_state" => messenger.get_attribute("input_state").clone(),
-                                "input_source" => messenger.get_attribute("input_source").clone(),
-                                "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
-                            },
-                        )]
-                    } else {
-                        Vec::new()
-                    }
-                }
                 _ => Vec::new(),
             }
         }
