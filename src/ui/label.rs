@@ -72,7 +72,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             vec![update_rendering]
         }
         "Reconfigure" => {
-            if !context.was_attribute_touched(&["text_content", "cursor_a", "cursor_b", "text_interaction"]) {
+            if !context.was_attribute_touched(&["text_content", "cursor_a", "cursor_b", "observes", "input_source_entered"]) {
                 return Vec::new();
             }
             let text_font = match_option!(context.derive_attribute("font_face"), Value::TextFont).unwrap();
@@ -82,7 +82,6 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             let cursor_b = match_option!(context.get_attribute("cursor_b"), Value::Natural1).unwrap_or(0);
             let range = cursor_a.min(cursor_b)..cursor_a.max(cursor_b);
             let half_extent = half_extent_of_text(text_font.face(), &layout, &text_content);
-            let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
             context.set_attribute("proposed_half_extent", Value::Float2(half_extent));
             let selection_start_position =
                 half_extent_of_text(text_font.face(), &layout, &text_content.chars().take(range.start).collect::<String>()).unwrap()[0] * 2.0
@@ -98,9 +97,19 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     (selection_end_position - selection_start_position) * 0.5,
                 )
             };
+            let entered = if let Value::NodeOrObservableIdentifier(input_source) = context.get_attribute("input_source_entered") {
+                if !context.does_observe(&input_source) {
+                    context.set_attribute("input_source_entered", Value::Void);
+                    false
+                } else {
+                    true
+                }
+            } else {
+                false
+            };
             context.configure_child(
                 NodeOrObservableIdentifier::Named("selection"),
-                if text_interaction == TextInteraction::Editing || (text_interaction == TextInteraction::Selection && cursor_a != cursor_b) {
+                if entered {
                     Some(|node: &mut Node| {
                         node.set_messenger_handler(text_selection);
                         node.set_attribute("motor", Value::Motor(translate2d([selection_translation, 0.0]).into()));
@@ -130,6 +139,12 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     if *pressed {
                         context.set_attribute("cursor_a", Value::Natural1(index));
                         context.set_attribute("cursor_b", Value::Natural1(index));
+                        let input_source = match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap();
+                        let input_source = match_option!(input_source, NodeOrObservableIdentifier::PointerInput).unwrap();
+                        context.set_attribute(
+                            "input_source_entered",
+                            Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::ButtonInput(*input_source)),
+                        );
                     }
                     return context.pointer_and_button_input_focus(messenger);
                 } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
@@ -157,12 +172,35 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     if messenger.get_attribute("origin") != &Value::Void {
                         return context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
-                        return vec![context.input_focus_parent_or_child(messenger, None)];
+                        if &context.get_attribute("input_source_entered") == messenger.get_attribute("input_source") {
+                            context.set_attribute("input_source_entered", Value::Void);
+                            if text_interaction != TextInteraction::Editing {
+                                return Vec::new();
+                            }
+                            context.touch_attribute("text_content");
+                            if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {
+                                return vec![Messenger::new(
+                                    &message::USER_INPUT,
+                                    hash_map! {
+                                        "input_state" => messenger.get_attribute("input_state").clone(),
+                                        "input_source" => messenger.get_attribute("input_source").clone(),
+                                        "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
+                                        "value" => context.get_attribute("text_content"),
+                                    },
+                                )];
+                            }
+                        } else {
+                            return vec![context.input_focus_parent_or_child(messenger, None)];
+                        }
+                    } else {
+                        context.set_attribute("input_source_entered", messenger.get_attribute("input_source").clone());
                     }
                     Vec::new()
                 }
                 '←' | '→' | '↑' | '↓' => {
-                    if input_state.pressed_keycodes.contains(&'⇧') {
+                    if &context.get_attribute("input_source_entered") != messenger.get_attribute("input_source") {
+                        vec![context.redirect_input_focus_navigation_to_parent(messenger)]
+                    } else if input_state.pressed_keycodes.contains(&'⇧') {
                         cursor_a = match changed_keycode {
                             '←' if cursor_a > 0 => cursor_a - 1,
                             '→' if cursor_a < text_content.chars().count() => cursor_a + 1,
@@ -173,6 +211,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                             }
                         };
                         context.set_attribute("cursor_a", Value::Natural1(cursor_a));
+                        Vec::new()
                     } else {
                         cursor_a = match changed_keycode {
                             '←' if range.start > 0 && range.start == range.end => range.start - 1,
@@ -188,33 +227,13 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                         cursor_b = cursor_a;
                         context.set_attribute("cursor_a", Value::Natural1(cursor_a));
                         context.set_attribute("cursor_b", Value::Natural1(cursor_b));
-                    }
-                    Vec::new()
-                }
-                '⌥' | '⎈' | '⇧' | '⌘' => Vec::new(),
-                '⏎' => {
-                    if text_interaction != TextInteraction::Editing {
-                        return Vec::new();
-                    }
-                    context.touch_attribute("text_content");
-                    if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {
-                        vec![Messenger::new(
-                            &message::USER_INPUT,
-                            hash_map! {
-                                "input_state" => messenger.get_attribute("input_state").clone(),
-                                "input_source" => messenger.get_attribute("input_source").clone(),
-                                "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
-                                "value" => context.get_attribute("text_content"),
-                            },
-                        )]
-                    } else {
                         Vec::new()
                     }
                 }
-                _ => {
-                    if text_interaction != TextInteraction::Editing {
-                        return Vec::new();
-                    }
+                '⌥' | '⎈' | '⇧' | '⌘' => Vec::new(),
+                _ if text_interaction == TextInteraction::Editing
+                    && &context.get_attribute("input_source_entered") == messenger.get_attribute("input_source") =>
+                {
                     if changed_keycode == '⌫' {
                         if range.start == range.end && range.start > 0 {
                             cursor_a = range.start - 1;
@@ -261,6 +280,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                     context.set_attribute("cursor_b", Value::Natural1(cursor_b));
                     Vec::new()
                 }
+                _ => Vec::new(),
             }
         }
         _ => Vec::new(),
