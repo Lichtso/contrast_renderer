@@ -228,13 +228,12 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                         return context.pointer_and_button_input_focus(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
                         return vec![context.input_focus_parent_or_child(messenger, None)];
+                    } else if match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false) {
+                        return toggle_overlay(context, messenger);
                     }
                     Vec::new()
                 }
                 '←' | '→' | '↑' | '↓' => vec![context.redirect_input_focus_navigation_to_parent(messenger)],
-                '⏎' if match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false) => {
-                    toggle_overlay(context, messenger)
-                }
                 _ => Vec::new(),
             }
         }
