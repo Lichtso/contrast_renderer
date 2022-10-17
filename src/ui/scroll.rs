@@ -72,7 +72,9 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     } else {
                         context.set_attribute("pointer_start", Value::Void);
                     }
-                    return context.pointer_and_button_input_focus(messenger);
+                    let mut messengers = context.pointer_and_button_input_focus(messenger);
+                    messengers.pop();
+                    return messengers;
                 } else if context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()) {
                     let absolute_position: ppga2d::Point = (*input_state.absolute_positions.get(&0).unwrap()).into();
                     let pointer_start: ppga2d::Point = match_option!(context.get_attribute("pointer_start"), Value::Float3).unwrap().into();
@@ -208,6 +210,20 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 context.set_attribute("content_motor", Value::Motor(content_motor.into()));
             }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
+            Vec::new()
+        }
+        "ScrollIntoView" => {
+            let own_absolute_motor: ppga2d::Motor = match_option!(context.get_attribute("absolute_motor"), Value::Motor).unwrap().into();
+            // let own_absolute_scale = match_option!(context.get_attribute("absolute_scale"), Value::Float1).unwrap().unwrap();
+            // let own_half_extent = context.get_half_extent(false);
+            let target_absolute_motor: ppga2d::Motor = (*match_option!(messenger.get_attribute("absolute_motor"), Value::Motor).unwrap()).into();
+            // let target_absolute_scale = match_option!(messenger.get_attribute("absolute_scale"), Value::Float1).unwrap().unwrap();
+            // let target_half_extent = match_option!(messenger.get_attribute("half_extent"), Value::Float2).unwrap().unwrap();
+            let content_motor: ppga2d::Motor = match_option!(context.get_attribute("content_motor"), Value::Motor).unwrap().into();
+            let mut relative_motor = own_absolute_motor / target_absolute_motor;
+            relative_motor[0] = 1.0;
+            relative_motor[1] = 0.0;
+            context.set_attribute("content_motor", Value::Motor((content_motor * relative_motor).into()));
             Vec::new()
         }
         "AdoptNode" => {

@@ -220,8 +220,8 @@ pub const POINTER_INPUT: MessengerBehavior = MessengerBehavior {
 };
 
 /// Sets a scroll nodes content motor
-pub const SCROLL_TO: MessengerBehavior = MessengerBehavior {
-    label: "ScrollTo",
+pub const SCROLL_INTO_VIEW: MessengerBehavior = MessengerBehavior {
+    label: "ScrollIntoView",
     default_propagation_direction: PropagationDirection::Parent(0),
     get_captured_observable: GET_CAPTURED_OBSERVABLE,
     do_reflect: DO_REFLECT,

@@ -437,7 +437,15 @@ impl<'a> NodeMessengerContext<'a> {
             },
         );
         to_overlay_container.propagation_direction = PropagationDirection::Observers(NodeOrObservableIdentifier::Named("root"));
-        vec![to_overlay_container]
+        let to_parent = Messenger::new(
+            &message::SCROLL_INTO_VIEW,
+            hash_map! {
+                "absolute_motor" => self.get_attribute("absolute_motor"),
+                "absolute_scale" => self.get_attribute("absolute_scale"),
+                "half_extent" => Value::Float2(self.get_half_extent(false)),
+            },
+        );
+        vec![to_overlay_container, to_parent]
     }
 
     /// Helper send the focus to the parent [Node] or a child [Node]
