@@ -253,15 +253,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             Vec::new()
         }
         "PointerInput" => {
-            if messenger.propagation_direction != PropagationDirection::Parent(-1) {
-                return vec![messenger.clone()];
-            }
-            if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) {
-                if let Value::Boolean(_pressed) = messenger.get_attribute("pressed_or_released") {
-                    return context.pointer_and_button_input_focus(messenger);
-                }
-            }
-            Vec::new()
+            vec![messenger.clone()]
         }
         "ButtonInput" => {
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
@@ -271,9 +263,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             }
             match changed_keycode {
                 '⇥' => {
-                    if messenger.get_attribute("origin") != &Value::Void {
-                        context.pointer_and_button_input_focus(messenger)
-                    } else if input_state.pressed_keycodes.contains(&'⇧') {
+                    if input_state.pressed_keycodes.contains(&'⇧') {
                         vec![Messenger::new(
                             &message::CLOSE_OVERLAY,
                             hash_map! {
