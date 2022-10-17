@@ -247,6 +247,9 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }
+        "ScrollIntoView" => {
+            vec![messenger.clone()]
+        }
         "AdoptNode" => {
             let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
             context.add_child(NodeOrObservableIdentifier::Named("content"), content_node, true);
