@@ -91,7 +91,7 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             }
             Vec::new()
         }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }
 
@@ -301,9 +301,6 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 _ => Vec::new(),
             }
         }
-        "UserInput" => {
-            vec![messenger.clone()]
-        }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }

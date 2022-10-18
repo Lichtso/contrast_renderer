@@ -126,6 +126,6 @@ pub fn button(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 _ => Vec::new(),
             }
         }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }

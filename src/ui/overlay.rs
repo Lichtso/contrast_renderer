@@ -247,16 +247,10 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }
-        "ScrollIntoView" => {
-            vec![messenger.clone()]
-        }
         "AdoptNode" => {
             let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
             context.add_child(NodeOrObservableIdentifier::Named("content"), content_node, true);
             Vec::new()
-        }
-        "PointerInput" => {
-            vec![messenger.clone()]
         }
         "ButtonInput" => {
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
@@ -297,10 +291,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             }
             messengers
         }
-        "UserInput" => {
-            vec![messenger.clone()]
-        }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }
 
@@ -405,7 +396,7 @@ pub fn navigation_cursor(context: &mut NodeMessengerContext, messenger: &Messeng
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }
 
@@ -541,9 +532,6 @@ pub fn overlay_container(context: &mut NodeMessengerContext, messenger: &Messeng
             }
             Vec::new()
         }
-        "PointerInput" => {
-            vec![messenger.clone()]
-        }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }

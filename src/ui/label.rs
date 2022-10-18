@@ -35,7 +35,7 @@ fn text_selection(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }
 
@@ -283,6 +283,6 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 _ => Vec::new(),
             }
         }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }

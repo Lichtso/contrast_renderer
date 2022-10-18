@@ -691,7 +691,7 @@ impl NodeHierarchy {
                 messenger.behavior.label, messenger.source_node_id, messenger.propagation_direction
             );
             match messenger.propagation_direction {
-                PropagationDirection::None => panic!(),
+                PropagationDirection::None => {}
                 PropagationDirection::Itself => {
                     self.invoke_handler(messenger.source_node_id, &mut messenger);
                 }
@@ -900,7 +900,6 @@ impl NodeHierarchy {
         messenger.source_node_id = global_node_id;
         if !self.invoke_handler(global_node_id, &mut messenger) {
             let messenger = self.messenger_stack.pop().unwrap();
-            assert_eq!(messenger.behavior.label, "UpdateRendering");
             if let Value::Rendering(rendering) = messenger.get_attribute("rendering") {
                 let mut node = self.nodes.get(&global_node_id).unwrap().borrow_mut();
                 renderer.set_node_rendering(contrast_renderer, device, &mut node, rendering).unwrap();

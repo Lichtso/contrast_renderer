@@ -150,14 +150,12 @@ pub const BUTTON_INPUT: MessengerBehavior = MessengerBehavior {
     get_captured_observable: |messenger| Some(*match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap()),
     do_reflect: DO_REFLECT,
     update_at_node_edge: |messenger, _child_node, from_child_to_parent| {
-        if messenger.propagation_direction != PropagationDirection::None {
-            if let Some(local_id) = from_child_to_parent {
-                messenger.properties.insert("origin", Value::NodeOrObservableIdentifier(local_id));
-            } else {
-                messenger
-                    .properties
-                    .insert("origin", Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("parents")));
-            }
+        if let Some(local_id) = from_child_to_parent {
+            messenger.properties.insert("origin", Value::NodeOrObservableIdentifier(local_id));
+        } else if messenger.propagation_direction != PropagationDirection::None {
+            messenger
+                .properties
+                .insert("origin", Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("parents")));
         }
         (true, false)
     },
