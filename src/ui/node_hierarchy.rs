@@ -403,7 +403,13 @@ impl<'a> NodeMessengerContext<'a> {
             Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::PointerInput(input_source)) => input_source,
             _ => panic!(),
         };
+        self.configure_observe(NodeOrObservableIdentifier::AxisInput(input_source), true, true);
         self.configure_observe(NodeOrObservableIdentifier::ButtonInput(input_source), true, true);
+        if messenger.get_attribute("pressed_or_released") == &Value::Boolean(true) {
+            self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), true, true);
+        } else {
+            self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), false, false);
+        }
         let mut new_cursor = true;
         let mut cursor_node = None;
         if let Some(adopt_cursor) = match_option!(messenger.get_attribute("cursor").clone(), Value::Node) {
@@ -416,11 +422,6 @@ impl<'a> NodeMessengerContext<'a> {
             .is_some()
         {
             new_cursor = false;
-        }
-        if messenger.get_attribute("pressed_or_released") == &Value::Boolean(true) {
-            self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), true, true);
-        } else {
-            self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), false, false);
         }
         if new_cursor && matches!(messenger.get_attribute("input_state"), Value::InputState(_)) {
             let new_cursor_node = Node::new(navigation_cursor, hash_map! {});

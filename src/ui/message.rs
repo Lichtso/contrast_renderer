@@ -500,11 +500,11 @@ impl WinitEventTranslator {
             winit::event::WindowEvent::MouseWheel { device_id, delta, .. } => {
                 let input_source = *self.source_by_device.entry(device_id).or_insert(0);
                 let input_state = self.input_sources.entry(input_source).or_insert_with(InputState::default);
-                let (_delta_x, delta_y) = match delta {
+                let (delta_x, delta_y) = match delta {
                     winit::event::MouseScrollDelta::LineDelta(x, y) => (x, y),
                     winit::event::MouseScrollDelta::PixelDelta(delta) => (delta.x as f32, delta.y as f32),
                 };
-                // input_state.axes.insert(0, delta_x.into());
+                input_state.axes.insert(0, delta_x.into());
                 input_state.axes.insert(1, delta_y.into());
                 vec![Messenger::new(
                     &AXIS_INPUT,

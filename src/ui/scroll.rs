@@ -91,6 +91,19 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             }
             Vec::new()
         }
+        "AxisInput" => {
+            let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
+            let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Motor)
+                .map(|value| value.into())
+                .unwrap_or_else(ppga2d::Motor::one);
+            let movement_scale = match_option!(context.get_attribute("movement_scale"), Value::Float1).unwrap().unwrap();
+            content_motor = translate2d([
+                input_state.axes.get(&0).unwrap().unwrap() * movement_scale,
+                input_state.axes.get(&1).unwrap().unwrap() * movement_scale,
+            ]) * content_motor;
+            context.set_attribute("content_motor", Value::Motor(content_motor.into()));
+            Vec::new()
+        }
         _ => vec![messenger.clone()],
     }
 }
@@ -257,24 +270,6 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                     content_motor = translate2d([delta[1] * scale, delta[2] * scale]) * content_motor;
                     context.set_attribute("content_motor", Value::Motor(content_motor.into()));
                 }
-                Vec::new()
-            } else {
-                vec![messenger.clone()]
-            }
-        }
-        "AxisInput" => {
-            if match_option!(context.get_attribute("enable_stationary_scroll"), Value::Boolean).unwrap_or(false)
-                && !context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap())
-            {
-                let mut content_motor = match_option!(context.get_attribute("content_motor"), Value::Motor)
-                    .map(|value| value.into())
-                    .unwrap_or_else(ppga2d::Motor::one);
-                let scale = match_option!(context.get_attribute("content_scale"), Value::Float1)
-                    .map(|value| -1.0 / value.unwrap())
-                    .unwrap_or(-1.0);
-                let delta: ppga2d::Point = match_option!(context.get_attribute("delta"), Value::Float3).unwrap().into();
-                content_motor = translate2d([delta[1] * scale, delta[2] * scale]) * content_motor;
-                context.set_attribute("content_motor", Value::Motor(content_motor.into()));
                 Vec::new()
             } else {
                 vec![messenger.clone()]
