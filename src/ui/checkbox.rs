@@ -133,6 +133,6 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                 _ => Vec::new(),
             }
         }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }

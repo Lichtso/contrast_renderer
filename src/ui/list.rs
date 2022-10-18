@@ -134,16 +134,10 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 Vec::new()
             }
         }
-        "ScrollIntoView" => {
-            vec![messenger.clone()]
-        }
         "AdoptNode" => {
             let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
             context.add_child(NodeOrObservableIdentifier::Indexed(get_child_count(context)), content_node, true);
             Vec::new()
-        }
-        "PointerInput" => {
-            vec![messenger.clone()]
         }
         "ButtonInput" => {
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
@@ -198,6 +192,6 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
         "UserInput" => {
             vec![messenger.clone()]
         }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }
