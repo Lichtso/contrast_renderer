@@ -56,9 +56,6 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }
-        "ScrollIntoView" => {
-            vec![messenger.clone()]
-        }
         "AdoptNode" => {
             let content_node = match_option!(messenger.get_attribute("node"), Value::Node).unwrap().clone();
             context.add_child(NodeOrObservableIdentifier::Named("content"), content_node, true);
@@ -92,10 +89,7 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
                 _ => Vec::new(),
             }
         }
-        "UserInput" => {
-            vec![messenger.clone()]
-        }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }
 
@@ -189,7 +183,7 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 _ => Vec::new(),
             }
         }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }
 
@@ -325,9 +319,6 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                 );
             }
             Vec::new()
-        }
-        "ScrollIntoView" => {
-            vec![messenger.clone()]
         }
         "AdoptNode" => {
             let tab_index = get_tab_count(context);
@@ -554,9 +545,6 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                 Vec::new()
             }
         }
-        "UserInput" => {
-            vec![messenger.clone()]
-        }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }

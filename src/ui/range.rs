@@ -40,7 +40,7 @@ fn range_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }
 
@@ -246,6 +246,6 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 _ => Vec::new(),
             }
         }
-        _ => Vec::new(),
+        _ => vec![messenger.clone()],
     }
 }
