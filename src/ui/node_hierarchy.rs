@@ -531,6 +531,7 @@ impl PartialOrd for ReconfigurePriority {
 pub struct NodeHierarchy {
     next_node_id: GlobalNodeIdentifier,
     nodes: HashMap<GlobalNodeIdentifier, Rc<RefCell<Node>>>,
+    nodes_with_animations: HashSet<GlobalNodeIdentifier>,
     messenger_stack: Vec<Messenger>,
     reconfigure_queue: BinaryHeap<ReconfigurePriority>,
     observer_channels: HashMap<NodeOrObservableIdentifier, HashSet<GlobalNodeIdentifier>>,
@@ -672,11 +673,16 @@ impl NodeHierarchy {
     }
 
     fn invoke_handler(&mut self, global_node_id: GlobalNodeIdentifier, messenger: &mut Messenger) -> bool {
-        NodeMessengerContext {
+        let reflect = NodeMessengerContext {
             global_node_id,
             node_hierarchy: self,
         }
-        .invoke_handler(messenger)
+        .invoke_handler(messenger);
+        let node = self.nodes.get(&global_node_id).unwrap().borrow();
+        if !node.property_animations.is_empty() {
+            self.nodes_with_animations.insert(global_node_id);
+        }
+        reflect
     }
 
     /// Internally processes all outstanding [Messenger]s
@@ -977,12 +983,17 @@ impl NodeHierarchy {
         current_time: f64,
     ) {
         self.last_animation_time = current_time;
+        let mut nodes_with_animations = HashSet::new();
         for node in self.nodes.values() {
             let mut node = node.borrow_mut();
             if node.advance_property_animations(current_time) {
                 reconfigure_node!(self, node);
             }
+            if !node.property_animations.is_empty() {
+                nodes_with_animations.insert(node.global_id);
+            }
         }
+        self.nodes_with_animations = nodes_with_animations;
         self.process_messengers();
         renderer.reset_buffers();
         let roots = self.observer_channels.get(&NodeOrObservableIdentifier::Named("root")).unwrap().clone();
