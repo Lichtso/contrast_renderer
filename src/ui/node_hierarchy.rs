@@ -403,14 +403,20 @@ impl<'a> NodeMessengerContext<'a> {
             Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::PointerInput(input_source)) => input_source,
             _ => panic!(),
         };
-        self.configure_observe(NodeOrObservableIdentifier::AxisInput(input_source), true, true);
-        self.configure_observe(NodeOrObservableIdentifier::ButtonInput(input_source), true, true);
-        if messenger.get_attribute("pressed_or_released") == &Value::Boolean(true) {
-            self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), true, true);
-        } else {
-            self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), false, false);
+        match messenger.get_attribute("pressed_or_released") {
+            &Value::Boolean(true) => self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), true, true),
+            &Value::Boolean(false) => {
+                self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), false, false);
+                return Vec::new();
+            }
+            _ => {}
         }
-        let mut new_cursor = true;
+        let is_already_selected = self.does_observe(&NodeOrObservableIdentifier::ButtonInput(input_source));
+        if !is_already_selected {
+            self.configure_observe(NodeOrObservableIdentifier::ButtonInput(input_source), true, true);
+            self.configure_observe(NodeOrObservableIdentifier::AxisInput(input_source), true, true);
+        }
+        let mut new_cursor = !is_already_selected;
         let mut cursor_node = None;
         if let Some(adopt_cursor) = match_option!(messenger.get_attribute("cursor").clone(), Value::Node) {
             new_cursor = false;
@@ -421,32 +427,41 @@ impl<'a> NodeMessengerContext<'a> {
             .inspect_child(&NodeOrObservableIdentifier::Named("cursor"), |_node: &Node| ())
             .is_some()
         {
-            new_cursor = false;
+            assert!(!new_cursor);
         }
         if new_cursor && matches!(messenger.get_attribute("input_state"), Value::InputState(_)) {
             let new_cursor_node = Node::new(navigation_cursor, hash_map! {});
             self.add_child(NodeOrObservableIdentifier::Named("cursor"), new_cursor_node.clone(), false);
             cursor_node = Some(new_cursor_node);
         }
-        let mut to_overlay_container = Messenger::new(
-            &message::ADOPT_NODE,
-            hash_map! {
-                "new_cursor" => Value::Boolean(new_cursor),
-                "node" => if let Some(cursor_node) = cursor_node { Value::Node(cursor_node) } else { Value::Void },
-                "input_state" => messenger.get_attribute("input_state").clone(),
-                "input_source" => messenger.get_attribute("input_source").clone(),
-            },
-        );
-        to_overlay_container.propagation_direction = PropagationDirection::Observers(NodeOrObservableIdentifier::Named("root"));
-        let to_parent = Messenger::new(
+        let mut result = vec![Messenger::new(
             &message::SCROLL_INTO_VIEW,
             hash_map! {
                 "absolute_motor" => self.get_attribute("absolute_motor"),
                 "absolute_scale" => self.get_attribute("absolute_scale"),
                 "half_extent" => Value::Float2(self.get_half_extent(false)),
             },
-        );
-        vec![to_overlay_container, to_parent]
+        )];
+        if !is_already_selected {
+            let mut adopt_cursor = Messenger::new(
+                &message::ADOPT_NODE,
+                hash_map! {
+                    "new_cursor" => Value::Boolean(new_cursor),
+                    "node" => if let Some(cursor_node) = cursor_node { Value::Node(cursor_node) } else { Value::Void },
+                    "input_state" => messenger.get_attribute("input_state").clone(),
+                    "input_source" => messenger.get_attribute("input_source").clone(),
+                },
+            );
+            adopt_cursor.propagation_direction = PropagationDirection::Observers(NodeOrObservableIdentifier::Named("root"));
+            result.push(adopt_cursor);
+            result.push(Messenger::new(
+                &message::TRACE_OVERLAY,
+                hash_map! {
+                    "cursor_increment" => Value::Integer1(1),
+                },
+            ));
+        }
+        result
     }
 
     /// Helper send the focus to the parent [Node] or a child [Node]
@@ -659,6 +674,17 @@ impl NodeHierarchy {
                     node.observes.remove(&observable);
                     node.touched_attributes.insert("observes");
                     reconfigure_node!(self, node);
+                    // TODO: Move into node code
+                    if matches!(observable, NodeOrObservableIdentifier::ButtonInput(_)) {
+                        let mut trace_overlay = Messenger::new(
+                            &message::TRACE_OVERLAY,
+                            hash_map! {
+                                "cursor_increment" => Value::Integer1(-1),
+                            },
+                        );
+                        trace_overlay.source_node_id = *global_node_id;
+                        self.messenger_stack.push(trace_overlay);
+                    }
                 }
                 entry.remove_entry();
             }

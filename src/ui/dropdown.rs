@@ -21,15 +21,7 @@ fn toggle_overlay(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         .inspect_child(&NodeOrObservableIdentifier::Named("overlay"), |_node: &Node| ())
         .is_some()
     {
-        let mut to_overlay = Messenger::new(
-            &message::CLOSE_OVERLAY,
-            hash_map! {
-                "input_source" => messenger.get_attribute("input_source").clone(),
-                "input_state" => messenger.get_attribute("input_state").clone(),
-            },
-        );
-        to_overlay.propagation_direction = PropagationDirection::Child(NodeOrObservableIdentifier::Named("overlay"));
-        return vec![to_overlay];
+        return context.pointer_and_button_input_focus(messenger);
     }
     let options = match_option!(context.get_attribute("options"), Value::Vec).unwrap();
     let list_entries = options
@@ -201,14 +193,10 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             }
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
             if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) && *input_state.is_inside_bounds.get(&0).unwrap() {
-                if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
-                    let action = !*pressed
-                        && context.does_observe(match_option!(messenger.get_attribute("input_source"), Value::NodeOrObservableIdentifier).unwrap());
-                    let mut messengers = context.pointer_and_button_input_focus(messenger);
-                    if action {
-                        messengers.append(&mut toggle_overlay(context, messenger));
-                    }
-                    return messengers;
+                match messenger.get_attribute("pressed_or_released") {
+                    Value::Boolean(true) => return toggle_overlay(context, messenger),
+                    Value::Boolean(false) => return context.pointer_and_button_input_focus(messenger),
+                    _ => {}
                 }
             }
             Vec::new()
@@ -238,27 +226,21 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             let input_field_id = match_option!(messenger.get_attribute("input_field_id"), Value::NodeOrObservableIdentifier).unwrap();
             let option_index = match_option!(input_field_id, NodeOrObservableIdentifier::Indexed).unwrap();
             context.set_attribute("option_index", Value::Natural1(*option_index));
-            let mut result = Vec::new();
+            let mut result = context.pointer_and_button_input_focus(messenger);
             if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {
-                result.push(Messenger::new(
-                    &message::USER_INPUT,
-                    hash_map! {
-                        "input_state" => messenger.get_attribute("input_state").clone(),
-                        "input_source" => messenger.get_attribute("input_source").clone(),
-                        "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
-                        "value" => context.get_attribute("option_index"),
-                    },
-                ));
+                result.insert(
+                    0,
+                    Messenger::new(
+                        &message::USER_INPUT,
+                        hash_map! {
+                            "input_state" => messenger.get_attribute("input_state").clone(),
+                            "input_source" => messenger.get_attribute("input_source").clone(),
+                            "input_field_id" => Value::NodeOrObservableIdentifier(input_field_id),
+                            "value" => context.get_attribute("option_index"),
+                        },
+                    ),
+                );
             }
-            let mut to_overlay = Messenger::new(
-                &message::CLOSE_OVERLAY,
-                hash_map! {
-                    "input_source" => messenger.get_attribute("input_source").clone(),
-                    "input_state" => messenger.get_attribute("input_state").clone(),
-                },
-            );
-            to_overlay.propagation_direction = PropagationDirection::Child(NodeOrObservableIdentifier::Named("overlay"));
-            result.push(to_overlay);
             result
         }
         _ => vec![messenger.clone()],
