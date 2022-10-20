@@ -3,7 +3,7 @@ use crate::{
     hash_map, match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, LineSegment, Path, StrokeOptions},
     ui::{
-        message::{self, Messenger, PropagationDirection},
+        message::{self, Messenger},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering, Side,
@@ -179,7 +179,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             vec![update_rendering]
         }
         "Reconfigure" => {
-            let mut unaffected = !context.was_attribute_touched(&["parents", "child_count", "track_half_extent", "dormant_parent_count"]);
+            let mut unaffected = !context.was_attribute_touched(&["parents", "child_count", "track_half_extent"]);
             if let Value::Node(content_node) = context.get_attribute("content") {
                 context.add_child(NodeOrObservableIdentifier::Named("content"), content_node, true);
                 context.set_attribute("content", Value::Void);
@@ -192,9 +192,6 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                 .unwrap_or(false);
             if unaffected {
                 return Vec::new();
-            }
-            if match_option!(context.derive_attribute("dormant_parent_count"), Value::Natural1).unwrap_or(0) > 0 {
-                return vec![Messenger::new(&message::CLOSE_OVERLAY, hash_map! {})];
             }
             let mut half_extent = context.get_half_extent(false).unwrap();
             if let Some(content_half_extent) =
@@ -260,36 +257,32 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             }
             match changed_keycode {
                 '⇥' => {
-                    if input_state.pressed_keycodes.contains(&'⇧') {
-                        vec![Messenger::new(
-                            &message::CLOSE_OVERLAY,
-                            hash_map! {
-                                "input_source" => messenger.get_attribute("input_source").clone(),
-                                "input_state" => messenger.get_attribute("input_state").clone(),
-                            },
-                        )]
+                    let focus_child_id = if input_state.pressed_keycodes.contains(&'⇧') {
+                        None
                     } else {
-                        let focus_child_id = Some(NodeOrObservableIdentifier::Named("content"));
-                        vec![context.input_focus_parent_or_child(messenger, focus_child_id)]
-                    }
+                        Some(NodeOrObservableIdentifier::Named("content"))
+                    };
+                    vec![context.input_focus_parent_or_child(messenger, focus_child_id)]
                 }
                 _ => Vec::new(),
             }
         }
-        "CloseOverlay" => {
-            let mut to_overlay_container = Messenger::new(
-                &message::CLOSE_OVERLAY,
-                hash_map! {
-                    "input_source" => context.get_attribute("input_source"),
-                    "overlay_index" => context.get_attribute("overlay_index"),
-                },
-            );
-            to_overlay_container.propagation_direction = PropagationDirection::Observers(NodeOrObservableIdentifier::Named("root"));
-            let mut messengers = vec![to_overlay_container];
-            if matches!(messenger.get_attribute("input_state"), Value::InputState(_)) {
-                messengers.push(context.input_focus_parent_or_child(messenger, None));
+        "TraceOverlay" => {
+            let mut cursor_count = match_option!(context.get_attribute("cursor_count"), Value::Natural1).unwrap() as isize;
+            cursor_count += *match_option!(messenger.get_attribute("cursor_increment"), Value::Integer1).unwrap();
+            let mut result = Vec::new();
+            if cursor_count <= 0 {
+                result.push(Messenger::new(
+                    &message::CLOSE_OVERLAY,
+                    hash_map! {
+                        "overlay_id" => context.get_attribute("overlay_id"),
+                    },
+                ));
+            } else {
+                context.set_attribute("cursor_count", Value::Natural1(cursor_count as usize));
             }
-            messengers
+            result.push(messenger.clone());
+            result
         }
         _ => vec![messenger.clone()],
     }
@@ -361,7 +354,22 @@ pub fn navigation_cursor(context: &mut NodeMessengerContext, messenger: &Messeng
             vec![update_rendering]
         }
         "Reconfigure" => {
-            let mut unaffected = !context.was_attribute_touched(&["parents", "child_count", "track_half_extent"]);
+            let mut unaffected = !context.was_attribute_touched(&["parents", "child_count", "track_half_extent", "dormant_parent_count"]);
+            if match_option!(context.derive_attribute("dormant_parent_count"), Value::Natural1).unwrap_or(0) > 0 {
+                let overlay_id = context.get_attribute("overlay_id");
+                let input_source = match overlay_id {
+                    Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::NamedAndIndexed("cursor", input_source)) => input_source,
+                    _ => panic!(),
+                };
+                context.configure_observe(NodeOrObservableIdentifier::AxisInput(input_source), false, true);
+                context.configure_observe(NodeOrObservableIdentifier::ButtonInput(input_source), false, true);
+                return vec![Messenger::new(
+                    &message::CLOSE_OVERLAY,
+                    hash_map! {
+                        "overlay_id" => overlay_id,
+                    },
+                )];
+            }
             if let Value::Node(content_node) = context.get_attribute("content") {
                 context.add_child(NodeOrObservableIdentifier::Named("content"), content_node, true);
                 context.set_attribute("content", Value::Void);
@@ -415,19 +423,19 @@ impl LocalChildIdToLayerIndex {
         }
     }
 
-    fn input_source(&self) -> usize {
+    fn x(&self) -> usize {
         match self.local_child_id {
             NodeOrObservableIdentifier::Named("content") => 0,
-            NodeOrObservableIdentifier::Indexed2D(input_source, _overlay_index) => input_source,
+            NodeOrObservableIdentifier::Indexed2D(x, _y) => x,
             NodeOrObservableIdentifier::NamedAndIndexed("cursor", input_source) => input_source,
             _ => panic!(),
         }
     }
 
-    fn overlay_index(&self) -> usize {
+    fn y(&self) -> usize {
         match self.local_child_id {
             NodeOrObservableIdentifier::Named("content") => 0,
-            NodeOrObservableIdentifier::Indexed2D(_input_source, overlay_index) => overlay_index,
+            NodeOrObservableIdentifier::Indexed2D(_x, y) => y,
             NodeOrObservableIdentifier::NamedAndIndexed("cursor", _input_source) => 0,
             _ => panic!(),
         }
@@ -439,8 +447,8 @@ impl Ord for LocalChildIdToLayerIndex {
         other
             .category()
             .cmp(&self.category())
-            .then_with(|| other.input_source().cmp(&self.input_source()))
-            .then_with(|| other.overlay_index().cmp(&self.overlay_index()))
+            .then_with(|| other.x().cmp(&self.x()))
+            .then_with(|| other.y().cmp(&self.y()))
     }
 }
 
@@ -489,32 +497,37 @@ pub fn overlay_container(context: &mut NodeMessengerContext, messenger: &Messeng
             Vec::new()
         }
         "AdoptNode" => {
-            let input_source = *match messenger.get_attribute("input_source") {
-                Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::ButtonInput(input_source)) => input_source,
-                Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::AxisInput(input_source)) => input_source,
-                Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::PointerInput(input_source)) => input_source,
-                _ => panic!(),
-            };
             let overlay_node = match_option!(messenger.get_attribute("node"), Value::Node);
             let local_child_id = if let Some(new_cursor) = match_option!(messenger.get_attribute("new_cursor"), Value::Boolean) {
+                let input_source = *match messenger.get_attribute("input_source") {
+                    Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::ButtonInput(input_source)) => input_source,
+                    Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::AxisInput(input_source)) => input_source,
+                    Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::PointerInput(input_source)) => input_source,
+                    _ => panic!(),
+                };
+                let local_child_id = NodeOrObservableIdentifier::NamedAndIndexed("cursor", input_source);
                 if *new_cursor {
-                    context.remove_child(NodeOrObservableIdentifier::NamedAndIndexed("cursor", input_source), true);
+                    context.remove_child(local_child_id, true);
+                    let mut borrowed_node = overlay_node.as_ref().unwrap().borrow_mut();
+                    borrowed_node.set_attribute("overlay_id", Value::NodeOrObservableIdentifier(local_child_id));
+                    drop(borrowed_node);
                 }
-                NodeOrObservableIdentifier::NamedAndIndexed("cursor", input_source)
+                local_child_id
             } else {
                 let mut overlay_index = 0;
                 while context
-                    .inspect_child(&NodeOrObservableIdentifier::Indexed2D(input_source, overlay_index), |_node: &Node| ())
+                    .inspect_child(&NodeOrObservableIdentifier::Indexed2D(overlay_index, 0), |_node: &Node| ())
                     .is_some()
                 {
                     overlay_index += 1;
                 }
+                let local_child_id = NodeOrObservableIdentifier::Indexed2D(overlay_index, 0);
                 let mut borrowed_node = overlay_node.as_ref().unwrap().borrow_mut();
                 borrowed_node.set_attribute("track_node", Value::Natural1(messenger.get_source_node_id()));
-                borrowed_node.set_attribute("input_source", Value::Natural1(input_source));
-                borrowed_node.set_attribute("overlay_index", Value::Natural1(overlay_index));
+                borrowed_node.set_attribute("cursor_count", Value::Natural1(0));
+                borrowed_node.set_attribute("overlay_id", Value::NodeOrObservableIdentifier(local_child_id));
                 drop(borrowed_node);
-                NodeOrObservableIdentifier::Indexed2D(input_source, overlay_index)
+                local_child_id
             };
             if let Some(overlay_node) = overlay_node {
                 context.add_child(local_child_id, overlay_node.clone(), false);
@@ -522,14 +535,8 @@ pub fn overlay_container(context: &mut NodeMessengerContext, messenger: &Messeng
             Vec::new()
         }
         "CloseOverlay" => {
-            let input_source = *match_option!(messenger.get_attribute("input_source"), Value::Natural1).unwrap();
-            let mut overlay_index = *match_option!(messenger.get_attribute("overlay_index"), Value::Natural1).unwrap();
-            while context
-                .remove_child(NodeOrObservableIdentifier::Indexed2D(input_source, overlay_index), true)
-                .is_some()
-            {
-                overlay_index += 1;
-            }
+            let local_child_id = *match_option!(messenger.get_attribute("overlay_id"), Value::NodeOrObservableIdentifier).unwrap();
+            context.remove_child(local_child_id, true);
             Vec::new()
         }
         _ => vec![messenger.clone()],
