@@ -523,7 +523,6 @@ pub fn overlay_container(context: &mut NodeMessengerContext, messenger: &Messeng
                 }
                 let local_child_id = NodeOrObservableIdentifier::Indexed2D(overlay_index, 0);
                 let mut borrowed_node = overlay_node.as_ref().unwrap().borrow_mut();
-                borrowed_node.set_attribute("track_node", Value::Natural1(messenger.get_source_node_id()));
                 borrowed_node.set_attribute("cursor_count", Value::Natural1(0));
                 borrowed_node.set_attribute("overlay_id", Value::NodeOrObservableIdentifier(local_child_id));
                 drop(borrowed_node);
