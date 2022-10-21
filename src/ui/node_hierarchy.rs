@@ -169,20 +169,13 @@ impl<'a> NodeMessengerContext<'a> {
         self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().clone()
     }
 
-    /// Similar to [NodeMessengerContext::get_attribute] but falls back to the parents and eventually the [NodeHierarchy::theme_properties]
+    /// Similar to [NodeMessengerContext::get_attribute] but falls back to the the [NodeHierarchy::theme_properties]
     pub fn derive_attribute(&self, attribute: &'static str) -> Value {
-        let mut global_node_id = self.global_node_id;
-        loop {
-            let node = self.node_hierarchy.nodes.get(&global_node_id).unwrap().borrow();
-            if let Some(value) = node.properties.get(attribute) {
-                return value.clone();
-            }
-            if let Some((_local_child_id, global_parent_id, _touched_attributes)) = node.parents.last() {
-                global_node_id = *global_parent_id;
-            } else {
-                return self.node_hierarchy.theme_properties.get(attribute).cloned().unwrap_or(Value::Void);
-            }
+        let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
+        if let Some(value) = node.properties.get(attribute) {
+            return value.clone();
         }
+        return self.node_hierarchy.theme_properties.get(attribute).cloned().unwrap_or(Value::Void);
     }
 
     /// Returns true if the child node touched one of the given `attributes`
