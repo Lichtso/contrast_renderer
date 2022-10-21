@@ -187,7 +187,7 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
             }
             unaffected &= !context
                 .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
-                    context.was_attribute_of_child_touched(content, &["proposed_half_extent"])
+                    context.was_attribute_of_child_touched(content, &["proposed_half_width", "proposed_half_height"])
                 })
                 .unwrap_or(false);
             if unaffected {
@@ -204,7 +204,8 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
                     * 0.5;
                 half_extent[0] += padding;
                 half_extent[1] += padding;
-                context.set_attribute("proposed_half_extent", Value::Float2(half_extent.into()));
+                context.set_attribute("proposed_half_width", Value::Float1(half_extent[0].into()));
+                context.set_attribute("proposed_half_height", Value::Float1(half_extent[1].into()));
                 half_extent[0] -= padding;
                 half_extent[1] -= padding;
             }
@@ -385,7 +386,7 @@ pub fn navigation_cursor(context: &mut NodeMessengerContext, messenger: &Messeng
             }
             unaffected &= !context
                 .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
-                    context.was_attribute_of_child_touched(content, &["proposed_half_extent"])
+                    context.was_attribute_of_child_touched(content, &["proposed_half_width", "proposed_half_height"])
                 })
                 .unwrap_or(false);
             if unaffected {
@@ -395,7 +396,8 @@ pub fn navigation_cursor(context: &mut NodeMessengerContext, messenger: &Messeng
                 .unwrap()
                 .unwrap();
             let half_extent = [radius, radius];
-            context.set_attribute("proposed_half_extent", Value::Float2(half_extent.into()));
+            context.set_attribute("proposed_half_width", Value::Float1(half_extent[0].into()));
+            context.set_attribute("proposed_half_height", Value::Float1(half_extent[1].into()));
             let arrow_side = match_option!(context.derive_attribute("navigation_cursor_arrow_side"), Value::Side).unwrap();
             let arrow_extent = match_option!(context.derive_attribute("navigation_cursor_arrow_extent"), Value::Float1)
                 .unwrap()
@@ -475,16 +477,17 @@ pub fn overlay_container(context: &mut NodeMessengerContext, messenger: &Messeng
             let mut unaffected = !context.was_attribute_touched(&["child_count"]);
             unaffected &= !context
                 .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
-                    context.was_attribute_of_child_touched(content, &["proposed_half_extent"])
+                    context.was_attribute_of_child_touched(content, &["proposed_half_width", "proposed_half_height"])
                 })
                 .unwrap_or(false);
             if unaffected {
                 return Vec::new();
             }
-            if let Some(content_half_extent) =
-                context.inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| content.get_half_extent(true))
-            {
-                context.set_attribute("proposed_half_extent", Value::Float2(content_half_extent));
+            if let Some(content_half_extent) = context.inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
+                content.get_half_extent(true).unwrap()
+            }) {
+                context.set_attribute("proposed_half_width", Value::Float1(content_half_extent[0].into()));
+                context.set_attribute("proposed_half_height", Value::Float1(content_half_extent[1].into()));
             }
             let mut queue: BinaryHeap<LocalChildIdToLayerIndex> = BinaryHeap::new();
             context.iter_children(|local_child_id: &NodeOrObservableIdentifier, _node: &mut Node| {

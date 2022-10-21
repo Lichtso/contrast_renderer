@@ -433,14 +433,36 @@ impl Node {
         true
     }
 
-    /// Optionally gets "proposed_half_extent" first, and if it is not available returns "half_extent"
-    pub fn get_half_extent(&self, proposed: bool) -> SafeFloat<f32, 2> {
-        let proposed_half_extent = self.properties.get("proposed_half_extent");
-        let value = if proposed { proposed_half_extent } else { None };
-        value
-            .or_else(|| self.properties.get("half_extent"))
-            .or(proposed_half_extent)
-            .and_then(|value| match_option!(value, Value::Float2).cloned())
-            .unwrap_or_else(|| [0.0; 2].into())
+    /// Optionally gets "proposed_half_width" and "proposed_half_height" first. If it is not available returns "half_extent".
+    pub fn get_half_extent(&self, prioritize_proposed: bool) -> SafeFloat<f32, 2> {
+        let proposed_half_width = self
+            .properties
+            .get("proposed_half_width")
+            .and_then(|value| match_option!(value, Value::Float1))
+            .map(|safe_float| safe_float.unwrap());
+        let proposed_half_height = self
+            .properties
+            .get("proposed_half_height")
+            .and_then(|value| match_option!(value, Value::Float1))
+            .map(|safe_float| safe_float.unwrap());
+        let half_extent = self
+            .properties
+            .get("half_extent")
+            .and_then(|value| match_option!(value, Value::Float2))
+            .map(|safe_float| safe_float.unwrap());
+        let half_width = half_extent.map(|half_extent| half_extent[0]);
+        let half_height = half_extent.map(|half_extent| half_extent[1]);
+        if prioritize_proposed {
+            [
+                proposed_half_width.or(half_width).unwrap_or(0.0),
+                proposed_half_height.or(half_height).unwrap_or(0.0),
+            ]
+        } else {
+            [
+                half_width.or(proposed_half_width).unwrap_or(0.0),
+                half_height.or(proposed_half_height).unwrap_or(0.0),
+            ]
+        }
+        .into()
     }
 }
