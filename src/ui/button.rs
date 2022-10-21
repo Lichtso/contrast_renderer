@@ -38,7 +38,7 @@ pub fn button(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             }
             unaffected &= !context
                 .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
-                    context.was_attribute_of_child_touched(content, &["proposed_half_extent"])
+                    context.was_attribute_of_child_touched(content, &["proposed_half_width", "proposed_half_height"])
                 })
                 .unwrap_or(false);
             if unaffected {
@@ -54,7 +54,8 @@ pub fn button(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 half_extent[1] = content_half_extent[1] + padding[1];
                 content_half_extent[0] = half_extent[0] - padding[0];
                 content_half_extent[1] = half_extent[1] - padding[1];
-                context.set_attribute("proposed_half_extent", Value::Float2(half_extent.into()));
+                context.set_attribute("proposed_half_width", Value::Float1(half_extent[0].into()));
+                context.set_attribute("proposed_half_height", Value::Float1(half_extent[1].into()));
                 context.configure_child(
                     NodeOrObservableIdentifier::Named("content"),
                     Some(|node: &mut Node| {

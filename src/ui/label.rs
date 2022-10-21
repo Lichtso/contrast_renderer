@@ -81,17 +81,18 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             let cursor_a = match_option!(context.get_attribute("cursor_a"), Value::Natural1).unwrap_or(0);
             let cursor_b = match_option!(context.get_attribute("cursor_b"), Value::Natural1).unwrap_or(0);
             let range = cursor_a.min(cursor_b)..cursor_a.max(cursor_b);
-            let half_extent = half_extent_of_text(text_font.face(), &layout, &text_content);
-            context.set_attribute("proposed_half_extent", Value::Float2(half_extent));
+            let half_extent = half_extent_of_text(text_font.face(), &layout, &text_content).unwrap();
+            context.set_attribute("proposed_half_width", Value::Float1(half_extent[0].into()));
+            context.set_attribute("proposed_half_height", Value::Float1(half_extent[1].into()));
             let selection_start_position =
                 half_extent_of_text(text_font.face(), &layout, &text_content.chars().take(range.start).collect::<String>()).unwrap()[0] * 2.0
-                    - half_extent.unwrap()[0];
+                    - half_extent[0];
             let (selection_translation, selection_half_width) = if cursor_a == cursor_b {
                 (selection_start_position, layout.size.unwrap() * 0.03)
             } else {
                 let selection_end_position =
                     half_extent_of_text(text_font.face(), &layout, &text_content.chars().take(range.end).collect::<String>()).unwrap()[0] * 2.0
-                        - half_extent.unwrap()[0];
+                        - half_extent[0];
                 (
                     (selection_end_position + selection_start_position) * 0.5,
                     (selection_end_position - selection_start_position) * 0.5,

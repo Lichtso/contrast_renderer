@@ -64,7 +64,11 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             if !context.was_attribute_touched(&["is_checked"]) {
                 return Vec::new();
             }
-            context.set_attribute("proposed_half_extent", context.derive_attribute("ckeckbox_half_extent"));
+            let half_extent = match_option!(context.derive_attribute("ckeckbox_half_extent"), Value::Float2)
+                .unwrap()
+                .unwrap();
+            context.set_attribute("proposed_half_width", Value::Float1(half_extent[0].into()));
+            context.set_attribute("proposed_half_height", Value::Float1(half_extent[1].into()));
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }
