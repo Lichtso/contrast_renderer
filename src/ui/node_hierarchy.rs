@@ -164,6 +164,11 @@ impl<'a> NodeMessengerContext<'a> {
         reflect
     }
 
+    /// Returns the node itself
+    pub fn get_node(&self) -> Rc<RefCell<Node>> {
+        self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().clone()
+    }
+
     /// Similar to [NodeMessengerContext::get_attribute] but falls back to the parents and eventually the [NodeHierarchy::theme_properties]
     pub fn derive_attribute(&self, attribute: &'static str) -> Value {
         let mut global_node_id = self.global_node_id;
@@ -373,10 +378,7 @@ impl<'a> NodeMessengerContext<'a> {
     /// If `want` is `true` the observable is registered if it was not already.
     /// Otherwise, if `want` is `false` the observable is unregistered if it was not already.
     /// If `unsubscribe_others` is `true` all other obervers of the given `oberverables` are unregistered.
-    pub fn configure_observe(&mut self, observable: NodeOrObservableIdentifier, want: bool, unsubscribe_others: bool) {
-        if unsubscribe_others {
-            self.node_hierarchy.unsubscribe_observers(observable);
-        }
+    pub fn configure_observe(&mut self, observable: NodeOrObservableIdentifier, want: bool) {
         let mut node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow_mut();
         match node.observes.contains(&observable) {
             true if !want => {
@@ -403,18 +405,18 @@ impl<'a> NodeMessengerContext<'a> {
             Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::PointerInput(input_source)) => input_source,
             _ => panic!(),
         };
-        match messenger.get_attribute("pressed_or_released") {
-            &Value::Boolean(true) => self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), true, true),
-            &Value::Boolean(false) => {
-                self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), false, false);
+        match *messenger.get_attribute("pressed_or_released") {
+            Value::Boolean(true) => self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), true),
+            Value::Boolean(false) => {
+                self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), false);
                 return Vec::new();
             }
             _ => {}
         }
         let is_already_selected = self.does_observe(&NodeOrObservableIdentifier::ButtonInput(input_source));
         if !is_already_selected {
-            self.configure_observe(NodeOrObservableIdentifier::ButtonInput(input_source), true, true);
-            self.configure_observe(NodeOrObservableIdentifier::AxisInput(input_source), true, true);
+            self.configure_observe(NodeOrObservableIdentifier::ButtonInput(input_source), true);
+            self.configure_observe(NodeOrObservableIdentifier::AxisInput(input_source), true);
         }
         let mut new_cursor = !is_already_selected;
         let mut cursor_node = None;
@@ -434,15 +436,17 @@ impl<'a> NodeMessengerContext<'a> {
             self.add_child(NodeOrObservableIdentifier::Named("cursor"), new_cursor_node.clone(), false);
             cursor_node = Some(new_cursor_node);
         }
-        let mut result = vec![Messenger::new(
-            &message::SCROLL_INTO_VIEW,
-            hash_map! {
-                "absolute_motor" => self.get_attribute("absolute_motor"),
-                "absolute_scale" => self.get_attribute("absolute_scale"),
-                "half_extent" => Value::Float2(self.get_half_extent(false)),
-            },
-        )];
+        let mut result = Vec::new();
         if !is_already_selected {
+            let mut defocus = Messenger::new(
+                &message::DEFOCUS,
+                hash_map! {
+                    "except_node" => Value::Node(self.get_node()),
+                    "input_source" => messenger.get_attribute("input_source").clone(),
+                },
+            );
+            defocus.propagation_direction = PropagationDirection::Observers(NodeOrObservableIdentifier::ButtonInput(input_source));
+            result.push(defocus);
             let mut adopt_cursor = Messenger::new(
                 &message::ADOPT_NODE,
                 hash_map! {
@@ -461,7 +465,37 @@ impl<'a> NodeMessengerContext<'a> {
                 },
             ));
         }
+        result.push(Messenger::new(
+            &message::SCROLL_INTO_VIEW,
+            hash_map! {
+                "absolute_motor" => self.get_attribute("absolute_motor"),
+                "absolute_scale" => self.get_attribute("absolute_scale"),
+                "half_extent" => Value::Float2(self.get_half_extent(false)),
+            },
+        ));
         result
+    }
+
+    /// Helper send lose the focus as some other node gained it
+    pub fn input_defocus_self(&mut self, messenger: &Messenger) -> Vec<Messenger> {
+        if &Value::Node(self.get_node()) == messenger.get_attribute("except_node") {
+            return vec![];
+        }
+        let input_source = *match messenger.get_attribute("input_source") {
+            Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::ButtonInput(input_source)) => input_source,
+            Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::AxisInput(input_source)) => input_source,
+            Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::PointerInput(input_source)) => input_source,
+            _ => panic!(),
+        };
+        self.configure_observe(NodeOrObservableIdentifier::ButtonInput(input_source), false);
+        self.configure_observe(NodeOrObservableIdentifier::AxisInput(input_source), false);
+        self.configure_observe(NodeOrObservableIdentifier::PointerInput(input_source), false);
+        vec![Messenger::new(
+            &message::TRACE_OVERLAY,
+            hash_map! {
+                "cursor_increment" => Value::Integer1(-1),
+            },
+        )]
     }
 
     /// Helper send the focus to the parent [Node] or a child [Node]
@@ -660,33 +694,6 @@ impl NodeHierarchy {
                 if entry.get().is_empty() {
                     entry.remove_entry();
                 }
-            }
-            hash_map::Entry::Vacant(_entry) => {}
-        }
-    }
-
-    /// Unsubscribes all observers of the given observable
-    pub fn unsubscribe_observers(&mut self, observable: NodeOrObservableIdentifier) {
-        match self.observer_channels.entry(observable) {
-            hash_map::Entry::Occupied(entry) => {
-                for global_node_id in entry.get() {
-                    let mut node = self.nodes.get(global_node_id).unwrap().borrow_mut();
-                    node.observes.remove(&observable);
-                    node.touched_attributes.insert("observes");
-                    reconfigure_node!(self, node);
-                    // TODO: Move into node code
-                    if matches!(observable, NodeOrObservableIdentifier::ButtonInput(_)) {
-                        let mut trace_overlay = Messenger::new(
-                            &message::TRACE_OVERLAY,
-                            hash_map! {
-                                "cursor_increment" => Value::Integer1(-1),
-                            },
-                        );
-                        trace_overlay.source_node_id = *global_node_id;
-                        self.messenger_stack.push(trace_overlay);
-                    }
-                }
-                entry.remove_entry();
             }
             hash_map::Entry::Vacant(_entry) => {}
         }

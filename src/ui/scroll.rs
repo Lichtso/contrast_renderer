@@ -104,6 +104,7 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             context.set_attribute("content_motor", Value::Motor(content_motor.into()));
             Vec::new()
         }
+        "Defocus" => context.input_defocus_self(messenger),
         _ => vec![messenger.clone()],
     }
 }

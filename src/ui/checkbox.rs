@@ -133,6 +133,7 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                 _ => Vec::new(),
             }
         }
+        "Defocus" => context.input_defocus_self(messenger),
         _ => vec![messenger.clone()],
     }
 }

@@ -222,6 +222,7 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                 _ => Vec::new(),
             }
         }
+        "Defocus" => context.input_defocus_self(messenger),
         "UserInput" => {
             let input_field_id = match_option!(messenger.get_attribute("input_field_id"), Value::NodeOrObservableIdentifier).unwrap();
             let option_index = match_option!(input_field_id, NodeOrObservableIdentifier::Indexed).unwrap();

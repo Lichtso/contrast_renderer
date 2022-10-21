@@ -98,12 +98,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 )
             };
             let entered = if let Value::NodeOrObservableIdentifier(input_source) = context.get_attribute("input_source_entered") {
-                if !context.does_observe(&input_source) {
-                    context.set_attribute("input_source_entered", Value::Void);
-                    false
-                } else {
-                    true
-                }
+                context.does_observe(&input_source)
             } else {
                 false
             };
@@ -282,6 +277,12 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 }
                 _ => Vec::new(),
             }
+        }
+        "Defocus" => {
+            if &context.get_attribute("input_source_entered") == messenger.get_attribute("input_source") {
+                context.set_attribute("input_source_entered", Value::Void);
+            }
+            context.input_defocus_self(messenger)
         }
         _ => vec![messenger.clone()],
     }

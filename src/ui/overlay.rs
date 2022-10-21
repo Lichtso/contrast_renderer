@@ -3,7 +3,7 @@ use crate::{
     hash_map, match_option,
     path::{Cap, CurveApproximation, DynamicStrokeOptions, Join, LineSegment, Path, StrokeOptions},
     ui::{
-        message::{self, Messenger},
+        message::{self, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering, Side,
@@ -361,14 +361,22 @@ pub fn navigation_cursor(context: &mut NodeMessengerContext, messenger: &Messeng
                     Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::NamedAndIndexed("cursor", input_source)) => input_source,
                     _ => panic!(),
                 };
-                context.configure_observe(NodeOrObservableIdentifier::AxisInput(input_source), false, true);
-                context.configure_observe(NodeOrObservableIdentifier::ButtonInput(input_source), false, true);
-                return vec![Messenger::new(
-                    &message::CLOSE_OVERLAY,
+                let mut defocus = Messenger::new(
+                    &message::DEFOCUS,
                     hash_map! {
-                        "overlay_id" => overlay_id,
+                        "input_source" => Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::ButtonInput(input_source)),
                     },
-                )];
+                );
+                defocus.propagation_direction = PropagationDirection::Observers(NodeOrObservableIdentifier::ButtonInput(input_source));
+                return vec![
+                    defocus,
+                    Messenger::new(
+                        &message::CLOSE_OVERLAY,
+                        hash_map! {
+                            "overlay_id" => overlay_id,
+                        },
+                    ),
+                ];
             }
             if let Value::Node(content_node) = context.get_attribute("content") {
                 context.add_child(NodeOrObservableIdentifier::Named("content"), content_node, true);
