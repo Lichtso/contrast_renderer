@@ -396,7 +396,7 @@ impl<'a> NodeMessengerContext<'a> {
     }
 
     /// Helper to focus this [Node]
-    pub fn pointer_and_button_input_focus(&mut self, messenger: &Messenger) -> Vec<Messenger> {
+    pub fn input_focus_self(&mut self, messenger: &Messenger) -> Vec<Messenger> {
         let input_source = *match messenger.get_attribute("input_source") {
             Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::ButtonInput(input_source)) => input_source,
             Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::AxisInput(input_source)) => input_source,

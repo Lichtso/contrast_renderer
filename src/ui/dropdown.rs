@@ -21,7 +21,7 @@ fn toggle_overlay(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         .inspect_child(&NodeOrObservableIdentifier::Named("overlay"), |_node: &Node| ())
         .is_some()
     {
-        return context.pointer_and_button_input_focus(messenger);
+        return context.input_focus_self(messenger);
     }
     let options = match_option!(context.get_attribute("options"), Value::Vec).unwrap();
     let list_entries = options
@@ -195,7 +195,7 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) && *input_state.is_inside_bounds.get(&0).unwrap() {
                 match messenger.get_attribute("pressed_or_released") {
                     Value::Boolean(true) => return toggle_overlay(context, messenger),
-                    Value::Boolean(false) => return context.pointer_and_button_input_focus(messenger),
+                    Value::Boolean(false) => return context.input_focus_self(messenger),
                     _ => {}
                 }
             }
@@ -210,7 +210,7 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             match changed_keycode {
                 '⇥' => {
                     if messenger.get_attribute("origin") != &Value::Void {
-                        return context.pointer_and_button_input_focus(messenger);
+                        return context.input_focus_self(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
                         return vec![context.input_focus_parent_or_child(messenger, None)];
                     } else if match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false) {
@@ -226,7 +226,7 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             let input_field_id = match_option!(messenger.get_attribute("input_field_id"), Value::NodeOrObservableIdentifier).unwrap();
             let option_index = match_option!(input_field_id, NodeOrObservableIdentifier::Indexed).unwrap();
             context.set_attribute("option_index", Value::Natural1(*option_index));
-            let mut result = context.pointer_and_button_input_focus(messenger);
+            let mut result = context.input_focus_self(messenger);
             if let Value::NodeOrObservableIdentifier(input_field_id) = context.get_attribute("input_field_id") {
                 result.insert(
                     0,

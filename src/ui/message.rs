@@ -95,11 +95,6 @@ impl Messenger {
         self.behavior.label
     }
 
-    /// Returns the GlobalNodeIdentifier of the [Node] this [Messenger] came from
-    pub fn get_source_node_id(&self) -> GlobalNodeIdentifier {
-        self.source_node_id
-    }
-
     /// Gets a reference to the [Value] of the given `attribute`
     pub fn get_attribute(&self, attribute: &'static str) -> &Value {
         self.properties.get(attribute).unwrap_or(&Value::Void)
