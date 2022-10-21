@@ -126,6 +126,7 @@ pub fn button(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                 _ => Vec::new(),
             }
         }
+        "Defocus" => context.input_defocus_self(messenger),
         _ => vec![messenger.clone()],
     }
 }

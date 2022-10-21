@@ -89,6 +89,7 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
                 _ => Vec::new(),
             }
         }
+        "Defocus" => context.input_defocus_self(messenger),
         _ => vec![messenger.clone()],
     }
 }
@@ -183,6 +184,7 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 _ => Vec::new(),
             }
         }
+        "Defocus" => context.input_defocus_self(messenger),
         _ => vec![messenger.clone()],
     }
 }
@@ -545,6 +547,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                 Vec::new()
             }
         }
+        "Defocus" => context.input_defocus_self(messenger),
         _ => vec![messenger.clone()],
     }
 }
