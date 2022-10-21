@@ -95,7 +95,7 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                             ));
                         }
                     }
-                    messengers.append(&mut context.pointer_and_button_input_focus(messenger));
+                    messengers.append(&mut context.input_focus_self(messenger));
                 }
             }
             messengers
@@ -109,7 +109,7 @@ pub fn checkbox(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             match changed_keycode {
                 '⇥' => {
                     if messenger.get_attribute("origin") != &Value::Void {
-                        return context.pointer_and_button_input_focus(messenger);
+                        return context.input_focus_self(messenger);
                     } else if input_state.pressed_keycodes.contains(&'⇧') {
                         return vec![context.input_focus_parent_or_child(messenger, None)];
                     } else {
