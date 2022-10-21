@@ -246,6 +246,7 @@ pub fn range(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<M
                 _ => Vec::new(),
             }
         }
+        "Defocus" => context.input_defocus_self(messenger),
         _ => vec![messenger.clone()],
     }
 }
