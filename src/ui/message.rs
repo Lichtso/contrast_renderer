@@ -248,6 +248,15 @@ pub const TRACE_OVERLAY: MessengerBehavior = MessengerBehavior {
     update_at_node_edge: UPDATE_AT_NODE_EDGE,
 };
 
+/// Send to focused node to lose its focus
+pub const DEFOCUS: MessengerBehavior = MessengerBehavior {
+    label: "Defocus",
+    default_propagation_direction: PropagationDirection::Observers(NodeOrObservableIdentifier::Named("root")),
+    get_captured_observable: GET_CAPTURED_OBSERVABLE,
+    do_reflect: DO_REFLECT,
+    update_at_node_edge: UPDATE_AT_NODE_EDGE,
+};
+
 /// Send to parent to inform it that the user entered a value
 pub const USER_INPUT: MessengerBehavior = MessengerBehavior {
     label: "UserInput",
