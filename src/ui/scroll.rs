@@ -135,7 +135,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             }
             let mut content_motor = None;
             context.iter_children(|_local_child_id: &NodeOrObservableIdentifier, node: &mut Node| {
-                if context.was_attribute_of_child_touched(node, &["proposed_half_extent"]) {
+                if context.was_attribute_of_child_touched(node, &["proposed_half_width", "proposed_half_height"]) {
                     unaffected = false;
                 }
                 if context.was_attribute_of_child_touched(node, &["content_motor"]) {

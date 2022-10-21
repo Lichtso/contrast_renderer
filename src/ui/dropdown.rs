@@ -55,7 +55,8 @@ fn toggle_overlay(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             "list_margin" => context.derive_attribute("dropdown_overlay_list_marging"),
             "list_padding" => context.derive_attribute("dropdown_overlay_list_padding"),
             "list_minor_axis_alignment" => Value::Void,
-            "proposed_half_extent" => Value::Float2([0.0, 0.0].into()),
+            "proposed_half_width" => Value::Float1(0.0.into()),
+            "proposed_half_height" => Value::Float1(0.0.into()),
         },
     );
     let overlay_node = Node::new(
@@ -144,7 +145,7 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
             let mut unaffected = !context.was_attribute_touched(&["child_count", "options", "option_index", "half_extent"]);
             unaffected &= !context
                 .inspect_child(&NodeOrObservableIdentifier::Named("content"), |content| {
-                    context.was_attribute_of_child_touched(content, &["proposed_half_extent"])
+                    context.was_attribute_of_child_touched(content, &["proposed_half_width", "proposed_half_height"])
                 })
                 .unwrap_or(false);
             if unaffected {
@@ -181,7 +182,8 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
                     }),
                 );
             }
-            context.set_attribute("proposed_half_extent", Value::Float2(half_extent.into()));
+            context.set_attribute("proposed_half_width", Value::Float1(half_extent[0].into()));
+            context.set_attribute("proposed_half_height", Value::Float1(half_extent[1].into()));
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }

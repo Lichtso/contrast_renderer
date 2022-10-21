@@ -172,7 +172,8 @@ impl application_framework::Application for Application {
             Node::new(
                 contrast_renderer::ui::scroll::scroll,
                 hash_map! {
-                    "proposed_half_extent" => Value::Float2([150.0, 50.0].into()),
+                    "proposed_half_width" => Value::Float1(150.0.into()),
+                    "proposed_half_height" => Value::Float1(50.0.into()),
                     "content_motor" => Value::Motor([1.0, 0.0, 0.0, 0.0].into()),
                     "content_scale" => Value::Float1(1.0.into()),
                     "horizontal_bar" => Value::ScrollBarType(contrast_renderer::ui::ScrollBarType::Overflow),
@@ -186,7 +187,8 @@ impl application_framework::Application for Application {
             Node::new(
                 contrast_renderer::ui::list::list,
                 hash_map! {
-                    "proposed_half_extent" => Value::Float2([0.0, 0.0].into()),
+                    "proposed_half_width" => Value::Float1(0.0.into()),
+                    "proposed_half_height" => Value::Float1(0.0.into()),
                     "reverse" => Value::Boolean(false),
                     "orientation" => Value::Orientation(contrast_renderer::ui::Orientation::Vertical),
                     "list_minor_axis_alignment" => Value::Float1(0.0.into()),
@@ -211,7 +213,8 @@ impl application_framework::Application for Application {
             Node::new(
                 contrast_renderer::ui::range::range,
                 hash_map! {
-                    "proposed_half_extent" => Value::Float2([100.0, 40.0].into()),
+                    "proposed_half_width" => Value::Float1(100.0.into()),
+                    "proposed_half_height" => Value::Float1(40.0.into()),
                     "orientation" => Value::Orientation(contrast_renderer::ui::Orientation::Horizontal),
                     "numeric_value" => Value::Float1(0.5.into()),
                     "numeric_value_range" => Value::Float2([0.0, 1.0].into()),

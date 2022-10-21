@@ -142,7 +142,11 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             if !context.was_attribute_touched(&["half_extent", "weight"]) {
                 return Vec::new();
             }
-            context.set_attribute("proposed_half_extent", context.derive_attribute("tab_handle_half_extent"));
+            let half_extent = match_option!(context.derive_attribute("tab_handle_half_extent"), Value::Float2)
+                .unwrap()
+                .unwrap();
+            context.set_attribute("proposed_half_width", Value::Float1(half_extent[0].into()));
+            context.set_attribute("proposed_half_height", Value::Float1(half_extent[1].into()));
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }

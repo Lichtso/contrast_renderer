@@ -248,7 +248,7 @@ impl<'a> NodeMessengerContext<'a> {
         node.set_attribute_animated(attribute, value, start_time, duration, interpolation_control_points)
     }
 
-    /// Optionally gets "proposed_half_extent" first, and if it is not available returns "half_extent"
+    /// Optionally gets "proposed_half_width" and "proposed_half_height" first. If it is not available returns "half_extent".
     pub fn get_half_extent(&self, proposed: bool) -> SafeFloat<f32, 2> {
         let node = self.node_hierarchy.nodes.get(&self.global_node_id).unwrap().borrow();
         node.get_half_extent(proposed)

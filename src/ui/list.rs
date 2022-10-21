@@ -26,8 +26,15 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
     match messenger.get_kind() {
         "Reconfigure" => {
             let first_phase = match_option!(context.get_attribute("first_phase"), Value::Boolean).unwrap_or(true);
-            let mut unaffected =
-                first_phase && !context.was_attribute_touched(&["child_count", "half_extent", "proposed_half_extent", "orientation", "reverse"]);
+            let mut unaffected = first_phase
+                && !context.was_attribute_touched(&[
+                    "child_count",
+                    "half_extent",
+                    "proposed_half_width",
+                    "proposed_half_height",
+                    "orientation",
+                    "reverse",
+                ]);
             if let Value::Vec(entries) = context.get_attribute("entries") {
                 let mut child_index = 0;
                 while context.remove_child(NodeOrObservableIdentifier::Indexed(child_index), true).is_some() {
@@ -44,7 +51,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 if !matches!(local_child_id, NodeOrObservableIdentifier::Indexed(_)) {
                     return;
                 }
-                if context.was_attribute_of_child_touched(node, &["proposed_half_extent"]) {
+                if context.was_attribute_of_child_touched(node, &["proposed_half_width", "proposed_half_height"]) {
                     unaffected = false;
                 }
             });
@@ -53,7 +60,10 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 return Vec::new();
             }
             context.set_attribute_privately("first_phase", Value::Boolean(!first_phase));
-            let propose_half_extent = context.get_attribute("proposed_half_extent") != Value::Void;
+            let propose_half_extent = [
+                context.get_attribute("proposed_half_width") != Value::Void,
+                context.get_attribute("proposed_half_height") != Value::Void,
+            ];
             let margin = match_option!(context.derive_attribute("list_margin"), Value::Float1).unwrap().unwrap();
             let padding = match_option!(context.derive_attribute("list_padding"), Value::Float2).unwrap().unwrap();
             let minor_axis_alignment = context.derive_attribute("list_minor_axis_alignment");
@@ -78,7 +88,7 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
                 weight_sum += weight;
             });
             half_extent[major_axis] += margin * 0.5 * child_count.saturating_sub(1) as f32;
-            let major_half_extent_to_distribute = if propose_half_extent {
+            let major_half_extent_to_distribute = if propose_half_extent[major_axis] {
                 0.0
             } else {
                 let imposed_half_extent = context.get_half_extent(false).unwrap();
@@ -126,10 +136,13 @@ pub fn list(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Me
             if first_phase {
                 vec![Messenger::new(&message::RECONFIGURE, hash_map! {})]
             } else {
-                if propose_half_extent {
+                if propose_half_extent[0] {
                     half_extent[0] += padding[0];
+                    context.set_attribute("proposed_half_width", Value::Float1(half_extent[0].into()));
+                }
+                if propose_half_extent[1] {
                     half_extent[1] += padding[1];
-                    context.set_attribute("proposed_half_extent", Value::Float2(half_extent.into()));
+                    context.set_attribute("proposed_half_height", Value::Float1(half_extent[1].into()));
                 }
                 Vec::new()
             }
