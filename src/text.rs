@@ -142,76 +142,90 @@ pub struct Layout {
     pub minor_alignment: Alignment,
 }
 
-macro_rules! calculate_kerning {
-    ($face:expr, $layout:expr, $text:expr, |$glyph_position:ident, $glyph_id:ident| $glyph_position_callback:tt) => {{
-        let kerning_table = $face.tables().kern.and_then(|table| table.subtables.into_iter().next());
-        let mut major_offset = 0.0;
-        let mut prev_glyph_id = None;
-        let replacement_glyph_id = $face.glyph_index('�');
-        for char in $text.chars() {
-            let $glyph_id = $face.glyph_index(char).or(replacement_glyph_id).unwrap();
-            if let Some(prev_glyph_id) = prev_glyph_id {
-                if let Some(kerning_table) = kerning_table {
-                    if let Some(kerning) = kerning_table.glyphs_kerning(prev_glyph_id, $glyph_id) {
-                        major_offset += kerning as f32;
-                    }
-                }
-            }
-            let $glyph_position = match $layout.orientation {
-                Orientation::RightToLeft | Orientation::LeftToRight => {
-                    let position = [major_offset, 0.0];
-                    if let Some(advance_x) = $face.glyph_hor_advance($glyph_id) {
-                        major_offset += advance_x as f32;
-                    }
-                    position
-                }
-                Orientation::TopToBottom | Orientation::BottomToTop => {
-                    let position = [0.0, major_offset];
-                    if let Some(advance_y) = $face.glyph_ver_advance($glyph_id) {
-                        major_offset += advance_y as f32;
-                    }
-                    position
-                }
-            };
-            $glyph_position_callback
-            prev_glyph_id = Some($glyph_id);
-        }
-        major_offset
-    }};
-}
-
 macro_rules! calculate_aligned_positions {
     ($face:expr, $layout:expr, $text:expr) => {{
+        let replacement_glyph_id = $face.glyph_index('�');
+        let kerning_table = $face.tables().kern.and_then(|table| table.subtables.into_iter().next());
+        let (major_axis, sign_x, sign_y) = match $layout.orientation {
+            Orientation::RightToLeft => (0, -1, -1),
+            Orientation::LeftToRight => (0, 1, -1),
+            Orientation::TopToBottom => (1, 1, -1),
+            Orientation::BottomToTop => (1, 1, 1),
+        };
+        let (line_minor_extent, line_gap) = if major_axis == 0 {
+            ($face.height() as i64, $face.line_gap() as i64)
+        } else {
+            ($face.vertical_height().unwrap_or(0) as i64, $face.vertical_line_gap().unwrap_or(0) as i64)
+        };
+        // let line_count = $text.chars().filter(|(index, char)| char == '\n').fold(1, |counter, _| counter + 1);
+        let mut lines = Vec::new();
+        let mut line_major_extent = 0;
+        let mut extent = [0; 2];
         let mut glyph_positions = Vec::new();
-        let mut major_offset = calculate_kerning!($face, $layout, $text, |glyph_position, glyph_id| {
-            glyph_positions.push((glyph_position, glyph_id));
-        });
-        major_offset *= match $layout.major_alignment {
-            Alignment::Begin => 0.0,
-            Alignment::Baseline | Alignment::Center => -0.5,
-            Alignment::End => -1.0,
-        };
-        let mut minor_offset = -match $layout.minor_alignment {
-            Alignment::Begin => $face.descender() as f32,
-            Alignment::Baseline => 0.0,
-            Alignment::Center => $face.x_height().unwrap() as f32 * 0.5,
-            Alignment::End => $face.height() as f32,
-        };
-        let (swap, mut major_sign, mut minor_sign) = match $layout.orientation {
-            Orientation::RightToLeft => (false, -1.0, 1.0),
-            Orientation::LeftToRight => (false, 1.0, 1.0),
-            Orientation::TopToBottom => (true, 1.0, -1.0),
-            Orientation::BottomToTop => (true, 1.0, 1.0),
-        };
-        if swap {
-            std::mem::swap(&mut major_offset, &mut minor_offset);
-            std::mem::swap(&mut major_sign, &mut minor_sign);
+        let mut prev_glyph_id = None;
+        let mut index = 0;
+        for char in $text.chars() {
+            index += 1;
+            let mut glyph_position = extent;
+            glyph_position[major_axis] = line_major_extent;
+            if char == '\n' {
+                glyph_positions.push((glyph_position, ttf_parser::GlyphId(0)));
+                let mut line_glyph_positions = Vec::new();
+                std::mem::swap(&mut glyph_positions, &mut line_glyph_positions);
+                lines.push((index, line_glyph_positions));
+                extent[major_axis] = extent[major_axis].max(line_major_extent);
+                extent[1 - major_axis] += line_minor_extent + line_gap;
+                line_major_extent = 0;
+                prev_glyph_id = None;
+            } else {
+                let glyph_id = $face.glyph_index(char).or(replacement_glyph_id).unwrap();
+                if let (Some(kerning_table), Some(prev_glyph_id)) = (kerning_table, prev_glyph_id) {
+                    if let Some(kerning) = kerning_table.glyphs_kerning(prev_glyph_id, glyph_id) {
+                        line_major_extent += kerning as i64;
+                    }
+                }
+                prev_glyph_id = Some(glyph_id);
+                let advance = if major_axis == 0 {
+                    $face.glyph_hor_advance(glyph_id)
+                } else {
+                    $face.glyph_ver_advance(glyph_id)
+                };
+                if let Some(advance) = advance {
+                    line_major_extent += advance as i64;
+                }
+                glyph_positions.push((glyph_position, glyph_id));
+            };
         }
-        for (offsets, _glyph_id) in &mut glyph_positions {
-            offsets[0] = major_sign * (offsets[0] + major_offset);
-            offsets[1] = minor_sign * (offsets[1] + minor_offset);
+        {
+            let mut glyph_position = extent;
+            glyph_position[major_axis] = line_major_extent;
+            glyph_positions.push((glyph_position, ttf_parser::GlyphId(0)));
+            lines.push((index + 1, glyph_positions));
+            extent[major_axis] = extent[major_axis].max(line_major_extent);
+            extent[1 - major_axis] += line_minor_extent;
         }
-        (major_offset, minor_offset, glyph_positions)
+        let mut offset = [0, 0];
+        offset[1 - major_axis] = match $layout.minor_alignment {
+            Alignment::Begin => -$face.descender() as i64,
+            Alignment::Baseline => 0,
+            Alignment::Center => $face.x_height().unwrap() as i64 / 2,
+            Alignment::End => -line_minor_extent,
+        };
+        for (_line_range_end, glyph_positions) in lines.iter_mut() {
+            let line_major_extent = glyph_positions.last().unwrap().0[major_axis];
+            let mut offset = offset;
+            offset[major_axis] = match $layout.major_alignment {
+                Alignment::Begin => -extent[major_axis] / 2,
+                Alignment::Baseline | Alignment::Center => -line_major_extent / 2,
+                Alignment::End => extent[major_axis] / 2 - line_major_extent,
+            };
+            offset[1 - major_axis] -= (extent[1 - major_axis] - line_minor_extent) / 2;
+            for (position, _glyph_id) in glyph_positions.iter_mut() {
+                position[0] = sign_x * (position[0] + offset[0]);
+                position[1] = sign_y * (position[1] + offset[1]);
+            }
+        }
+        (extent, [sign_x * offset[0], sign_y * offset[1]], lines)
     }};
 }
 
@@ -220,28 +234,27 @@ macro_rules! calculate_aligned_positions {
 /// If a `clipping_area` convex polygon is given, then glyphs which are completely outside are discarded.
 /// Other glyphs will stay at the same position.
 pub fn paths_of_text(face: &ttf_parser::Face, layout: &Layout, text: &str, clipping_area: Option<&[ppga2d::Point]>) -> Vec<Path> {
-    let (_major_offset, _minor_offset, glyph_positions) = calculate_aligned_positions!(face, layout, text);
+    let (_extent, _offset, lines) = calculate_aligned_positions!(face, layout, text);
     let scale = layout.size.unwrap() / face.height() as f32;
     let mut result = Vec::new();
-    for ([x, y], glyph_id) in glyph_positions {
-        if let Some(glyph_bounding_box) = face.glyph_bounding_box(glyph_id) {
-            if let Some(clipping_area) = clipping_area {
-                let aabb = [
-                    (glyph_bounding_box.x_min as f32 + x) * scale,
-                    (glyph_bounding_box.y_min as f32 + y) * scale,
-                    (glyph_bounding_box.x_max as f32 + x) * scale,
-                    (glyph_bounding_box.y_max as f32 + y) * scale,
-                ];
-                if !do_convex_polygons_overlap(&aabb_to_convex_polygon(&aabb), clipping_area) {
-                    continue;
-                }
+    for ([x, y], glyph_id) in lines
+        .iter()
+        .flat_map(|(_line_range_end, glyph_positions)| glyph_positions[0..glyph_positions.len() - 1].iter())
+    {
+        if let (Some(clipping_area), Some(glyph_bounding_box)) = (clipping_area, face.glyph_bounding_box(*glyph_id)) {
+            let aabb = [
+                (glyph_bounding_box.x_min as i64 + x) as f32 * scale,
+                (glyph_bounding_box.y_min as i64 + y) as f32 * scale,
+                (glyph_bounding_box.x_max as i64 + x) as f32 * scale,
+                (glyph_bounding_box.y_max as i64 + y) as f32 * scale,
+            ];
+            if !do_convex_polygons_overlap(&aabb_to_convex_polygon(&aabb), clipping_area) {
+                continue;
             }
-        } else {
-            continue;
         }
         let scalator = ppga2d::Scalar::new(scale);
-        let motor = translate2d([x * scale, y * scale]);
-        let mut paths = paths_of_glyph(face, glyph_id);
+        let motor = translate2d([*x as f32 * scale, *y as f32 * scale]);
+        let mut paths = paths_of_glyph(face, *glyph_id);
         for path in &mut paths {
             path.transform(&scalator, &motor);
         }
@@ -250,32 +263,87 @@ pub fn paths_of_text(face: &ttf_parser::Face, layout: &Layout, text: &str, clipp
     result
 }
 
-/// Calculates the bounding box in which [paths_of_text] fits, including preemptive spacing.
-///
-/// Texts like "hello" and "bye" use the same vertical space even though the "y" in "bye" extends further downward.
-/// This way they are easier to align in the same row.
-pub fn half_extent_of_text(face: &ttf_parser::Face, layout: &Layout, text: &str) -> SafeFloat<f32, 2> {
-    let scale = 0.5 * layout.size.unwrap() / face.height() as f32;
-    let major_size = calculate_kerning!(face, layout, text, |_glyph_position, _glyph_id| {}) * scale;
-    let minor_size = face.height() as f32 * scale;
-    match layout.orientation {
-        Orientation::RightToLeft | Orientation::LeftToRight => [major_size, minor_size].into(),
-        Orientation::TopToBottom | Orientation::BottomToTop => [minor_size, major_size].into(),
-    }
+/// Bounding box of the entire text and glyph positions of the characters separated into lines
+pub struct TextGeometry {
+    /// Primary flow direction of text
+    ///
+    /// 0 if horizontal, 1 if vertical.
+    pub major_axis: usize,
+    /// Half extent of the entire text
+    pub half_extent: SafeFloat<f32, 2>,
+    /// Line ending character index and glyph positions per line
+    ///
+    /// The glyph positions include the line break at the end, so there is one more entry than there are printable characters.
+    pub lines: Vec<(usize, Vec<SafeFloat<f32, 2>>)>,
 }
 
-/// Calculates, from a geometric position, the placement of the cursor as character index in the text.
-pub fn index_of_char_at(face: &ttf_parser::Face, layout: &Layout, text: &str, cursor: ppga2d::Point) -> usize {
-    let (_major_offset, _minor_offset, glyph_positions) = calculate_aligned_positions!(face, layout, text);
-    let scale = face.height() as f32 / (layout.size.unwrap() * cursor[0]);
-    let cursor = [cursor[1] * scale, cursor[2] * scale];
-    match glyph_positions.binary_search_by(|([x, _y], glyph_id)| {
-        (x + face.glyph_hor_advance(*glyph_id).unwrap_or(0) as f32 * 0.5)
-            .partial_cmp(&cursor[0])
+impl TextGeometry {
+    /// Calculates the bounding box in which [paths_of_text] fits, including preemptive spacing.
+    ///
+    /// Texts like "hello" and "bye" use the same vertical space even though the "y" in "bye" extends further downward.
+    /// This way they are easier to align in the same row.
+    pub fn new(face: &ttf_parser::Face, layout: &Layout, text: &str) -> Self {
+        let major_axis = match layout.orientation {
+            Orientation::RightToLeft | Orientation::LeftToRight => 0,
+            Orientation::TopToBottom | Orientation::BottomToTop => 1,
+        };
+        let scale = layout.size.unwrap() / face.height() as f32;
+        let (extent, offset, lines) = calculate_aligned_positions!(face, layout, text);
+        Self {
+            major_axis,
+            half_extent: [extent[0] as f32 * scale * 0.5, extent[1] as f32 * scale * 0.5].into(),
+            lines: lines
+                .iter()
+                .map(|(line_range_end, glyph_positions)| {
+                    (
+                        *line_range_end,
+                        glyph_positions
+                            .iter()
+                            .map(|(position, _glyph_id)| [(position[0] - offset[0]) as f32 * scale, (position[1] - offset[1]) as f32 * scale].into())
+                            .collect(),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// Returns the line index of a given character index
+    pub fn line_index_from_char_index(&self, char_index: usize) -> usize {
+        self.lines
+            .iter()
+            .position(|(line_range_end, _glyph_positions)| *line_range_end > char_index)
             .unwrap()
-    }) {
-        Ok(index) => index,
-        Err(index) => index,
+    }
+
+    /// Finds the character index of a given position
+    pub fn char_index_from_position(&self, cursor: SafeFloat<f32, 2>) -> usize {
+        let cursor = cursor.unwrap();
+        let minor_half_extent = self.half_extent.unwrap()[1 - self.major_axis];
+        let line_index = ((minor_half_extent - cursor[1 - self.major_axis]) * self.lines.len() as f32 / (minor_half_extent * 2.0))
+            .max(0.0)
+            .min((self.lines.len() - 1) as f32) as usize;
+        let glyph_positions = &self.lines[line_index].1;
+        glyph_positions
+            .iter()
+            .zip(glyph_positions.iter().skip(1))
+            .position(|(prev, next)| (prev.unwrap()[self.major_axis] + next.unwrap()[self.major_axis]) * 0.5 > cursor[self.major_axis])
+            .unwrap_or(glyph_positions.len() - 1)
+            + if line_index == 0 { 0 } else { self.lines[line_index - 1].0 }
+    }
+
+    /// Used to jump into the previous or next line
+    pub fn advance_char_index_by_line_index(&self, char_index: usize, relative_line_index: isize) -> usize {
+        let line_index = self.line_index_from_char_index(char_index);
+        if relative_line_index < 0 && line_index == 0 {
+            return 0;
+        } else if relative_line_index > 0 && line_index == self.lines.len() - 1 {
+            return self.lines.last().unwrap().0 - 1;
+        }
+        let (line_range_end, glyph_positions) = &self.lines[line_index];
+        let mut cursor = glyph_positions[char_index + glyph_positions.len() - *line_range_end].unwrap();
+        let line_minor_extent = self.half_extent.unwrap()[1 - self.major_axis] * 2.0 / self.lines.len() as f32;
+        cursor[1 - self.major_axis] -= line_minor_extent * relative_line_index as f32;
+        self.char_index_from_position(cursor.into())
     }
 }
 
