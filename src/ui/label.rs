@@ -2,14 +2,14 @@
 use crate::{
     hash_map, match_option,
     path::Path,
-    text::{byte_offset_of_char_index, half_extent_of_text, index_of_char_at, paths_of_text, Layout},
+    text::{byte_offset_of_char_index, paths_of_text, Layout, TextGeometry},
     ui::{
         message::{self, Messenger, PropagationDirection},
         node_hierarchy::NodeMessengerContext,
         wrapped_values::Value,
         Node, NodeOrObservableIdentifier, Rendering, TextInteraction,
     },
-    utils::translate2d,
+    utils::{point_to_vec, translate2d},
 };
 
 fn text_selection(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
@@ -75,46 +75,63 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             if !context.was_attribute_touched(&["text_content", "cursor_a", "cursor_b", "observes", "input_source_entered"]) {
                 return Vec::new();
             }
+            let entered = if let Value::NodeOrObservableIdentifier(input_source) = context.get_attribute("input_source_entered") {
+                context.does_observe(&input_source)
+            } else {
+                false
+            };
             let text_font = match_option!(context.derive_attribute("font_face"), Value::TextFont).unwrap();
             let layout = layout!(context);
             let text_content = match_option!(context.get_attribute("text_content"), Value::TextString).unwrap_or_else(String::default);
             let cursor_a = match_option!(context.get_attribute("cursor_a"), Value::Natural1).unwrap_or(0);
             let cursor_b = match_option!(context.get_attribute("cursor_b"), Value::Natural1).unwrap_or(0);
             let range = cursor_a.min(cursor_b)..cursor_a.max(cursor_b);
-            let half_extent = half_extent_of_text(text_font.face(), &layout, &text_content).unwrap();
+            let text_geometry = TextGeometry::new(text_font.face(), &layout, &text_content);
+            let half_extent = text_geometry.half_extent.unwrap();
             context.set_attribute("proposed_half_width", Value::Float1(half_extent[0].into()));
             context.set_attribute("proposed_half_height", Value::Float1(half_extent[1].into()));
-            let selection_start_position =
-                half_extent_of_text(text_font.face(), &layout, &text_content.chars().take(range.start).collect::<String>()).unwrap()[0] * 2.0
-                    - half_extent[0];
-            let (selection_translation, selection_half_width) = if cursor_a == cursor_b {
-                (selection_start_position, layout.size.unwrap() * 0.03)
+            let mut surplus_lines = if entered {
+                let mut selection_half_extent = [0.0, 0.0];
+                selection_half_extent[1 - text_geometry.major_axis] = layout.size.unwrap() * 0.4;
+                for (line_index, (line_range_end, glyph_positions)) in text_geometry.lines.iter().enumerate() {
+                    let line_range_start = *line_range_end - glyph_positions.len();
+                    context.configure_child(
+                        NodeOrObservableIdentifier::NamedAndIndexed("selection", line_index),
+                        if range.start < *line_range_end && line_range_start <= range.end {
+                            Some(|node: &mut Node| {
+                                let start_position = glyph_positions[range.start.saturating_sub(line_range_start)].unwrap();
+                                let end_position =
+                                    glyph_positions[glyph_positions.len() - 1 - (line_range_end - 1).saturating_sub(range.end)].unwrap();
+                                let selection_translation =
+                                    [(end_position[0] + start_position[0]) * 0.5, (end_position[1] + start_position[1]) * 0.5];
+                                selection_half_extent[text_geometry.major_axis] =
+                                    (end_position[text_geometry.major_axis] - start_position[text_geometry.major_axis]).abs() * 0.5;
+                                if selection_half_extent[text_geometry.major_axis] == 0.0 {
+                                    selection_half_extent[text_geometry.major_axis] = layout.size.unwrap() * 0.03;
+                                }
+                                node.set_messenger_handler(text_selection);
+                                node.set_attribute("motor", Value::Motor(translate2d(selection_translation).into()));
+                                node.set_attribute("half_extent", Value::Float2(selection_half_extent.into()));
+                            })
+                        } else {
+                            None
+                        },
+                    );
+                }
+                text_geometry.lines.len()
             } else {
-                let selection_end_position =
-                    half_extent_of_text(text_font.face(), &layout, &text_content.chars().take(range.end).collect::<String>()).unwrap()[0] * 2.0
-                        - half_extent[0];
-                (
-                    (selection_end_position + selection_start_position) * 0.5,
-                    (selection_end_position - selection_start_position) * 0.5,
+                0
+            };
+            while context
+                .inspect_child(
+                    &NodeOrObservableIdentifier::NamedAndIndexed("selection", surplus_lines),
+                    |_node: &Node| (),
                 )
-            };
-            let entered = if let Value::NodeOrObservableIdentifier(input_source) = context.get_attribute("input_source_entered") {
-                context.does_observe(&input_source)
-            } else {
-                false
-            };
-            context.configure_child(
-                NodeOrObservableIdentifier::Named("selection"),
-                if entered {
-                    Some(|node: &mut Node| {
-                        node.set_messenger_handler(text_selection);
-                        node.set_attribute("motor", Value::Motor(translate2d([selection_translation, 0.0]).into()));
-                        node.set_attribute("half_extent", Value::Float2([selection_half_width, layout.size.unwrap() * 0.4].into()));
-                    })
-                } else {
-                    None
-                },
-            );
+                .is_some()
+            {
+                context.remove_child(NodeOrObservableIdentifier::NamedAndIndexed("selection", surplus_lines), false);
+                surplus_lines += 1;
+            }
             context.set_attribute_privately("is_rendering_dirty", Value::Boolean(true));
             Vec::new()
         }
@@ -124,12 +141,12 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 return vec![messenger.clone()];
             }
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
-            let index = index_of_char_at(
+            let text_geometry = TextGeometry::new(
                 match_option!(context.derive_attribute("font_face"), Value::TextFont).unwrap().face(),
                 &layout!(context),
                 &match_option!(context.get_attribute("text_content"), Value::TextString).unwrap_or_else(String::default),
-                (*input_state.relative_positions.get(&0).unwrap()).into(),
             );
+            let index = text_geometry.char_index_from_position(point_to_vec((*input_state.relative_positions.get(&0).unwrap()).into()).into());
             if messenger.get_attribute("changed_pointer") == &Value::InputChannel(0) {
                 if let Value::Boolean(pressed) = messenger.get_attribute("pressed_or_released") {
                     if *pressed {
@@ -163,6 +180,11 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
             let mut cursor_a = match_option!(context.get_attribute("cursor_a"), Value::Natural1).unwrap_or(0);
             let mut cursor_b = match_option!(context.get_attribute("cursor_b"), Value::Natural1).unwrap_or(0);
             let range = cursor_a.min(cursor_b)..cursor_a.max(cursor_b);
+            let text_geometry = TextGeometry::new(
+                match_option!(context.derive_attribute("font_face"), Value::TextFont).unwrap().face(),
+                &layout!(context),
+                &text_content,
+            );
             match changed_keycode {
                 '⇥' => {
                     if messenger.get_attribute("origin") != &Value::Void {
@@ -200,8 +222,8 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                         cursor_a = match changed_keycode {
                             '←' if cursor_a > 0 => cursor_a - 1,
                             '→' if cursor_a < text_content.chars().count() => cursor_a + 1,
-                            '↑' => 0,
-                            '↓' => text_content.chars().count(),
+                            '↑' => text_geometry.advance_char_index_by_line_index(cursor_a, -1),
+                            '↓' => text_geometry.advance_char_index_by_line_index(cursor_a, 1),
                             _ => {
                                 return Vec::new();
                             }
@@ -214,8 +236,8 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                             '←' if range.end > range.start && range.start != range.end => range.start,
                             '→' if range.end < text_content.chars().count() && range.start == range.end => range.end + 1,
                             '→' if range.start < range.end && range.start != range.end => range.end,
-                            '↑' => 0,
-                            '↓' => text_content.chars().count(),
+                            '↑' => text_geometry.advance_char_index_by_line_index(range.start, -1),
+                            '↓' => text_geometry.advance_char_index_by_line_index(range.end, 1),
                             _ => {
                                 return Vec::new();
                             }
