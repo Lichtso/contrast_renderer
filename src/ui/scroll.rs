@@ -10,7 +10,7 @@ use crate::{
     },
     utils::translate2d,
 };
-use geometric_algebra::{ppga2d, One};
+use geometric_algebra::{ppga2d, GeometricProduct, GeometricQuotient, One};
 
 fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Messenger> {
     match messenger.get_kind() {
@@ -100,7 +100,8 @@ fn scroll_bar(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             content_motor = translate2d([
                 input_state.axes.get(&0).unwrap().unwrap() * movement_scale,
                 input_state.axes.get(&1).unwrap().unwrap() * movement_scale,
-            ]) * content_motor;
+            ])
+            .geometric_product(content_motor);
             context.set_attribute("content_motor", Value::Motor(content_motor.into()));
             Vec::new()
         }
@@ -234,10 +235,10 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
             // let target_absolute_scale = match_option!(messenger.get_attribute("absolute_scale"), Value::Float1).unwrap().unwrap();
             // let target_half_extent = match_option!(messenger.get_attribute("half_extent"), Value::Float2).unwrap().unwrap();
             let content_motor: ppga2d::Motor = match_option!(context.get_attribute("content_motor"), Value::Motor).unwrap().into();
-            let mut relative_motor = own_absolute_motor / target_absolute_motor;
+            let mut relative_motor = own_absolute_motor.geometric_quotient(target_absolute_motor);
             relative_motor[0] = 1.0;
             relative_motor[1] = 0.0;
-            context.set_attribute("content_motor", Value::Motor((content_motor * relative_motor).into()));
+            context.set_attribute("content_motor", Value::Motor(content_motor.geometric_product(relative_motor).into()));
             Vec::new()
         }
         "AdoptNode" => {
@@ -268,7 +269,7 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
                         .map(|value| 1.0 / value.unwrap())
                         .unwrap_or(1.0);
                     let delta = absolute_position - pointer_start;
-                    content_motor = translate2d([delta[1] * scale, delta[2] * scale]) * content_motor;
+                    content_motor = translate2d([delta[1] * scale, delta[2] * scale]).geometric_product(content_motor);
                     context.set_attribute("content_motor", Value::Motor(content_motor.into()));
                 }
                 Vec::new()
