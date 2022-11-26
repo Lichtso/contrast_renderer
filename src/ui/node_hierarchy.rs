@@ -12,7 +12,7 @@ use crate::{
     },
     utils::{matrix_multiplication, motor2d_to_motor3d, motor3d_to_mat4},
 };
-use geometric_algebra::{ppga2d, One};
+use geometric_algebra::{ppga2d, GeometricProduct, One};
 use std::{
     cell::RefCell,
     collections::{hash_map, BinaryHeap, HashMap, HashSet},
@@ -110,7 +110,7 @@ impl<'a> NodeMessengerContext<'a> {
                     let child_motor = match_option!(child_node.get_attribute("motor"), Value::Motor)
                         .map(|value| value.into())
                         .unwrap_or_else(ppga2d::Motor::one);
-                    child_node.set_attribute("absolute_motor", Value::Motor((child_motor * absolute_motor).into()));
+                    child_node.set_attribute("absolute_motor", Value::Motor(child_motor.geometric_product(absolute_motor).into()));
                 }
                 if parent_index == 0 && absolute_scale_changed {
                     let child_scale = match_option!(child_node.get_attribute("scale"), Value::Float1)
