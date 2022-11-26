@@ -11,7 +11,6 @@ pub mod curve;
 pub mod error;
 mod fill;
 pub mod path;
-pub mod polynomial;
 pub mod renderer;
 pub mod safe_float;
 mod stroke;

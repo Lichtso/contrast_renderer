@@ -1,6 +1,6 @@
 //! Miscellaneous utility and helper functions
 
-use geometric_algebra::{ppga2d, ppga3d, OuterProduct, RegressiveProduct, Transformation, Zero};
+use geometric_algebra::{ppga2d, ppga3d, GeometricQuotient, OuterProduct, RegressiveProduct, Scale, Transformation, Zero};
 use std::convert::TryInto;
 
 /// Like `vec!` but for `HashSet`
@@ -66,7 +66,7 @@ pub fn transmute_slice_mut<S, T>(slice: &mut [S]) -> &mut [T] {
 /// Returns the intersection point of two 2D lines (origin, direction).
 pub fn line_line_intersection(a: ppga2d::Plane, b: ppga2d::Plane) -> ppga2d::Point {
     let p = a.outer_product(b);
-    p / ppga2d::Scalar::new(p[0])
+    p.scale(1.0 / p[0])
 }
 
 /// Converts a axis aligned bounding box into 4 vertices.
@@ -135,7 +135,7 @@ pub fn rotation2d(motor: ppga2d::Motor) -> f32 {
 
 /// Returns the translation of the given [ppga2d::Motor].
 pub fn translation2d(mut motor: ppga2d::Motor) -> [f32; 2] {
-    motor = motor / ppga2d::Rotor::new(motor[0], motor[1]);
+    motor = motor.geometric_quotient(ppga2d::Rotor::new(motor[0], motor[1]));
     [2.0 * motor[3], -2.0 * motor[2]]
 }
 
@@ -192,12 +192,11 @@ pub fn perspective_projection(field_of_view_y: f32, aspect_ratio: f32, near: f32
 
 /// Calculates the product of two 4x4 matrices for GLSL.
 pub fn matrix_multiplication(a: &[ppga3d::Point; 4], b: &[ppga3d::Point; 4]) -> [ppga3d::Point; 4] {
-    use ppga3d::Scalar;
     [
-        Scalar::new(b[0][0]) * a[0] + Scalar::new(b[0][1]) * a[1] + Scalar::new(b[0][2]) * a[2] + Scalar::new(b[0][3]) * a[3],
-        Scalar::new(b[1][0]) * a[0] + Scalar::new(b[1][1]) * a[1] + Scalar::new(b[1][2]) * a[2] + Scalar::new(b[1][3]) * a[3],
-        Scalar::new(b[2][0]) * a[0] + Scalar::new(b[2][1]) * a[1] + Scalar::new(b[2][2]) * a[2] + Scalar::new(b[2][3]) * a[3],
-        Scalar::new(b[3][0]) * a[0] + Scalar::new(b[3][1]) * a[1] + Scalar::new(b[3][2]) * a[2] + Scalar::new(b[3][3]) * a[3],
+        a[0].scale(b[0][0]) + a[1].scale(b[0][1]) + a[2].scale(b[0][2]) + a[3].scale(b[0][3]),
+        a[0].scale(b[1][0]) + a[1].scale(b[1][1]) + a[2].scale(b[1][2]) + a[3].scale(b[1][3]),
+        a[0].scale(b[2][0]) + a[1].scale(b[2][1]) + a[2].scale(b[2][2]) + a[3].scale(b[2][3]),
+        a[0].scale(b[3][0]) + a[1].scale(b[3][1]) + a[2].scale(b[3][2]) + a[3].scale(b[3][3]),
     ]
 }
 

@@ -5,7 +5,9 @@ use crate::{
     safe_float::SafeFloat,
     utils::{line_line_intersection, motor2d_to_mat3, point_to_vec, vec_to_point, weighted_vec_to_point},
 };
-use geometric_algebra::{epga1d, ppga2d, Dual, InnerProduct, Powi, RegressiveProduct, Signum, SquaredMagnitude, Zero};
+use geometric_algebra::{
+    epga1d, ppga2d, Dual, GeometricProduct, GeometricQuotient, InnerProduct, Powi, RegressiveProduct, Scale, Signum, SquaredMagnitude, Zero,
+};
 
 /// A line
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -583,8 +585,8 @@ impl Path {
                         vec_to_point(segment.control_points[1].unwrap()),
                     ];
                     let new_control_points = [
-                        control_points[0] + (control_points[1] - control_points[0]) * ppga2d::Scalar::new(2.0 / 3.0),
-                        control_points[2] + (control_points[1] - control_points[2]) * ppga2d::Scalar::new(2.0 / 3.0),
+                        control_points[0] + (control_points[1] - control_points[0]).scale(2.0 / 3.0),
+                        control_points[2] + (control_points[1] - control_points[2]).scale(2.0 / 3.0),
                     ];
                     self.rational_cubic_curve_segments.insert(
                         rational_cubic_curve_segment_index,
@@ -646,21 +648,21 @@ impl Path {
     /// "arc to" command for general circle arcs defined by the circle radius, side and direction
     pub fn push_circle_arc(&mut self, radius: f32, left_hand_side: bool, clockwise: bool, to: [f32; 2]) {
         let from = self.get_end();
-        let half_tangent = (vec_to_point(to) - vec_to_point(from)) * ppga2d::Scalar::new(0.5);
+        let half_tangent = (vec_to_point(to) - vec_to_point(from)).scale(0.5);
         let plane = tangent_from_points(from, to);
         let distance_squared = plane.squared_magnitude()[0];
-        let mut normal = plane.dual() * ppga2d::Scalar::new(1.0 / distance_squared.sqrt());
+        let mut normal = plane.dual().scale(1.0 / distance_squared.sqrt());
         normal[0] = 0.0;
         let mut center_offset = radius * (1.0 - (distance_squared * 0.25) / (radius * radius)).sqrt();
         if left_hand_side {
             center_offset *= -1.0;
         }
-        let circle_center = vec_to_point(from) + half_tangent + normal * ppga2d::Scalar::new(center_offset);
+        let circle_center = vec_to_point(from) + half_tangent + normal.scale(center_offset);
         let start_normal = vec_to_point(from) - circle_center;
         let end_normal = vec_to_point(to) - circle_center;
         let polar_start = epga1d::ComplexNumber::new(start_normal[2], start_normal[1]);
         let polar_end = epga1d::ComplexNumber::new(end_normal[2], end_normal[1]);
-        let mut polar_angle = (polar_end / polar_start).arg();
+        let mut polar_angle = polar_end.geometric_quotient(polar_start).arg();
         if (polar_angle < 0.0) == clockwise {
             if clockwise {
                 polar_angle += std::f32::consts::TAU;
@@ -672,7 +674,7 @@ impl Path {
         let polar_step = epga1d::ComplexNumber::from_polar(1.0, polar_angle / (steps as f32));
         let mut prev_tangent = ppga2d::Plane::new(0.0, -start_normal[2], start_normal[1]).inner_product(vec_to_point(from));
         for i in 1..=steps {
-            let interpolated = polar_start * polar_step.powi(i as isize);
+            let interpolated = polar_start.geometric_product(polar_step.powi(i as isize));
             let normal = ppga2d::Point::new(0.0, interpolated.imaginary(), interpolated.real());
             let vertex = circle_center + normal;
             let tangent = ppga2d::Plane::new(0.0, -interpolated.real(), interpolated.imaginary()).inner_product(vertex);

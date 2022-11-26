@@ -11,13 +11,15 @@ use crate::{
     utils::{line_line_intersection, point_to_vec, rotate_90_degree_clockwise, vec_to_point, weighted_vec_to_point},
     vertex::{Vertex2f1i, Vertex3f1i},
 };
-use geometric_algebra::{ppga2d, Dual, GeometricProduct, InnerProduct, Magnitude, OuterProduct, RegressiveProduct, Signum, SquaredMagnitude, Zero};
+use geometric_algebra::{
+    ppga2d, Dual, GeometricProduct, GeometricQuotient, InnerProduct, Magnitude, OuterProduct, RegressiveProduct, Scale, Signum, SquaredMagnitude,
+    Zero,
+};
 
 fn offset_control_point(control_point: ppga2d::Point, tangent: ppga2d::Plane, offset: f32) -> ppga2d::Point {
     let mut direction = tangent.dual();
     direction[0] = 0.0;
-    direction *= ppga2d::Scalar::new(offset);
-    control_point + direction
+    control_point + direction.scale(offset)
 }
 
 fn emit_stroke_vertex(path_line_vertices: &mut Vec<Vertex2f1i>, path_index: usize, offset_along_path: f32, vertex: ppga2d::Point, side: f32) {
@@ -90,7 +92,7 @@ fn emit_stroke_join(
     } else {
         proto_hull.push(point_to_vec(vertices[3]).into());
     }
-    let scaled_tangent = previous_tangent / ppga2d::Scalar::new(-stroke_options.width.unwrap());
+    let scaled_tangent = previous_tangent.scale(1.0 / -stroke_options.width.unwrap());
     let start_index = builder.joint_vertices.len();
     let offset_along_path = *length_accumulator / stroke_options.width.unwrap();
     for vertex in vertices.iter() {
@@ -151,7 +153,7 @@ macro_rules! emit_curve_stroke {
             }
             tangent = tangent.signum();
             let mut point = $point(&$power_basis, t);
-            point = point / ppga2d::Scalar::new(point[0]);
+            point = point.scale(1.0 / point[0]);
             $length_accumulator += previous_point.regressive_product(point).magnitude()[0];
             emit_stroke_vertices(
                 $builder,
@@ -400,7 +402,7 @@ impl StrokeBuilder {
             let line_segment = previous_control_point.regressive_product(vec_to_point(path.start.unwrap()));
             let length = line_segment.magnitude();
             if length[0] > 0.0 {
-                let segment_tangent = line_segment / length;
+                let segment_tangent = line_segment.geometric_quotient(length);
                 emit_stroke_join(
                     self,
                     proto_hull,

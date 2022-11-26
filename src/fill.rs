@@ -5,12 +5,11 @@ use crate::{
     },
     error::{Error, ERROR_MARGIN},
     path::{Path, SegmentType},
-    polynomial::Root,
     safe_float::SafeFloat,
     utils::{point_to_vec, vec_to_point, weighted_vec_to_point},
     vertex::{triangle_fan_to_strip, Vertex0, Vertex2f, Vertex3f, Vertex4f},
 };
-use geometric_algebra::{ppga2d, ppga3d, InnerProduct, RegressiveProduct, SquaredMagnitude, Zero};
+use geometric_algebra::{polynomial::Root, ppga2d, ppga3d, InnerProduct, RegressiveProduct, Scale, SquaredMagnitude, Zero};
 
 fn find_double_point_issue(discriminant: f32, roots: &[Root; 3]) -> Option<f32> {
     if discriminant < 0.0 {
@@ -18,7 +17,7 @@ fn find_double_point_issue(discriminant: f32, roots: &[Root; 3]) -> Option<f32> 
         let mut inside = 0;
         for root in roots {
             if root.denominator != 0.0 {
-                let parameter = root.numerator_real / root.denominator;
+                let parameter = root.numerator.real() / root.denominator;
                 if 0.0 < parameter && parameter < 1.0 {
                     result = parameter;
                     inside += 1;
@@ -34,13 +33,13 @@ fn find_double_point_issue(discriminant: f32, roots: &[Root; 3]) -> Option<f32> 
 
 fn weight_derivatives(weights: &mut [[f32; 4]; 4], column: usize, roots: [Root; 3]) {
     let power_basis = [
-        roots[0].numerator_real * roots[1].numerator_real * roots[2].numerator_real,
-        -roots[0].denominator * roots[1].numerator_real * roots[2].numerator_real
-            - roots[0].numerator_real * roots[1].denominator * roots[2].numerator_real
-            - roots[0].numerator_real * roots[1].numerator_real * roots[2].denominator,
-        roots[0].numerator_real * roots[1].denominator * roots[2].denominator
-            + roots[0].denominator * roots[1].numerator_real * roots[2].denominator
-            + roots[0].denominator * roots[1].denominator * roots[2].numerator_real,
+        roots[0].numerator.real() * roots[1].numerator.real() * roots[2].numerator.real(),
+        -roots[0].denominator * roots[1].numerator.real() * roots[2].numerator.real()
+            - roots[0].numerator.real() * roots[1].denominator * roots[2].numerator.real()
+            - roots[0].numerator.real() * roots[1].numerator.real() * roots[2].denominator,
+        roots[0].numerator.real() * roots[1].denominator * roots[2].denominator
+            + roots[0].denominator * roots[1].numerator.real() * roots[2].denominator
+            + roots[0].denominator * roots[1].denominator * roots[2].numerator.real(),
         -roots[0].denominator * roots[1].denominator * roots[2].denominator,
     ];
     weights[0][column] = power_basis[0];
@@ -79,7 +78,7 @@ fn weight_planes(control_points: &[ppga2d::Point; 4], weights: &[[f32; 4]; 4]) -
         if plane_3d.squared_magnitude()[0] < ERROR_MARGIN {
             plane_3d = points[0].regressive_product(points[1]).regressive_product(points[3]);
         }
-        plane_3d = plane_3d / ppga3d::Scalar::new(-plane_3d[3]);
+        plane_3d = plane_3d.scale(1.0 / -plane_3d[3]);
         *plane_2d = ppga2d::Plane::new(plane_3d[0], plane_3d[1], plane_3d[2]);
     }
     planes
@@ -90,10 +89,10 @@ fn implicit_curve_value(weights: ppga3d::Point) -> f32 {
 }
 
 fn implicit_curve_gradient(planes: &[ppga2d::Plane; 4], weights: &[f32; 4]) -> ppga2d::Plane {
-    planes[0] * ppga2d::Scalar::new(3.0 * weights[0] * weights[0])
-        - planes[1] * ppga2d::Scalar::new(weights[2] * weights[3])
-        - planes[2] * ppga2d::Scalar::new(weights[1] * weights[3])
-        - planes[3] * ppga2d::Scalar::new(weights[1] * weights[2])
+    planes[0].scale(3.0 * weights[0] * weights[0])
+        - planes[1].scale(weights[2] * weights[3])
+        - planes[2].scale(weights[1] * weights[3])
+        - planes[3].scale(weights[1] * weights[2])
 }
 
 fn normalize_implicit_curve_side(
@@ -136,7 +135,7 @@ macro_rules! triangulate_cubic_curve_quadrilateral {
     ($fill_solid_vertices:expr, $cubic_vertices:expr,
      $control_points:expr, $weights:expr, $v:ident, $w:ident, $emit_vertex:expr) => {{
         for (weights, control_point) in $weights.iter_mut().zip($control_points.iter()) {
-            *weights /= ppga3d::Scalar::new(control_point[0]);
+            *weights = weights.scale(1.0 / control_point[0]);
         }
         let mut triangles = Vec::new();
         let signed_triangle_areas: Vec<f32> = (0..4)
@@ -206,12 +205,12 @@ macro_rules! triangulate_cubic_curve_quadrilateral {
 
 macro_rules! split_curve_at {
     ($algebra:ident, $control_points:expr, $param:expr) => {{
-        let p10 = $control_points[0] * $algebra::Scalar::new(1.0 - $param) + $control_points[1] * $algebra::Scalar::new($param);
-        let p11 = $control_points[1] * $algebra::Scalar::new(1.0 - $param) + $control_points[2] * $algebra::Scalar::new($param);
-        let p12 = $control_points[2] * $algebra::Scalar::new(1.0 - $param) + $control_points[3] * $algebra::Scalar::new($param);
-        let p20 = p10 * $algebra::Scalar::new(1.0 - $param) + p11 * $algebra::Scalar::new($param);
-        let p21 = p11 * $algebra::Scalar::new(1.0 - $param) + p12 * $algebra::Scalar::new($param);
-        let p30 = p20 * $algebra::Scalar::new(1.0 - $param) + p21 * $algebra::Scalar::new($param);
+        let p10 = $control_points[0].scale(1.0 - $param) + $control_points[1].scale($param);
+        let p11 = $control_points[1].scale(1.0 - $param) + $control_points[2].scale($param);
+        let p12 = $control_points[2].scale(1.0 - $param) + $control_points[3].scale($param);
+        let p20 = p10.scale(1.0 - $param) + p11.scale($param);
+        let p21 = p11.scale(1.0 - $param) + p12.scale($param);
+        let p30 = p20.scale(1.0 - $param) + p21.scale($param);
         ([$control_points[0], p10, p20, p30], [p30, p21, p12, $control_points[3]])
     }};
 }

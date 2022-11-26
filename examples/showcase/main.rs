@@ -4,7 +4,7 @@ mod application_framework;
 use contrast_renderer::renderer::RenderOperation;
 use geometric_algebra::{
     ppga3d::{Motor, Rotor, Translator},
-    One,
+    GeometricProduct, One,
 };
 
 const OPEN_SANS_TTF: &[u8] = include_bytes!("../fonts/OpenSans-Regular.ttf");
@@ -163,7 +163,9 @@ impl application_framework::Application for Application {
                 1.0,
                 1000.0,
             ),
-            &contrast_renderer::utils::motor3d_to_mat4(&(Translator::new(1.0, 0.0, 0.0, -0.5 * self.view_distance) * self.view_rotation)),
+            &contrast_renderer::utils::motor3d_to_mat4(
+                &Translator::new(1.0, 0.0, 0.0, -0.5 * self.view_distance).geometric_product(self.view_rotation),
+            ),
         );
         const ROWS: usize = 9;
         const COLUMNS: usize = 5;
@@ -252,8 +254,8 @@ impl application_framework::Application for Application {
                     std::f32::consts::PI * 1.2 * (position.x as f32 / self.viewport_size.width as f32 - 0.5),
                     std::f32::consts::PI * 1.2 * (position.y as f32 / self.viewport_size.height as f32 - 0.5),
                 ];
-                self.view_rotation = contrast_renderer::utils::rotate_around_axis(position[0], &[0.0, 1.0, 0.0]);
-                self.view_rotation *= contrast_renderer::utils::rotate_around_axis(position[1], &[1.0, 0.0, 0.0]);
+                self.view_rotation = contrast_renderer::utils::rotate_around_axis(position[0], &[0.0, 1.0, 0.0])
+                    .geometric_product(contrast_renderer::utils::rotate_around_axis(position[1], &[1.0, 0.0, 0.0]));
             }
             winit::event::WindowEvent::MouseWheel { delta, .. } => {
                 let difference = match delta {
