@@ -7,7 +7,7 @@ use crate::{
     safe_float::SafeFloat,
     utils::{rotate2d, rotation2d, translate2d, translation2d},
 };
-use geometric_algebra::ppga2d;
+use geometric_algebra::{ppga2d, GeometricProduct, GeometricQuotient};
 use message::Messenger;
 use node_hierarchy::NodeMessengerContext;
 use std::{
@@ -247,15 +247,14 @@ impl AnimationFrame {
             Value::Motor(destination_value) => {
                 let source_value: ppga2d::Motor = match_option!(previous_frame.value, Value::Motor).unwrap().into();
                 let destination_value: ppga2d::Motor = destination_value.into();
-                let quotient_value = destination_value / source_value;
+                let quotient_value = destination_value.geometric_quotient(source_value);
                 // let interpolated_value = quotient_value.powf(factor) * source_value;
                 let source_translation = translation2d(source_value);
                 let destination_translation = translation2d(destination_value);
-                let interpolated_value = rotate2d(factor * rotation2d(quotient_value) + rotation2d(source_value))
-                    * translate2d([
-                        factor * (destination_translation[0] - source_translation[0]) + source_translation[0],
-                        factor * (destination_translation[1] - source_translation[1]) + source_translation[1],
-                    ]);
+                let interpolated_value = rotate2d(factor * rotation2d(quotient_value) + rotation2d(source_value)).geometric_product(translate2d([
+                    factor * (destination_translation[0] - source_translation[0]) + source_translation[0],
+                    factor * (destination_translation[1] - source_translation[1]) + source_translation[1],
+                ]));
                 Value::Motor(interpolated_value.into())
             }
             _ => panic!("Interpolation of this type is not supported"),
