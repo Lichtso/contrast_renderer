@@ -3,10 +3,11 @@
 use crate::{
     error::ERROR_MARGIN,
     safe_float::SafeFloat,
-    utils::{line_line_intersection, motor2d_to_mat3, point_to_vec, vec_to_point, weighted_vec_to_point},
+    utils::{motor2d_to_mat3, point_to_vec, rotate2d, rotate_90_degree_clockwise, vec_to_point, weighted_vec_to_point},
 };
 use geometric_algebra::{
-    epga1d, ppga2d, Dual, GeometricProduct, GeometricQuotient, InnerProduct, Powi, RegressiveProduct, Scale, Signum, SquaredMagnitude, Zero,
+    epga1d, ppga2d, Dual, GeometricProduct, GeometricQuotient, Inverse, Powf, Powi, RegressiveProduct, Reversal, Scale, Signum, SquaredMagnitude,
+    Transformation, Zero,
 };
 
 /// A line
@@ -626,18 +627,7 @@ impl Path {
         });
     }
 
-    /// "arc to" command for angles up to `std::f32::consts::FRAC_PI_2` (90°) defined by the point where the start and end tangents of the arc cross
-    pub fn push_tangent_crossing_circle_arc(&mut self, tangent_crossing: [f32; 2], to: [f32; 2]) {
-        let inner_product = tangent_from_points(tangent_crossing, self.get_end())
-            .signum()
-            .inner_product(tangent_from_points(tangent_crossing, to).signum());
-        self.push_rational_quadratic_curve(RationalQuadraticCurveSegment {
-            weight: (inner_product[0].acos() * 0.5).sin().into(),
-            control_points: [tangent_crossing.into(), to.into()],
-        });
-    }
-
-    /// Similar to [Path::push_tangent_crossing_circle_arc] but constrainted to rectangular angles
+    /// "arc to" command for rectangular angles defined by the point where the start and end tangents of the arc cross
     pub fn push_quarter_ellipse(&mut self, tangent_crossing: [f32; 2], to: [f32; 2]) {
         self.push_rational_quadratic_curve(RationalQuadraticCurveSegment {
             weight: std::f32::consts::FRAC_1_SQRT_2.into(),
@@ -645,42 +635,75 @@ impl Path {
         });
     }
 
-    /// "arc to" command for general circle arcs defined by the circle radius, side and direction
-    pub fn push_circle_arc(&mut self, radius: f32, left_hand_side: bool, clockwise: bool, to: [f32; 2]) {
-        let from = self.get_end();
-        let half_tangent = (vec_to_point(to) - vec_to_point(from)).scale(0.5);
-        let plane = tangent_from_points(from, to);
-        let distance_squared = plane.squared_magnitude()[0];
-        let mut normal = plane.dual().scale(1.0 / distance_squared.sqrt());
-        normal[0] = 0.0;
-        let mut center_offset = radius * (1.0 - (distance_squared * 0.25) / (radius * radius)).sqrt();
-        if left_hand_side {
-            center_offset *= -1.0;
+    /// "arc to" command for general elliptical arcs
+    pub fn push_elliptical_arc(&mut self, half_extent: [f32; 2], rotation: f32, large_arc: bool, sweep: bool, to: [f32; 2]) {
+        // https://www.w3.org/TR/SVG/implnote.html
+        let mut radii = ppga2d::Plane::new(0.0, half_extent[0].abs(), half_extent[1].abs());
+        if radii[1] == 0.0 || radii[2] == 0.0 {
+            self.push_line(LineSegment { control_points: [to.into()] });
+            return;
         }
-        let circle_center = vec_to_point(from) + half_tangent + normal.scale(center_offset);
-        let start_normal = vec_to_point(from) - circle_center;
-        let end_normal = vec_to_point(to) - circle_center;
-        let polar_start = epga1d::ComplexNumber::new(start_normal[2], start_normal[1]);
-        let polar_end = epga1d::ComplexNumber::new(end_normal[2], end_normal[1]);
-        let mut polar_angle = polar_end.geometric_quotient(polar_start).arg();
-        if (polar_angle < 0.0) == clockwise {
-            if clockwise {
-                polar_angle += std::f32::consts::TAU;
-            } else {
-                polar_angle -= std::f32::consts::TAU;
-            }
+        let from = vec_to_point(self.get_end());
+        let to = vec_to_point(to);
+        let rotor = rotate2d(rotation);
+        let vertex_unoriented = (to - from).dual().scale(0.5);
+        let vertex = rotor.inverse().transformation(vertex_unoriented);
+        let vertex_squared = vertex * vertex;
+        let mut radii_squared = radii * radii;
+        let scale_factor_squared = vertex_squared[1] / radii_squared[1] + vertex_squared[2] / radii_squared[2];
+        if scale_factor_squared > 1.0 {
+            // Scale radii up if they can not cover the distance between from and to
+            radii = radii.scale(scale_factor_squared.sqrt());
+            radii_squared = radii * radii;
         }
-        let steps = (polar_angle / std::f32::consts::FRAC_PI_2).abs().ceil() as usize;
-        let polar_step = epga1d::ComplexNumber::from_polar(1.0, polar_angle / (steps as f32));
-        let mut prev_tangent = ppga2d::Plane::new(0.0, -start_normal[2], start_normal[1]).inner_product(vec_to_point(from));
+        let one_over_radii = ppga2d::Plane::new(0.0, 1.0, 1.0) / radii;
+        let radii_squared_vertex_squared = radii_squared[1] * vertex_squared[2] + radii_squared[2] * vertex_squared[1];
+        let mut offset = ((radii_squared[1] * radii_squared[2] - radii_squared_vertex_squared) / radii_squared_vertex_squared)
+            .max(0.0)
+            .sqrt();
+        if large_arc == sweep {
+            offset = -offset;
+        }
+        let center_offset_unoriented = radii * rotate_90_degree_clockwise(vertex * one_over_radii).scale(offset);
+        let center = (to + from).scale(0.5) + rotor.transformation(center_offset_unoriented).dual();
+        let start_normal = (-vertex - center_offset_unoriented) * one_over_radii;
+        let end_normal = (vertex - center_offset_unoriented) * one_over_radii;
+        let polar_start = epga1d::ComplexNumber::new(start_normal[1], start_normal[2]).signum();
+        let polar_end = epga1d::ComplexNumber::new(end_normal[1], end_normal[2]).signum();
+        let mut polar_range = polar_end.geometric_quotient(polar_start);
+        let mut small_arc = polar_range.arg();
+        if small_arc < 0.0 {
+            polar_range = polar_range.reversal();
+            small_arc = -small_arc;
+        }
+        let mut angle = small_arc;
+        if large_arc {
+            angle -= std::f32::consts::TAU;
+        }
+        let step_radians = std::f32::consts::PI * 2.0 / 3.0;
+        let steps = (angle.abs() / step_radians).ceil() as usize;
+        if large_arc != sweep {
+            angle = -angle;
+        }
+        let polar_step = polar_range.powf(angle / (small_arc * steps as f32));
+        let half_polar_step_back = polar_step.powf(-0.5);
+        let weight = (angle.abs() / steps as f32 * 0.5).cos();
+        let tangent_crossing_radii = radii.scale(1.0 / weight);
         for i in 1..=steps {
-            let interpolated = polar_start.geometric_product(polar_step.powi(i as isize));
-            let normal = ppga2d::Point::new(0.0, interpolated.imaginary(), interpolated.real());
-            let vertex = circle_center + normal;
-            let tangent = ppga2d::Plane::new(0.0, -interpolated.real(), interpolated.imaginary()).inner_product(vertex);
-            let tangent_crossing = line_line_intersection(prev_tangent, tangent);
-            self.push_tangent_crossing_circle_arc(point_to_vec(tangent_crossing), point_to_vec(vertex));
-            prev_tangent = tangent;
+            let mut interpolated = polar_start.geometric_product(polar_step.powi(i as isize));
+            let vertex_unoriented = ppga2d::Plane::new(0.0, interpolated[0], interpolated[1]) * radii;
+            let vertex = center + rotor.transformation(vertex_unoriented).dual();
+            // let tangent = rotor
+            //     .transformation(rotate_90_degree_clockwise(vertex_unoriented) * radii_squared)
+            //     .inner_product(vertex)
+            //     .signum();
+            interpolated = interpolated.geometric_product(half_polar_step_back);
+            let tangent_crossing_unoriented = ppga2d::Plane::new(0.0, interpolated[0], interpolated[1]) * tangent_crossing_radii;
+            let tangent_crossing = center + rotor.transformation(tangent_crossing_unoriented).dual();
+            self.push_rational_quadratic_curve(RationalQuadraticCurveSegment {
+                weight: weight.into(),
+                control_points: [point_to_vec(tangent_crossing).into(), point_to_vec(vertex).into()],
+            });
         }
     }
 

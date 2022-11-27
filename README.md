@@ -80,7 +80,7 @@ To get started, checkout the [showcase example](examples/showcase/main.rs).
     - Rounded Rect ✓
     - Ellipse ✓
     - Circle ✓
-    - Circle Arc ✓
+    - Elliptical Arc ✓
     - [Optional] Font (TTF)
         - Glyph ✓
         - Text ◯
