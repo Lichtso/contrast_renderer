@@ -376,73 +376,14 @@ impl Shape {
     }
 }
 
-macro_rules! stencil_descriptor {
-    ($compare:ident, $fail:ident, $pass:ident) => {
-        wgpu::StencilFaceState {
-            compare: wgpu::CompareFunction::$compare,
-            fail_op: wgpu::StencilOperation::$fail,
-            depth_fail_op: wgpu::StencilOperation::Keep,
-            pass_op: wgpu::StencilOperation::$pass,
-        }
-    };
-}
-
-macro_rules! render_pipeline_descriptor {
-    ($pipeline_layout:expr,
-     $shader_module:expr, $vertex_entry:expr, $fragment_entry:expr,
-     $primitive_topology:ident, $primitive_index_format:expr,
-     $cull_mode:expr, $depth_compare:expr, $depth_write_enabled:expr,
-     $color_states:expr, $stencil_state:expr,
-     [$($vertex_buffer:expr),*], $msaa_sample_count:expr $(,)?) => {
-        wgpu::RenderPipelineDescriptor {
-            label: None,
-            layout: Some($pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: $shader_module,
-                entry_point: $vertex_entry,
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: (16 * 4) as wgpu::BufferAddress,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4],
-                }, $($vertex_buffer,)*],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: $shader_module,
-                entry_point: $fragment_entry,
-                targets: $color_states,
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::$primitive_topology,
-                strip_index_format: $primitive_index_format,
-                front_face: wgpu::FrontFace::Ccw,
-                unclipped_depth: false,
-                cull_mode: $cull_mode,
-                conservative: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32FloatStencil8,
-                depth_write_enabled: $depth_write_enabled,
-                depth_compare: $depth_compare,
-                bias: wgpu::DepthBiasState::default(),
-                stencil: $stencil_state,
-            }),
-            multisample: wgpu::MultisampleState {
-                count: $msaa_sample_count,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-        }
-    };
-}
-
 /// The configurable parameters of [Renderer]
 pub struct Configuration {
     /// Defines the blending of the default color cover shader
     pub blending: wgpu::ColorTargetState,
     /// Defines the cull mode of the default color cover shader
     pub cull_mode: Option<wgpu::Face>,
+    /// Defines the texture format for the depth and stencil buffer
+    pub depth_stencil_format: wgpu::TextureFormat,
     /// Defines the depth compare function of the default color cover shader
     pub depth_compare: wgpu::CompareFunction,
     /// Defines if the default color cover shader writes back into the depth buffer
@@ -491,6 +432,67 @@ impl Renderer {
     pub fn new(device: &wgpu::Device, config: Configuration) -> Result<Self, Error> {
         if config.winding_counter_bits == 0 || config.clip_nesting_counter_bits + config.winding_counter_bits > 8 {
             return Err(Error::NumberOfStencilBitsIsUnsupported);
+        }
+
+        macro_rules! stencil_descriptor {
+            ($compare:ident, $fail:ident, $pass:ident) => {
+                wgpu::StencilFaceState {
+                    compare: wgpu::CompareFunction::$compare,
+                    fail_op: wgpu::StencilOperation::$fail,
+                    depth_fail_op: wgpu::StencilOperation::Keep,
+                    pass_op: wgpu::StencilOperation::$pass,
+                }
+            };
+        }
+
+        macro_rules! render_pipeline_descriptor {
+            ($pipeline_layout:expr,
+             $shader_module:expr, $vertex_entry:expr, $fragment_entry:expr,
+             $primitive_topology:ident, $primitive_index_format:expr,
+             $cull_mode:expr, $depth_compare:expr, $depth_write_enabled:expr,
+             $color_states:expr, $stencil_state:expr,
+             [$($vertex_buffer:expr),*] $(,)?) => {
+                wgpu::RenderPipelineDescriptor {
+                    label: None,
+                    layout: Some($pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: $shader_module,
+                        entry_point: $vertex_entry,
+                        buffers: &[wgpu::VertexBufferLayout {
+                            array_stride: (16 * 4) as wgpu::BufferAddress,
+                            step_mode: wgpu::VertexStepMode::Instance,
+                            attributes: &vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4],
+                        }, $($vertex_buffer,)*],
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: $shader_module,
+                        entry_point: $fragment_entry,
+                        targets: $color_states,
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::$primitive_topology,
+                        strip_index_format: $primitive_index_format,
+                        front_face: wgpu::FrontFace::Ccw,
+                        unclipped_depth: false,
+                        cull_mode: $cull_mode,
+                        conservative: false,
+                        polygon_mode: wgpu::PolygonMode::Fill,
+                    },
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: config.depth_stencil_format,
+                        depth_write_enabled: $depth_write_enabled,
+                        depth_compare: $depth_compare,
+                        bias: wgpu::DepthBiasState::default(),
+                        stencil: $stencil_state,
+                    }),
+                    multisample: wgpu::MultisampleState {
+                        count: config.msaa_sample_count,
+                        mask: !0,
+                        alpha_to_coverage_enabled: false,
+                    },
+                    multiview: None,
+                }
+            };
         }
 
         let shader_module = device.create_shader_module(include_wgsl!("shaders.wgsl"));
@@ -598,7 +600,6 @@ impl Renderer {
             &[phony_color_state.clone()],
             stroke_stencil_state.clone(),
             [segment_2f1i_vertex_buffer_layout.clone()],
-            config.msaa_sample_count,
         ));
         let stroke_joint_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stroke_line_pipeline_layout,
@@ -613,7 +614,6 @@ impl Renderer {
             &[phony_color_state.clone()],
             stroke_stencil_state,
             [segment_3f1i_vertex_buffer_layout.clone()],
-            config.msaa_sample_count,
         ));
         let fill_solid_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -628,7 +628,6 @@ impl Renderer {
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
             [segment_0f_vertex_buffer_layout.clone()],
-            config.msaa_sample_count,
         ));
         let fill_integral_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -643,7 +642,6 @@ impl Renderer {
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
             [segment_2f_vertex_buffer_layout],
-            config.msaa_sample_count,
         ));
         let fill_integral_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -658,7 +656,6 @@ impl Renderer {
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
             [segment_3f_vertex_buffer_layout.clone()],
-            config.msaa_sample_count,
         ));
         let fill_rational_quadratic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -673,7 +670,6 @@ impl Renderer {
             &[phony_color_state.clone()],
             fill_stencil_state.clone(),
             [segment_3f_vertex_buffer_layout.clone()],
-            config.msaa_sample_count,
         ));
         let fill_rational_cubic_curve_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -688,7 +684,6 @@ impl Renderer {
             &[phony_color_state.clone()],
             fill_stencil_state,
             [segment_4f_vertex_buffer_layout],
-            config.msaa_sample_count,
         ));
 
         let increment_clip_nesting_counter_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
@@ -709,7 +704,6 @@ impl Renderer {
                 write_mask: clip_nesting_counter_mask | winding_counter_mask,
             },
             [segment_0f_vertex_buffer_layout.clone()],
-            config.msaa_sample_count,
         ));
         let decrement_clip_nesting_counter_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &stencil_pipeline_layout,
@@ -729,7 +723,6 @@ impl Renderer {
                 write_mask: clip_nesting_counter_mask | winding_counter_mask,
             },
             [segment_0f_vertex_buffer_layout.clone()],
-            config.msaa_sample_count,
         ));
 
         let color_cover_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -755,7 +748,6 @@ impl Renderer {
                 write_mask: winding_counter_mask,
             },
             [color_instance_buffer_layout.clone(), segment_0f_vertex_buffer_layout.clone()],
-            config.msaa_sample_count,
         ));
 
         let alpha_context_cover_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -801,7 +793,6 @@ impl Renderer {
             })],
             alpha_context_cover_stencil_state.clone(),
             [segment_0f_vertex_buffer_layout.clone()],
-            config.msaa_sample_count,
         ));
         let scale_alpha_context_cover_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &color_cover_pipeline_layout,
@@ -831,7 +822,6 @@ impl Renderer {
             })],
             alpha_context_cover_stencil_state.clone(),
             [color_instance_buffer_layout.clone(), segment_0f_vertex_buffer_layout.clone()],
-            config.msaa_sample_count,
         ));
         let restore_alpha_context_cover_pipeline = device.create_render_pipeline(&render_pipeline_descriptor!(
             &alpha_context_cover_pipeline_layout,
@@ -865,7 +855,6 @@ impl Renderer {
             })],
             alpha_context_cover_stencil_state,
             [color_instance_buffer_layout, segment_0f_vertex_buffer_layout],
-            config.msaa_sample_count,
         ));
 
         Ok(Self {
@@ -889,6 +878,11 @@ impl Renderer {
             save_alpha_context_cover_render_targets: Vec::new(),
             restore_alpha_context_cover_bind_groups: Vec::new(),
         })
+    }
+
+    /// Returns the [Configuration]
+    pub fn get_config(&self) -> &Configuration {
+        &self.config
     }
 
     /// Call this after initialization and when the viewport / window has been resized.

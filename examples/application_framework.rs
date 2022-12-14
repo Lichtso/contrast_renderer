@@ -137,7 +137,7 @@ impl ApplicationManager {
         let adapter_info = adapter.get_info();
         log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
-        let required_features = wgpu::Features::default() | wgpu::Features::DEPTH32FLOAT_STENCIL8;
+        let required_features = wgpu::Features::default();
         let needed_limits = wgpu::Limits { ..wgpu::Limits::default() };
         let adapter_features = adapter.features();
         assert!(
@@ -277,6 +277,16 @@ impl ApplicationManager {
                 _ => {}
             }
         });
+    }
+}
+
+pub fn get_depth_stencil_format(device: &wgpu::Device) -> wgpu::TextureFormat {
+    if device.features().contains(wgpu::Features::DEPTH24PLUS_STENCIL8) {
+        wgpu::TextureFormat::Depth24PlusStencil8
+    } else if device.features().contains(wgpu::Features::DEPTH32FLOAT_STENCIL8) {
+        wgpu::TextureFormat::Depth32FloatStencil8
+    } else {
+        panic!("No stencil texture formats supported");
     }
 }
 
