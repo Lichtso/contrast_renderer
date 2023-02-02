@@ -44,7 +44,7 @@ impl application_framework::Application for Application {
                     write_mask: wgpu::ColorWrites::ALL,
                 },
                 cull_mode: None,
-                depth_stencil_format: application_framework::get_depth_stencil_format(device),
+                depth_stencil_format: wgpu::TextureFormat::Depth24PlusStencil8,
                 depth_compare: wgpu::CompareFunction::Always,
                 depth_write_enabled: false,
                 color_attachment_in_stencil_pass: true,
@@ -282,6 +282,7 @@ impl application_framework::Application for Application {
             sample_count: MSAA_SAMPLE_COUNT,
             dimension: wgpu::TextureDimension::D2,
             format: self.renderer.get_config().depth_stencil_format,
+            view_formats: &[self.renderer.get_config().depth_stencil_format],
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             label: None,
         };
@@ -297,6 +298,7 @@ impl application_framework::Application for Application {
                 sample_count: MSAA_SAMPLE_COUNT,
                 dimension: wgpu::TextureDimension::D2,
                 format: surface_configuration.format,
+                view_formats: &[surface_configuration.format],
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
                 label: None,
             };
@@ -346,18 +348,18 @@ impl application_framework::Application for Application {
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: true,
+                    store: wgpu::StoreOp::Store,
                 },
             },
             wgpu::RenderPassDepthStencilAttachment {
                 view: &self.depth_stencil_texture_view.as_ref().unwrap(),
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(0.0),
-                    store: false,
+                    store: wgpu::StoreOp::Discard,
                 }),
                 stencil_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(0),
-                    store: true,
+                    store: wgpu::StoreOp::Store,
                 }),
             },
         );
@@ -369,10 +371,12 @@ impl application_framework::Application for Application {
                     resolve_target: if MSAA_SAMPLE_COUNT == 1 { None } else { Some(&frame_view) },
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
-                        store: false,
+                        store: wgpu::StoreOp::Discard,
                     },
                 })],
                 depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
         }
         queue.submit(Some(encoder.finish()));
