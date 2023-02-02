@@ -237,6 +237,8 @@ impl Renderer {
                 label: None,
                 color_attachments: &[Some(color_attachment.clone())],
                 depth_stencil_attachment: Some(depth_stencil_attachment.clone()),
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
             render_pass.set_vertex_buffer(0, self.instance_buffers[0].buffer.slice(..));
             render_pass
@@ -268,20 +270,22 @@ impl Renderer {
                                     resolve_target: None,
                                     ops: wgpu::Operations {
                                         load: wgpu::LoadOp::Load,
-                                        store: true,
+                                        store: wgpu::StoreOp::Store,
                                     },
                                 })],
                                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                                     view: depth_stencil_attachment.view,
                                     depth_ops: Some(wgpu::Operations {
                                         load: wgpu::LoadOp::Load,
-                                        store: false,
+                                        store: wgpu::StoreOp::Discard,
                                     }),
                                     stencil_ops: Some(wgpu::Operations {
                                         load: wgpu::LoadOp::Load,
-                                        store: true,
+                                        store: wgpu::StoreOp::Store,
                                     }),
                                 }),
+                                timestamp_writes: None,
+                                occlusion_query_set: None,
                             });
                             render_pass.set_vertex_buffer(0, self.instance_buffers[0].buffer.slice(..));
                             render_pass
