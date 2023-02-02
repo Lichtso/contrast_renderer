@@ -119,10 +119,10 @@ impl ApplicationManager {
                 .expect("Couldn't append canvas to document body");
         }
 
-        let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
+        let instance = wgpu::Instance::default();
         let (size, surface) = unsafe {
             let size = window.inner_size();
-            let surface = instance.create_surface(&window);
+            let surface = instance.create_surface(&window).unwrap();
             (size, surface)
         };
         let adapter = instance
@@ -137,20 +137,23 @@ impl ApplicationManager {
         let adapter_info = adapter.get_info();
         log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
+        let mut optional_features = wgpu::Features::default();
+        optional_features |= wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
         let required_features = wgpu::Features::default();
-        let needed_limits = wgpu::Limits { ..wgpu::Limits::default() };
+        let required_limits = wgpu::Limits { ..wgpu::Limits::default() };
         let adapter_features = adapter.features();
         assert!(
             adapter_features.contains(required_features),
             "Adapter does not support required features: {:?}",
             required_features - adapter_features
         );
+        optional_features -= optional_features - adapter_features;
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
                     features: adapter_features | required_features,
-                    limits: needed_limits,
+                    limits: required_limits,
                 },
                 None,
             )
@@ -172,6 +175,7 @@ impl ApplicationManager {
         wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: wgpu::TextureFormat::Bgra8Unorm, // self.surface.get_supported_formats(&self.adapter)[0],
+            view_formats: vec![wgpu::TextureFormat::Bgra8Unorm],
             width: self.size.width,
             height: self.size.height,
             present_mode: wgpu::PresentMode::Fifo, // self.surface.get_supported_present_modes(&self.adapter)[0],
@@ -277,16 +281,6 @@ impl ApplicationManager {
                 _ => {}
             }
         });
-    }
-}
-
-pub fn get_depth_stencil_format(device: &wgpu::Device) -> wgpu::TextureFormat {
-    if device.features().contains(wgpu::Features::DEPTH24PLUS_STENCIL8) {
-        wgpu::TextureFormat::Depth24PlusStencil8
-    } else if device.features().contains(wgpu::Features::DEPTH32FLOAT_STENCIL8) {
-        wgpu::TextureFormat::Depth32FloatStencil8
-    } else {
-        panic!("No stencil texture formats supported");
     }
 }
 

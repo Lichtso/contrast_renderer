@@ -44,7 +44,7 @@ impl application_framework::Application for Application {
                     write_mask: wgpu::ColorWrites::ALL,
                 },
                 cull_mode: Some(wgpu::Face::Back),
-                depth_stencil_format: application_framework::get_depth_stencil_format(device),
+                depth_stencil_format: wgpu::TextureFormat::Depth24PlusStencil8,
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 depth_write_enabled: true,
                 color_attachment_in_stencil_pass: true,
@@ -121,6 +121,7 @@ impl application_framework::Application for Application {
             sample_count: MSAA_SAMPLE_COUNT,
             dimension: wgpu::TextureDimension::D2,
             format: self.renderer.get_config().depth_stencil_format,
+            view_formats: &[self.renderer.get_config().depth_stencil_format],
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             label: None,
         };
@@ -136,6 +137,7 @@ impl application_framework::Application for Application {
                 sample_count: MSAA_SAMPLE_COUNT,
                 dimension: wgpu::TextureDimension::D2,
                 format: surface_configuration.format,
+                view_formats: &[surface_configuration.format],
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
                 label: None,
             };

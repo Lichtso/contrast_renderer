@@ -893,6 +893,7 @@ impl Renderer {
             sample_count: self.config.msaa_sample_count,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R8Unorm,
+            view_formats: &[wgpu::TextureFormat::R8Unorm],
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             label: None,
         };
