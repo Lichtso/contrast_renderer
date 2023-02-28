@@ -122,7 +122,7 @@ impl ApplicationManager {
         let instance = wgpu::Instance::default();
         let (size, surface) = unsafe {
             let size = window.inner_size();
-            let surface = instance.create_surface(&window).unwrap();
+            let surface = instance.create_surface(&window).expect("WebGPU is not supported or not enabled");
             (size, surface)
         };
         let adapter = instance
