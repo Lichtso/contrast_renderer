@@ -25,7 +25,7 @@ struct Application {
 impl application_framework::Application for Application {
     fn new(device: &wgpu::Device, _queue: &mut wgpu::Queue, surface_configuration: &wgpu::SurfaceConfiguration) -> Self {
         let renderer = contrast_renderer::renderer::Renderer::new(
-            &device,
+            device,
             contrast_renderer::renderer::Configuration {
                 blending: wgpu::ColorTargetState {
                     format: surface_configuration.format,
@@ -91,7 +91,7 @@ impl application_framework::Application for Application {
             dynamic_stroke_options_group: 0,
             curve_approximation: contrast_renderer::path::CurveApproximation::UniformTangentAngle(0.1.into()),
         });
-        let shape = contrast_renderer::renderer::Shape::from_paths(&device, &renderer, &dynamic_stroke_options, paths.as_slice(), None).unwrap();
+        let shape = contrast_renderer::renderer::Shape::from_paths(device, &renderer, &dynamic_stroke_options, paths.as_slice(), None).unwrap();
 
         Self {
             depth_stencil_texture_view: None,
@@ -204,7 +204,7 @@ impl application_framework::Application for Application {
         let msaa_frame_view = if MSAA_SAMPLE_COUNT == 1 {
             &frame_view
         } else {
-            &self.msaa_color_texture_view.as_ref().unwrap()
+            self.msaa_color_texture_view.as_ref().unwrap()
         };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
@@ -219,7 +219,7 @@ impl application_framework::Application for Application {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_stencil_texture_view.as_ref().unwrap(),
+                    view: self.depth_stencil_texture_view.as_ref().unwrap(),
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: true,

@@ -52,14 +52,14 @@ pub fn transmute_vec<S, T>(mut vec: Vec<S>) -> Vec<T> {
 /// Transmutes a slice.
 pub fn transmute_slice<S, T>(slice: &[S]) -> &[T] {
     let ptr = slice.as_ptr() as *const T;
-    let len = slice.len() * std::mem::size_of::<S>() / std::mem::size_of::<T>();
+    let len = std::mem::size_of_val(slice) / std::mem::size_of::<T>();
     unsafe { std::slice::from_raw_parts(ptr, len) }
 }
 
 /// Transmutes a mutable slice.
 pub fn transmute_slice_mut<S, T>(slice: &mut [S]) -> &mut [T] {
     let ptr = slice.as_mut_ptr() as *mut T;
-    let len = slice.len() * std::mem::size_of::<S>() / std::mem::size_of::<T>();
+    let len = std::mem::size_of_val(slice) / std::mem::size_of::<T>();
     unsafe { std::slice::from_raw_parts_mut(ptr, len) }
 }
 
