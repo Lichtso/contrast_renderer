@@ -123,8 +123,8 @@ impl<'a> NodeMessengerContext<'a> {
             if children_order_changed {
                 let mut ordered_children = node
                     .children
-                    .iter()
-                    .map(|(_local_child_id, global_child_id)| {
+                    .values()
+                    .map(|global_child_id| {
                         let child_node = self.node_hierarchy.nodes.get(global_child_id).unwrap().borrow();
                         let layer_index = child_node
                             .properties
@@ -674,10 +674,7 @@ impl NodeHierarchy {
     }
 
     fn subscribe_observer(&mut self, global_node_id: GlobalNodeIdentifier, observable: NodeOrObservableIdentifier) {
-        self.observer_channels
-            .entry(observable)
-            .or_insert_with(HashSet::new)
-            .insert(global_node_id);
+        self.observer_channels.entry(observable).or_default().insert(global_node_id);
     }
 
     fn unsubscribe_observer(&mut self, global_node_id: GlobalNodeIdentifier, observable: NodeOrObservableIdentifier) {
