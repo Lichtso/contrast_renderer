@@ -426,7 +426,7 @@ impl WinitEventTranslator {
                 ..
             } => {
                 let input_source = *self.source_by_device.entry(device_id).or_insert(0);
-                let input_state = self.input_sources.entry(input_source).or_insert_with(InputState::default);
+                let input_state = self.input_sources.entry(input_source).or_default();
                 let keymap = &self.keymap;
                 if state == winit::event::ElementState::Pressed {
                     input_state.pressed_scancodes.insert(scancode as usize);
@@ -470,7 +470,7 @@ impl WinitEventTranslator {
                 device_id, state, button, ..
             } => {
                 let input_source = *self.source_by_device.entry(device_id).or_insert(0);
-                let input_state = self.input_sources.entry(input_source).or_insert_with(InputState::default);
+                let input_state = self.input_sources.entry(input_source).or_default();
                 input_state.relative_positions.clear();
                 input_state.is_inside_bounds.clear();
                 let changed_pointer = match button {
@@ -489,7 +489,7 @@ impl WinitEventTranslator {
             }
             winit::event::WindowEvent::CursorMoved { device_id, position, .. } => {
                 let input_source = *self.source_by_device.entry(device_id).or_insert(0);
-                let input_state = self.input_sources.entry(input_source).or_insert_with(InputState::default);
+                let input_state = self.input_sources.entry(input_source).or_default();
                 input_state.relative_positions.clear();
                 input_state.is_inside_bounds.clear();
                 let current_position = ppga2d::Point::new(
@@ -512,7 +512,7 @@ impl WinitEventTranslator {
             }
             winit::event::WindowEvent::MouseWheel { device_id, delta, .. } => {
                 let input_source = *self.source_by_device.entry(device_id).or_insert(0);
-                let input_state = self.input_sources.entry(input_source).or_insert_with(InputState::default);
+                let input_state = self.input_sources.entry(input_source).or_default();
                 let (delta_x, delta_y) = match delta {
                     winit::event::MouseScrollDelta::LineDelta(x, y) => (x, y),
                     winit::event::MouseScrollDelta::PixelDelta(delta) => (delta.x as f32, delta.y as f32),

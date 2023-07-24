@@ -25,7 +25,7 @@ struct Application {
 impl application_framework::Application for Application {
     fn new(device: &wgpu::Device, _queue: &mut wgpu::Queue, surface_configuration: &wgpu::SurfaceConfiguration) -> Self {
         let renderer = contrast_renderer::renderer::Renderer::new(
-            &device,
+            device,
             contrast_renderer::renderer::Configuration {
                 blending: wgpu::ColorTargetState {
                     format: surface_configuration.format,
@@ -337,7 +337,7 @@ impl application_framework::Application for Application {
         let msaa_frame_view = if MSAA_SAMPLE_COUNT == 1 {
             &frame_view
         } else {
-            &self.msaa_color_texture_view.as_ref().unwrap()
+            self.msaa_color_texture_view.as_ref().unwrap()
         };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         self.ui_renderer.encode_commands(
@@ -352,7 +352,7 @@ impl application_framework::Application for Application {
                 },
             },
             wgpu::RenderPassDepthStencilAttachment {
-                view: &self.depth_stencil_texture_view.as_ref().unwrap(),
+                view: self.depth_stencil_texture_view.as_ref().unwrap(),
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(0.0),
                     store: wgpu::StoreOp::Discard,
@@ -367,7 +367,7 @@ impl application_framework::Application for Application {
             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.msaa_color_texture_view.as_ref().unwrap(),
+                    view: self.msaa_color_texture_view.as_ref().unwrap(),
                     resolve_target: if MSAA_SAMPLE_COUNT == 1 { None } else { Some(&frame_view) },
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
