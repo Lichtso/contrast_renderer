@@ -152,7 +152,7 @@ impl ApplicationManager {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    features: adapter_features | required_features,
+                    features: required_features | optional_features,
                     limits: required_limits,
                 },
                 None,
