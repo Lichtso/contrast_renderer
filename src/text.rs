@@ -252,11 +252,10 @@ pub fn paths_of_text(face: &ttf_parser::Face, layout: &Layout, text: &str, clipp
                 continue;
             }
         }
-        let scalator = ppga2d::Scalar::new(scale);
         let motor = translate2d([*x as f32 * scale, *y as f32 * scale]);
         let mut paths = paths_of_glyph(face, *glyph_id);
         for path in &mut paths {
-            path.transform(&scalator, &motor);
+            path.transform(scale, &motor);
         }
         result.append(&mut paths);
     }

@@ -1,6 +1,6 @@
 //! Miscellaneous utility and helper functions
 
-use geometric_algebra::{ppga2d, ppga3d, GeometricQuotient, OuterProduct, RegressiveProduct, Scale, Transformation, Zero};
+use geometric_algebra::{ppga2d, ppga3d, GeometricQuotient, OuterProduct, RegressiveProduct, Transformation, Zero};
 use std::convert::TryInto;
 
 /// Like `vec!` but for `HashSet`
@@ -66,7 +66,7 @@ pub fn transmute_slice_mut<S, T>(slice: &mut [S]) -> &mut [T] {
 /// Returns the intersection point of two 2D lines (origin, direction).
 pub fn line_line_intersection(a: ppga2d::Plane, b: ppga2d::Plane) -> ppga2d::Point {
     let p = a.outer_product(b);
-    p.scale(1.0 / p[0])
+    p * (1.0 / p[0])
 }
 
 /// Converts a axis aligned bounding box into 4 vertices.
@@ -87,7 +87,7 @@ pub fn do_convex_polygons_overlap(a: &[ppga2d::Point], b: &[ppga2d::Point]) -> b
         'outer: for index in 0..a.len() {
             let plane = a[(index + 1) % a.len()].regressive_product(a[index]);
             for point in b {
-                if point.regressive_product(plane)[0] <= 0.0 {
+                if point.regressive_product(plane) <= 0.0 {
                     continue 'outer;
                 }
             }
@@ -193,10 +193,10 @@ pub fn perspective_projection(field_of_view_y: f32, aspect_ratio: f32, near: f32
 /// Calculates the product of two 4x4 matrices for GLSL.
 pub fn matrix_multiplication(a: &[ppga3d::Point; 4], b: &[ppga3d::Point; 4]) -> [ppga3d::Point; 4] {
     [
-        a[0].scale(b[0][0]) + a[1].scale(b[0][1]) + a[2].scale(b[0][2]) + a[3].scale(b[0][3]),
-        a[0].scale(b[1][0]) + a[1].scale(b[1][1]) + a[2].scale(b[1][2]) + a[3].scale(b[1][3]),
-        a[0].scale(b[2][0]) + a[1].scale(b[2][1]) + a[2].scale(b[2][2]) + a[3].scale(b[2][3]),
-        a[0].scale(b[3][0]) + a[1].scale(b[3][1]) + a[2].scale(b[3][2]) + a[3].scale(b[3][3]),
+        a[0] * b[0][0] + a[1] * b[0][1] + a[2] * b[0][2] + a[3] * b[0][3],
+        a[0] * b[1][0] + a[1] * b[1][1] + a[2] * b[1][2] + a[3] * b[1][3],
+        a[0] * b[2][0] + a[1] * b[2][1] + a[2] * b[2][2] + a[3] * b[2][3],
+        a[0] * b[3][0] + a[1] * b[3][1] + a[2] * b[3][2] + a[3] * b[3][3],
     ]
 }
 

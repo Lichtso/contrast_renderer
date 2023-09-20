@@ -9,7 +9,7 @@ use crate::{
     utils::{point_to_vec, vec_to_point, weighted_vec_to_point},
     vertex::{triangle_fan_to_strip, Vertex0, Vertex2f, Vertex3f, Vertex4f},
 };
-use geometric_algebra::{polynomial::Root, ppga2d, ppga3d, InnerProduct, RegressiveProduct, Scale, SquaredMagnitude, Zero};
+use geometric_algebra::{polynomial::Root, ppga2d, ppga3d, InnerProduct, RegressiveProduct, SquaredMagnitude, Zero};
 
 fn find_double_point_issue(discriminant: f32, roots: &[Root; 3]) -> Option<f32> {
     if discriminant < 0.0 {
@@ -75,10 +75,10 @@ fn weight_planes(control_points: &[ppga2d::Point; 4], weights: &[[f32; 4]; 4]) -
             points[j] = ppga3d::Point::from([control_point[0], control_point[1], control_point[2], weights[j][i]]);
         }
         let mut plane_3d = points[0].regressive_product(points[1]).regressive_product(points[2]);
-        if plane_3d.squared_magnitude()[0] < ERROR_MARGIN {
+        if plane_3d.squared_magnitude() < ERROR_MARGIN {
             plane_3d = points[0].regressive_product(points[1]).regressive_product(points[3]);
         }
-        plane_3d = plane_3d.scale(1.0 / -plane_3d[3]);
+        plane_3d = plane_3d * (1.0 / -plane_3d[3]);
         *plane_2d = ppga2d::Plane::new(plane_3d[0], plane_3d[1], plane_3d[2]);
     }
     planes
@@ -89,10 +89,10 @@ fn implicit_curve_value(weights: ppga3d::Point) -> f32 {
 }
 
 fn implicit_curve_gradient(planes: &[ppga2d::Plane; 4], weights: &[f32; 4]) -> ppga2d::Plane {
-    planes[0].scale(3.0 * weights[0] * weights[0])
-        - planes[1].scale(weights[2] * weights[3])
-        - planes[2].scale(weights[1] * weights[3])
-        - planes[3].scale(weights[1] * weights[2])
+    planes[0] * (3.0 * weights[0] * weights[0])
+        - planes[1] * (weights[2] * weights[3])
+        - planes[2] * (weights[1] * weights[3])
+        - planes[3] * (weights[1] * weights[2])
 }
 
 fn normalize_implicit_curve_side(
@@ -102,7 +102,7 @@ fn normalize_implicit_curve_side(
     gradient: ppga2d::Plane,
 ) {
     let tangent = rational_cubic_first_order_derivative(power_basis, 0.0);
-    if tangent.inner_product(gradient)[0] > 0.0 {
+    if tangent.inner_product(gradient) > 0.0 {
         for plane in planes {
             *plane = -*plane;
         }
@@ -135,21 +135,21 @@ macro_rules! triangulate_cubic_curve_quadrilateral {
     ($fill_solid_vertices:expr, $cubic_vertices:expr,
      $control_points:expr, $weights:expr, $v:ident, $w:ident, $emit_vertex:expr) => {{
         for (weights, control_point) in $weights.iter_mut().zip($control_points.iter()) {
-            *weights = weights.scale(1.0 / control_point[0]);
+            *weights = *weights * (1.0 / control_point[0]);
         }
         let mut triangles = Vec::new();
         let signed_triangle_areas: Vec<f32> = (0..4)
             .map(|i| {
                 // $control_points[j].signum()
                 let points: Vec<_> = (0..4).filter(|j| i != *j).map(|j| $control_points[j]).collect();
-                points[0].regressive_product(points[1]).regressive_product(points[2])[0]
+                points[0].regressive_product(points[1]).regressive_product(points[2])
             })
             .collect();
         let triangle_area_sum =
             signed_triangle_areas[0].abs() + signed_triangle_areas[1].abs() + signed_triangle_areas[2].abs() + signed_triangle_areas[3].abs();
         let mut enclosing_triangle = None;
         for (triangle_index, signed_triangle_area) in signed_triangle_areas.iter().enumerate() {
-            let equilibrium = 0.5 * triangle_area_sum;
+            let equilibrium: f32 = 0.5 * triangle_area_sum;
             if (equilibrium - signed_triangle_area.abs()).abs() <= ERROR_MARGIN {
                 enclosing_triangle = if enclosing_triangle.is_none() { Some(triangle_index) } else { None };
             }
@@ -205,12 +205,12 @@ macro_rules! triangulate_cubic_curve_quadrilateral {
 
 macro_rules! split_curve_at {
     ($algebra:ident, $control_points:expr, $param:expr) => {{
-        let p10 = $control_points[0].scale(1.0 - $param) + $control_points[1].scale($param);
-        let p11 = $control_points[1].scale(1.0 - $param) + $control_points[2].scale($param);
-        let p12 = $control_points[2].scale(1.0 - $param) + $control_points[3].scale($param);
-        let p20 = p10.scale(1.0 - $param) + p11.scale($param);
-        let p21 = p11.scale(1.0 - $param) + p12.scale($param);
-        let p30 = p20.scale(1.0 - $param) + p21.scale($param);
+        let p10 = $control_points[0] * (1.0 - $param) + $control_points[1] * $param;
+        let p11 = $control_points[1] * (1.0 - $param) + $control_points[2] * $param;
+        let p12 = $control_points[2] * (1.0 - $param) + $control_points[3] * $param;
+        let p20 = p10 * (1.0 - $param) + p11 * $param;
+        let p21 = p11 * (1.0 - $param) + p12 * $param;
+        let p30 = p20 * (1.0 - $param) + p21 * $param;
         ([$control_points[0], p10, p20, p30], [p30, p21, p12, $control_points[3]])
     }};
 }

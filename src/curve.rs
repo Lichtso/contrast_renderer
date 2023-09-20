@@ -6,12 +6,12 @@ use crate::{error::ERROR_MARGIN, utils::rotate_90_degree_clockwise};
 use geometric_algebra::{
     epga1d,
     polynomial::{solve_cubic, solve_linear, solve_quadratic, solve_quartic, Root},
-    ppga2d, ppga3d, Dual, GeometricProduct, GeometricQuotient, InnerProduct, Powf, Powi, RegressiveProduct, Scale, Signum, Zero,
+    ppga2d, ppga3d, Dual, GeometricProduct, GeometricQuotient, InnerProduct, Powf, Powi, RegressiveProduct, Signum, Zero,
 };
 
 macro_rules! mat_vec_transform {
     (expand, $power_basis:expr, $i:expr, $at:expr) => {
-        $power_basis[$i].scale($at)
+        $power_basis[$i] * $at
     };
     (expand, $power_basis:expr, $i:expr, $at:expr $(, $rest:expr)+) => {
         mat_vec_transform!(expand, $power_basis, $i, $at) +
@@ -136,7 +136,7 @@ pub fn inflection_point_polynomial_coefficients(power_basis: &[ppga2d::Point; 4]
         let mut iter = (0..4).filter(|i| *i != j).map(|i| power_basis[i]);
         ippc[j] = (iter.next().unwrap())
             .regressive_product(iter.next().unwrap())
-            .regressive_product(iter.next().unwrap())[0]
+            .regressive_product(iter.next().unwrap())
             * (j as isize % 2 * 2 - 1) as f32;
     }
     ippc = ippc.signum();
@@ -309,13 +309,13 @@ pub fn integral_quadratic_uniform_tangent_angle(
     end_tangent: ppga2d::Plane,
     angle_step: f32,
 ) -> Vec<f32> {
-    let planes = [power_basis[1].dual(), power_basis[2].dual().scale(2.0)];
+    let planes = [power_basis[1].dual(), power_basis[2].dual() * 2.0];
     let mut parameters = interpolate_normal!(
         start_tangent,
         end_tangent,
         angle_step,
         normal,
-        solve_linear([normal.inner_product(planes[0])[0], normal.inner_product(planes[1])[0]], ERROR_MARGIN).1,
+        solve_linear([normal.inner_product(planes[0]), normal.inner_product(planes[1])], ERROR_MARGIN).1,
     );
     parameters.push(1.0);
     parameters
@@ -334,16 +334,16 @@ pub fn integral_cubic_uniform_tangent_angle(power_basis: &[ppga2d::Point; 4], an
         {
             planes = [
                 trimmed_power_basis[1].dual(),
-                trimmed_power_basis[2].dual().scale(2.0),
-                trimmed_power_basis[3].dual().scale(3.0),
+                trimmed_power_basis[2].dual() * 2.0,
+                trimmed_power_basis[3].dual() * 3.0,
             ];
         },
         normal,
         solve_quadratic(
             [
-                normal.inner_product(planes[0])[0],
-                normal.inner_product(planes[1])[0],
-                normal.inner_product(planes[2])[0],
+                normal.inner_product(planes[0]),
+                normal.inner_product(planes[1]),
+                normal.inner_product(planes[2]),
             ],
             ERROR_MARGIN
         )
@@ -360,16 +360,16 @@ pub fn rational_quadratic_uniform_tangent_angle(
 ) -> Vec<f32> {
     let planes = [
         power_basis[1].regressive_product(power_basis[0]),
-        power_basis[2].regressive_product(power_basis[0]).scale(2.0),
+        power_basis[2].regressive_product(power_basis[0]) * 2.0,
         power_basis[2].regressive_product(power_basis[1]),
     ];
     let mut parameters = interpolate_normal!(start_tangent, end_tangent, angle_step, normal, {
         let normal = rotate_90_degree_clockwise(normal);
         solve_quadratic(
             [
-                normal.inner_product(planes[0])[0],
-                normal.inner_product(planes[1])[0],
-                normal.inner_product(planes[2])[0],
+                normal.inner_product(planes[0]),
+                normal.inner_product(planes[1]),
+                normal.inner_product(planes[2]),
             ],
             ERROR_MARGIN,
         )
@@ -392,10 +392,10 @@ pub fn rational_cubic_uniform_tangent_angle(power_basis: &[ppga2d::Point; 4], an
         {
             planes = [
                 trimmed_power_basis[1].regressive_product(trimmed_power_basis[0]),
-                trimmed_power_basis[2].regressive_product(trimmed_power_basis[0]).scale(2.0),
+                trimmed_power_basis[2].regressive_product(trimmed_power_basis[0]) * 2.0,
                 trimmed_power_basis[2].regressive_product(trimmed_power_basis[1])
-                    + trimmed_power_basis[3].regressive_product(trimmed_power_basis[0]).scale(3.0),
-                trimmed_power_basis[3].regressive_product(trimmed_power_basis[1]).scale(2.0),
+                    + trimmed_power_basis[3].regressive_product(trimmed_power_basis[0]) * 3.0,
+                trimmed_power_basis[3].regressive_product(trimmed_power_basis[1]) * 2.0,
                 trimmed_power_basis[3].regressive_product(trimmed_power_basis[2]),
             ];
         },
@@ -404,11 +404,11 @@ pub fn rational_cubic_uniform_tangent_angle(power_basis: &[ppga2d::Point; 4], an
             let normal = rotate_90_degree_clockwise(normal);
             solve_quartic(
                 [
-                    normal.inner_product(planes[0])[0],
-                    normal.inner_product(planes[1])[0],
-                    normal.inner_product(planes[2])[0],
-                    normal.inner_product(planes[3])[0],
-                    normal.inner_product(planes[4])[0],
+                    normal.inner_product(planes[0]),
+                    normal.inner_product(planes[1]),
+                    normal.inner_product(planes[2]),
+                    normal.inner_product(planes[3]),
+                    normal.inner_product(planes[4]),
                 ],
                 ERROR_MARGIN,
             )

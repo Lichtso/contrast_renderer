@@ -6,7 +6,7 @@ use crate::{
     utils::{motor2d_to_mat3, point_to_vec, rotate2d, rotate_90_degree_clockwise, vec_to_point, weighted_vec_to_point},
 };
 use geometric_algebra::{
-    epga1d, ppga2d, Dual, GeometricProduct, GeometricQuotient, Inverse, Powf, Powi, RegressiveProduct, Reversal, Scale, Signum, SquaredMagnitude,
+    epga1d, ppga2d, Dual, GeometricProduct, GeometricQuotient, Inverse, Powf, Powi, RegressiveProduct, Reversal, Signum, SquaredMagnitude,
     Transformation, Zero,
 };
 
@@ -384,10 +384,10 @@ impl Path {
     }
 
     /// Transforms all control points of the [Path] (including the `start` and all segments).
-    pub fn transform(&mut self, scalator: &ppga2d::Scalar, motor: &ppga2d::Motor) {
+    pub fn transform(&mut self, scale: f32, motor: &ppga2d::Motor) {
         let mut transform = motor2d_to_mat3(motor);
-        transform[0][0] *= scalator[0];
-        transform[1][1] *= scalator[0];
+        transform[0][0] *= scale;
+        transform[1][1] *= scale;
         fn transform_point(transform: &[ppga2d::Point; 3], p: SafeFloat<f32, 2>) -> SafeFloat<f32, 2> {
             let p = p.unwrap();
             [
@@ -586,8 +586,8 @@ impl Path {
                         vec_to_point(segment.control_points[1].unwrap()),
                     ];
                     let new_control_points = [
-                        control_points[0] + (control_points[1] - control_points[0]).scale(2.0 / 3.0),
-                        control_points[2] + (control_points[1] - control_points[2]).scale(2.0 / 3.0),
+                        control_points[0] + (control_points[1] - control_points[0]) * (2.0 / 3.0),
+                        control_points[2] + (control_points[1] - control_points[2]) * (2.0 / 3.0),
                     ];
                     self.rational_cubic_curve_segments.insert(
                         rational_cubic_curve_segment_index,
@@ -619,7 +619,7 @@ impl Path {
     /// A filled [Path] or a closed stroked [Path] already has an implicit [LineSegment] at the end.
     /// But this method can still be useful for reversing a closed stroked [Path] when the start and end should stay at the same location.
     pub fn close(&mut self) {
-        if tangent_from_points(self.start.unwrap(), self.get_end()).squared_magnitude()[0] <= ERROR_MARGIN {
+        if tangent_from_points(self.start.unwrap(), self.get_end()).squared_magnitude() <= ERROR_MARGIN {
             return;
         }
         self.push_line(LineSegment {
@@ -646,14 +646,14 @@ impl Path {
         let from = vec_to_point(self.get_end());
         let to = vec_to_point(to);
         let rotor = rotate2d(rotation);
-        let vertex_unoriented = (to - from).dual().scale(0.5);
+        let vertex_unoriented = (to - from).dual() * 0.5;
         let vertex = rotor.inverse().transformation(vertex_unoriented);
         let vertex_squared = vertex * vertex;
         let mut radii_squared = radii * radii;
         let scale_factor_squared = vertex_squared[1] / radii_squared[1] + vertex_squared[2] / radii_squared[2];
         if scale_factor_squared > 1.0 {
             // Scale radii up if they can not cover the distance between from and to
-            radii = radii.scale(scale_factor_squared.sqrt());
+            radii = radii * scale_factor_squared.sqrt();
             radii_squared = radii * radii;
         }
         let one_over_radii = ppga2d::Plane::new(0.0, 1.0, 1.0) / radii;
@@ -664,8 +664,8 @@ impl Path {
         if large_arc == sweep {
             offset = -offset;
         }
-        let center_offset_unoriented = radii * rotate_90_degree_clockwise(vertex * one_over_radii).scale(offset);
-        let center = (to + from).scale(0.5) + rotor.transformation(center_offset_unoriented).dual();
+        let center_offset_unoriented = radii * rotate_90_degree_clockwise(vertex * one_over_radii) * offset;
+        let center = (to + from) * 0.5 + rotor.transformation(center_offset_unoriented).dual();
         let start_normal = (-vertex - center_offset_unoriented) * one_over_radii;
         let end_normal = (vertex - center_offset_unoriented) * one_over_radii;
         let polar_start = epga1d::ComplexNumber::new(start_normal[1], start_normal[2]).signum();
@@ -688,7 +688,7 @@ impl Path {
         let polar_step = polar_range.powf(angle / (small_arc * steps as f32));
         let half_polar_step_back = polar_step.powf(-0.5);
         let weight = (angle.abs() / steps as f32 * 0.5).cos();
-        let tangent_crossing_radii = radii.scale(1.0 / weight);
+        let tangent_crossing_radii = radii * (1.0 / weight);
         for i in 1..=steps {
             let mut interpolated = polar_start.geometric_product(polar_step.powi(i as isize));
             let vertex_unoriented = ppga2d::Plane::new(0.0, interpolated[0], interpolated[1]) * radii;
