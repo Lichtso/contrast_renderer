@@ -135,7 +135,7 @@ macro_rules! triangulate_cubic_curve_quadrilateral {
     ($fill_solid_vertices:expr, $cubic_vertices:expr,
      $control_points:expr, $weights:expr, $v:ident, $w:ident, $emit_vertex:expr) => {{
         for (weights, control_point) in $weights.iter_mut().zip($control_points.iter()) {
-            *weights = *weights * (1.0 / control_point[0]);
+            *weights *= (1.0 / control_point[0]);
         }
         let mut triangles = Vec::new();
         let signed_triangle_areas: Vec<f32> = (0..4)

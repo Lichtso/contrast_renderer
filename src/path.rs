@@ -653,7 +653,7 @@ impl Path {
         let scale_factor_squared = vertex_squared[1] / radii_squared[1] + vertex_squared[2] / radii_squared[2];
         if scale_factor_squared > 1.0 {
             // Scale radii up if they can not cover the distance between from and to
-            radii = radii * scale_factor_squared.sqrt();
+            radii *= scale_factor_squared.sqrt();
             radii_squared = radii * radii;
         }
         let one_over_radii = ppga2d::Plane::new(0.0, 1.0, 1.0) / radii;
