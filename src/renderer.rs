@@ -951,20 +951,22 @@ impl Renderer {
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
-                    store: true,
+                    store: wgpu::StoreOp::Store,
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: depth_stencil_texture_view,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Load,
-                    store: false,
+                    store: wgpu::StoreOp::Discard,
                 }),
                 stencil_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Load,
-                    store: true,
+                    store: wgpu::StoreOp::Store,
                 }),
             }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
         });
         render_pass.set_bind_group(0, self.save_alpha_context_cover_bind_group.as_ref().unwrap(), &[]);
         Ok(render_pass)

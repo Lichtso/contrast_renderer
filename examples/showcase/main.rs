@@ -215,20 +215,22 @@ impl application_framework::Application for Application {
                     resolve_target: if MSAA_SAMPLE_COUNT == 1 { None } else { Some(&frame_view) },
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: self.depth_stencil_texture_view.as_ref().unwrap(),
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(0),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     }),
                 }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
             render_pass.set_vertex_buffer(0, self.instance_buffers[0].buffer.slice(..));
             for instance_index in 0..(1 + ROWS * COLUMNS) as u32 {
