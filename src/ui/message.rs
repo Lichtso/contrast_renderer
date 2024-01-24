@@ -1,7 +1,6 @@
 //! Messages sent between ui [Node]s
 
 use crate::{
-    error::Error,
     hash_map, match_option,
     ui::{wrapped_values::Value, GlobalNodeIdentifier, InputState, Node, NodeOrObservableIdentifier},
 };
@@ -271,19 +270,12 @@ pub const USER_INPUT: MessengerBehavior = MessengerBehavior {
 pub struct WinitEventTranslator {
     /// The size of the screen in pixels
     pub viewport_size: ppga2d::Point,
-    /// Registered modifier keys such as shift, option, control, command, etc.
-    pub modifiers: Vec<char>,
-    /// Maps from scancodes to keycodes
-    pub keymap: HashMap<u32, char>,
     /// State of each input source
     pub input_sources: HashMap<usize, InputState>,
     /// Last position of each mouse pointer
     pub mouse_positions: HashMap<winit::event::DeviceId, ppga2d::Point>,
     /// Groups devices into input sources
     pub source_by_device: HashMap<winit::event::DeviceId, usize>,
-    /// Set tu true to automatically record the `keymap`
-    pub record_keymap: bool,
-    last_scancode: u32,
 }
 
 #[cfg(feature = "winit")]
@@ -291,115 +283,36 @@ impl Default for WinitEventTranslator {
     fn default() -> Self {
         Self {
             viewport_size: ppga2d::Point::zero(),
-            modifiers: Vec::new(),
-            keymap: HashMap::new(),
             input_sources: hash_map! {
                 0 => InputState::default(),
             },
             mouse_positions: HashMap::default(),
             source_by_device: HashMap::default(),
-            record_keymap: false,
-            last_scancode: 0,
         }
     }
 }
 
 #[cfg(feature = "winit")]
 impl WinitEventTranslator {
-    /// Loads a keymap (usually from a file)
-    pub fn load_keymap(&mut self, file_content: &str) -> Result<(), Error> {
-        self.keymap = HashMap::new();
-        let mut byte_index = 0;
-        while byte_index < file_content.len() {
-            if !file_content[byte_index..].starts_with("0x") {
-                return Err(Error::Syntax(byte_index));
-            }
-            byte_index += 2;
-            let scancode_len = &file_content[byte_index..].find(": ").ok_or(Error::Syntax(byte_index))?;
-            let scancode = u32::from_str_radix(&file_content[byte_index..byte_index + scancode_len], 16).map_err(|_| Error::Syntax(byte_index))? << 8;
-            byte_index += scancode_len + 2;
-            loop {
-                let mut length = None;
-                let mut primed = false;
-                for (index, character) in file_content[byte_index..].char_indices() {
-                    match character {
-                        ';' => {
-                            primed = true;
-                        }
-                        ' ' | '\n' if primed => {
-                            length = Some(index - 1);
-                            break;
-                        }
-                        _ => {
-                            primed = false;
-                        }
-                    }
-                }
-                let mut modifiers_code = 0;
-                let length = length.ok_or(Error::Syntax(byte_index))?;
-                let modifiers_and_symbol = file_content[byte_index..byte_index + length].chars();
-                byte_index += length + 2;
-                let character_count = modifiers_and_symbol.clone().count();
-                if character_count > 2 {
-                    if modifiers_and_symbol.clone().nth_back(1) != Some(' ') {
-                        return Err(Error::Syntax(byte_index));
-                    }
-                    for modifier in modifiers_and_symbol.clone().take(character_count - 2) {
-                        let modifier_index = if let Some(index) = self.modifiers.iter().position(|value| *value == modifier) {
-                            index
-                        } else {
-                            self.modifiers.push(modifier);
-                            self.modifiers.len() - 1
-                        };
-                        modifiers_code |= 1 << modifier_index;
-                    }
-                } else if character_count == 0 {
-                    return Err(Error::Syntax(byte_index));
-                }
-                self.keymap.insert(scancode | modifiers_code, modifiers_and_symbol.last().unwrap());
-                if file_content[byte_index - 1..].starts_with('\n') {
-                    break;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Saves a keymap (usually to a file)
-    ///
-    /// For debugging use `save_keymap(&mut std::io::stdout().lock()).unwrap();`
-    pub fn save_keymap<W: std::io::Write>(&self, output: &mut W) -> std::io::Result<()> {
-        for scancode in 0..255 {
-            let mut is_used = false;
-            for modifier_mask in 0..(1 << self.modifiers.len()) {
-                is_used |= self.keymap.contains_key(&(scancode << 8 | modifier_mask));
-            }
-            if !is_used {
-                continue;
-            }
-            write!(output, "0x{:02X}:", scancode)?;
-            for modifier_mask in 0..(1 << self.modifiers.len()) {
-                if let Some(character) = self.keymap.get(&(scancode << 8 | modifier_mask)) {
-                    if modifier_mask != 0 {
-                        output.write_all(b" ")?;
-                    }
-                    for (modifier_index, modifier) in self.modifiers.iter().enumerate() {
-                        if modifier_mask & (1 << modifier_index) != 0 {
-                            write!(output, "{}", modifier)?;
-                        }
-                    }
-                    write!(output, " {};", character)?;
-                }
-            }
-            output.write_all(b"\n")?;
-        }
-        Ok(())
-    }
-
     /// Translates winit events to [Messenger]s which can be sent to the root nodes of a [NodeHierarchy](crate::ui::node_hierarchy::NodeHierarchy)
     pub fn translate(&mut self, event: winit::event::WindowEvent) -> Vec<Messenger> {
-        fn translate_keycode(keymap: &HashMap<u32, char>, pressed_modifiers: u32, scancode: u32) -> Option<char> {
-            keymap.get(&(scancode << 8 | pressed_modifiers)).cloned()
+        fn translate_key(logical_key: &winit::keyboard::Key) -> Option<char> {
+            match logical_key {
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Alt) => Some('⌥'),
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Shift) => Some('⇧'),
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Control) => Some('⎈'),
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Meta) => Some('⌘'),
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Backspace) => Some('⌫'),
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Space) => Some('␣'),
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Tab) => Some('⇥'),
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter) => Some('⏎'),
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape) => Some('⎋'),
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowLeft) => Some('←'),
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowRight) => Some('→'),
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown) => Some('↓'),
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowUp) => Some('↑'),
+                _ => logical_key.to_text().and_then(|string| string.chars().next()),
+            }
         }
         fn pointer_moved(input_state: &mut InputState, input_source: usize, changed_pointer: usize, current_position: ppga2d::Point) -> Messenger {
             input_state.absolute_positions.insert(changed_pointer, current_position.into());
@@ -414,52 +327,26 @@ impl WinitEventTranslator {
             )
         }
         match event {
-            winit::event::WindowEvent::ReceivedCharacter(character) => {
-                if self.record_keymap {
-                    self.keymap.insert(self.last_scancode, character);
-                }
-                vec![]
-            }
             winit::event::WindowEvent::KeyboardInput {
                 device_id,
-                input: winit::event::KeyboardInput { scancode, state, .. },
+                event: winit::event::KeyEvent { logical_key, state, .. },
                 ..
             } => {
                 let input_source = *self.source_by_device.entry(device_id).or_insert(0);
                 let input_state = self.input_sources.entry(input_source).or_default();
-                let keymap = &self.keymap;
                 if state == winit::event::ElementState::Pressed {
-                    input_state.pressed_scancodes.insert(scancode as usize);
+                    input_state.pressed_logical_keys.insert(logical_key.clone());
                 } else {
-                    input_state.pressed_scancodes.remove(&(scancode as usize));
+                    input_state.pressed_logical_keys.remove(&logical_key);
                 }
-                let pressed_keycodes_without_modifiers = input_state
-                    .pressed_scancodes
-                    .iter()
-                    .filter_map(|scancode| translate_keycode(keymap, 0, *scancode as u32))
-                    .collect::<Vec<_>>();
-                let modifiers = self.modifiers.iter();
-                let pressed_modifiers = pressed_keycodes_without_modifiers.iter().fold(0, |accumulator, keycode| {
-                    (if let Some(index) = modifiers.clone().position(|value| value == keycode) {
-                        1 << index
-                    } else {
-                        0
-                    } | accumulator)
-                });
-                input_state.pressed_keycodes = input_state
-                    .pressed_scancodes
-                    .iter()
-                    .filter_map(|scancode| translate_keycode(keymap, pressed_modifiers, *scancode as u32))
-                    .collect();
-                self.last_scancode = scancode << 8 | pressed_modifiers;
+                input_state.pressed_keys = input_state.pressed_logical_keys.iter().filter_map(translate_key).collect();
                 vec![Messenger::new(
                     &BUTTON_INPUT,
                     hash_map! {
                         "input_source" => Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::ButtonInput(input_source)),
                         "input_state" => Value::InputState(Box::new(input_state.clone())),
-                        "changed_scancode" => Value::InputChannel(scancode as usize),
-                        "changed_keycode" => if let Some(changed_keycode) = translate_keycode(keymap, pressed_modifiers, scancode) {
-                            Value::Character(changed_keycode)
+                        "changed_key" => if let Some(changed_key) = translate_key(&logical_key) {
+                            Value::Character(changed_key)
                         } else {
                             Value::Void
                         },
@@ -474,10 +361,12 @@ impl WinitEventTranslator {
                 input_state.relative_positions.clear();
                 input_state.is_inside_bounds.clear();
                 let changed_pointer = match button {
-                    winit::event::MouseButton::Left => 0,                  // '⇖'
-                    winit::event::MouseButton::Middle => 1,                // '⇑'
-                    winit::event::MouseButton::Right => 2,                 // '⇗'
-                    winit::event::MouseButton::Other(i) => 3 + i as usize, // '⇔'
+                    winit::event::MouseButton::Left => 0,   // '⇖'
+                    winit::event::MouseButton::Middle => 1, // '⇑'
+                    winit::event::MouseButton::Right => 2,  // '⇗'
+                    winit::event::MouseButton::Back => 3,
+                    winit::event::MouseButton::Forward => 4,
+                    winit::event::MouseButton::Other(i) => 5 + i as usize, // '⇔'
                 };
                 let current_position = self.mouse_positions.get(&device_id).unwrap();
                 let mut result = vec![pointer_moved(input_state, input_source, changed_pointer, *current_position)];

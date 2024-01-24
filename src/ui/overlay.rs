@@ -252,13 +252,13 @@ pub fn speech_balloon(context: &mut NodeMessengerContext, messenger: &Messenger)
         }
         "ButtonInput" => {
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
-            let changed_keycode = *match_option!(messenger.get_attribute("changed_keycode"), Value::Character).unwrap();
-            if !input_state.pressed_keycodes.contains(&changed_keycode) {
+            let changed_key = *match_option!(messenger.get_attribute("changed_key"), Value::Character).unwrap();
+            if !input_state.pressed_keys.contains(&changed_key) {
                 return Vec::new();
             }
-            match changed_keycode {
+            match changed_key {
                 '⇥' => {
-                    let focus_child_id = if input_state.pressed_keycodes.contains(&'⇧') {
+                    let focus_child_id = if input_state.pressed_keys.contains(&'⇧') {
                         None
                     } else {
                         Some(NodeOrObservableIdentifier::Named("content"))
