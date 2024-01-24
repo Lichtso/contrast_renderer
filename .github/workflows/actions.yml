@@ -15,7 +15,7 @@ jobs:
         uses: actions-rs/install@v0.1
         with:
           crate: wasm-bindgen-cli
-          version: 0.2.87
+          version: 0.2.90
           # use-tool-cache: true
       - name: Compile Native
         uses: actions-rs/cargo@v1
@@ -24,8 +24,6 @@ jobs:
           args: --release --examples
       - name: Compile WASM
         uses: actions-rs/cargo@v1
-        env:
-          RUSTFLAGS: --cfg=web_sys_unstable_apis
         with:
           command: build
           args: --release --examples --target wasm32-unknown-unknown
