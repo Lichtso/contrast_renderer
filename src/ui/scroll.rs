@@ -279,11 +279,11 @@ pub fn scroll(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<
         }
         "ButtonInput" => {
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
-            let changed_keycode = *match_option!(messenger.get_attribute("changed_keycode"), Value::Character).unwrap();
-            if !input_state.pressed_keycodes.contains(&changed_keycode) {
+            let changed_key = *match_option!(messenger.get_attribute("changed_key"), Value::Character).unwrap();
+            if !input_state.pressed_keys.contains(&changed_key) {
                 return Vec::new();
             }
-            match changed_keycode {
+            match changed_key {
                 '⇥' => {
                     let focus_child_id = match messenger.get_attribute("origin") {
                         Value::NodeOrObservableIdentifier(NodeOrObservableIdentifier::Named("content")) => None,
