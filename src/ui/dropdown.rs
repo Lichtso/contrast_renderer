@@ -205,15 +205,15 @@ pub fn dropdown(context: &mut NodeMessengerContext, messenger: &Messenger) -> Ve
         }
         "ButtonInput" => {
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
-            let changed_keycode = *match_option!(messenger.get_attribute("changed_keycode"), Value::Character).unwrap();
-            if !input_state.pressed_keycodes.contains(&changed_keycode) {
+            let changed_key = *match_option!(messenger.get_attribute("changed_key"), Value::Character).unwrap();
+            if !input_state.pressed_keys.contains(&changed_key) {
                 return Vec::new();
             }
-            match changed_keycode {
+            match changed_key {
                 '⇥' => {
                     if messenger.get_attribute("origin") != &Value::Void {
                         return context.input_focus_self(messenger);
-                    } else if input_state.pressed_keycodes.contains(&'⇧') {
+                    } else if input_state.pressed_keys.contains(&'⇧') {
                         return vec![context.input_focus_parent_or_child(messenger, None)];
                     } else if match_option!(context.get_attribute("enable_interaction"), Value::Boolean).unwrap_or(false) {
                         return toggle_overlay(context, messenger);
