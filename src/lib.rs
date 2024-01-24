@@ -16,5 +16,7 @@ pub mod safe_float;
 mod stroke;
 #[cfg(feature = "text")]
 pub mod text;
+#[cfg(feature = "ui")]
+pub mod ui;
 pub mod utils;
 mod vertex;
