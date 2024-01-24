@@ -70,15 +70,15 @@ pub fn tab(context: &mut NodeMessengerContext, messenger: &Messenger) -> Vec<Mes
         }
         "ButtonInput" => {
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
-            let changed_keycode = *match_option!(messenger.get_attribute("changed_keycode"), Value::Character).unwrap();
-            if !input_state.pressed_keycodes.contains(&changed_keycode) {
+            let changed_key = *match_option!(messenger.get_attribute("changed_key"), Value::Character).unwrap();
+            if !input_state.pressed_keys.contains(&changed_key) {
                 return Vec::new();
             }
-            match changed_keycode {
+            match changed_key {
                 '⇥' => {
                     let focus_child_id = if messenger.get_attribute("origin") != &Value::Void {
                         return context.input_focus_self(messenger);
-                    } else if input_state.pressed_keycodes.contains(&'⇧') {
+                    } else if input_state.pressed_keys.contains(&'⇧') {
                         None
                     } else {
                         Some(NodeOrObservableIdentifier::Named("content"))
@@ -169,15 +169,15 @@ pub fn tab_handle(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         }
         "ButtonInput" => {
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
-            let changed_keycode = *match_option!(messenger.get_attribute("changed_keycode"), Value::Character).unwrap();
-            if !input_state.pressed_keycodes.contains(&changed_keycode) {
+            let changed_key = *match_option!(messenger.get_attribute("changed_key"), Value::Character).unwrap();
+            if !input_state.pressed_keys.contains(&changed_key) {
                 return Vec::new();
             }
-            match changed_keycode {
+            match changed_key {
                 '⇥' => {
                     if messenger.get_attribute("origin") != &Value::Void {
                         return context.input_focus_self(messenger);
-                    } else if input_state.pressed_keycodes.contains(&'⇧') {
+                    } else if input_state.pressed_keys.contains(&'⇧') {
                         return vec![context.input_focus_parent_or_child(messenger, None)];
                     } else {
                         context.touch_attribute("active");
@@ -470,17 +470,17 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
         }
         "ButtonInput" => {
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
-            let changed_keycode = *match_option!(messenger.get_attribute("changed_keycode"), Value::Character).unwrap();
-            if !input_state.pressed_keycodes.contains(&changed_keycode) {
+            let changed_key = *match_option!(messenger.get_attribute("changed_key"), Value::Character).unwrap();
+            if !input_state.pressed_keys.contains(&changed_key) {
                 return Vec::new();
             }
             let tab_count = get_tab_count(context);
             let mut focus_child_id = None;
-            match changed_keycode {
+            match changed_key {
                 '⇥' => {
                     if messenger.get_attribute("origin") != &Value::Void {
                         return context.input_focus_self(messenger);
-                    } else if input_state.pressed_keycodes.contains(&'⇧') {
+                    } else if input_state.pressed_keys.contains(&'⇧') {
                         return vec![context.input_focus_parent_or_child(messenger, None)];
                     } else {
                         focus_child_id = Some(NodeOrObservableIdentifier::NamedAndIndexed("handle", tab_count / 2));
@@ -489,7 +489,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                 '←' | '→' | '↑' | '↓' => {
                     if let Value::NodeOrObservableIdentifier(child_id) = messenger.get_attribute("origin") {
                         let direction = if context.get_attribute("orientation") == Value::Orientation(Orientation::Horizontal) {
-                            match changed_keycode {
+                            match changed_key {
                                 '←' => 0,
                                 '→' => 1,
                                 '↑' => 2,
@@ -497,7 +497,7 @@ pub fn tab_container(context: &mut NodeMessengerContext, messenger: &Messenger) 
                                 _ => unreachable!(),
                             }
                         } else {
-                            match changed_keycode {
+                            match changed_key {
                                 '←' => 2,
                                 '→' => 3,
                                 '↑' => 0,

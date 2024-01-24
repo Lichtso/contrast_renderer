@@ -13,8 +13,6 @@ pub enum Error {
     TooManyDashIntervals,
     /// The passed [DynamicStrokeOptions](crate::path::DynamicStrokeOptions) index is invalid.
     DynamicStrokeOptionsIndexOutOfBounds,
-    /// The keymap could not be parsed (byte index at which the problem was encountered).
-    Syntax(usize),
 }
 
 /// Used for floating point comparison.

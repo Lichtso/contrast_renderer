@@ -150,10 +150,10 @@ impl Eq for SnapClampFunction {}
 pub struct InputState {
     /// Global identifier
     pub id: usize,
+    #[cfg(feature = "winit")]
+    pressed_logical_keys: HashSet<winit::keyboard::Key>,
     /// Key, button
-    pub pressed_scancodes: HashSet<usize>,
-    /// Key, button as unicode character
-    pub pressed_keycodes: HashSet<char>,
+    pub pressed_keys: HashSet<char>,
     /// Scroll wheel, joystick
     pub axes: HashMap<usize, SafeFloat<f32, 1>>,
     /// Mouse, touch, pen absolute positions

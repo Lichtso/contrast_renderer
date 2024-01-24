@@ -495,11 +495,11 @@ impl<'a> NodeMessengerContext<'a> {
     pub fn input_focus_parent_or_child(&self, messenger: &Messenger, child_id: Option<NodeOrObservableIdentifier>) -> Messenger {
         let mut input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap().clone();
         if child_id.is_some() {
-            input_state.pressed_keycodes.remove(&'⇧');
+            input_state.pressed_keys.remove(&'⇧');
         } else {
-            input_state.pressed_keycodes.insert('⇧');
+            input_state.pressed_keys.insert('⇧');
         }
-        input_state.pressed_keycodes.insert('⇥');
+        input_state.pressed_keys.insert('⇥');
         let cursor_node = self
             .get_child(&NodeOrObservableIdentifier::Named("cursor"))
             .map(Value::Node)
@@ -509,7 +509,7 @@ impl<'a> NodeMessengerContext<'a> {
             hash_map! {
                 "input_source" => messenger.get_attribute("input_source").clone(),
                 "input_state" => Value::InputState(input_state),
-                "changed_keycode" => Value::Character('⇥'),
+                "changed_key" => Value::Character('⇥'),
                 "cursor" => cursor_node,
             },
         );

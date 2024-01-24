@@ -168,12 +168,12 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
         }
         "ButtonInput" => {
             let text_interaction = match_option!(context.get_attribute("text_interaction"), Value::TextInteraction).unwrap_or(TextInteraction::None);
-            if text_interaction == TextInteraction::None || messenger.get_attribute("changed_keycode") == &Value::Void {
+            if text_interaction == TextInteraction::None || messenger.get_attribute("changed_key") == &Value::Void {
                 return Vec::new();
             }
             let input_state = match_option!(messenger.get_attribute("input_state"), Value::InputState).unwrap();
-            let changed_keycode = *match_option!(messenger.get_attribute("changed_keycode"), Value::Character).unwrap();
-            if !input_state.pressed_keycodes.contains(&changed_keycode) {
+            let changed_key = *match_option!(messenger.get_attribute("changed_key"), Value::Character).unwrap();
+            if !input_state.pressed_keys.contains(&changed_key) {
                 return Vec::new();
             }
             let mut text_content = match_option!(context.get_attribute("text_content"), Value::TextString).unwrap_or_else(String::default);
@@ -185,11 +185,11 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 &layout!(context),
                 &text_content,
             );
-            match changed_keycode {
+            match changed_key {
                 '⇥' => {
                     if messenger.get_attribute("origin") != &Value::Void {
                         return context.input_focus_self(messenger);
-                    } else if input_state.pressed_keycodes.contains(&'⇧') {
+                    } else if input_state.pressed_keys.contains(&'⇧') {
                         if &context.get_attribute("input_source_entered") == messenger.get_attribute("input_source") {
                             context.set_attribute("input_source_entered", Value::Void);
                             if text_interaction != TextInteraction::Editing {
@@ -218,8 +218,8 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 '←' | '→' | '↑' | '↓' => {
                     if &context.get_attribute("input_source_entered") != messenger.get_attribute("input_source") {
                         vec![context.redirect_input_focus_navigation_to_parent(messenger)]
-                    } else if input_state.pressed_keycodes.contains(&'⇧') {
-                        cursor_a = match changed_keycode {
+                    } else if input_state.pressed_keys.contains(&'⇧') {
+                        cursor_a = match changed_key {
                             '←' if cursor_a > 0 => cursor_a - 1,
                             '→' if cursor_a < text_content.chars().count() => cursor_a + 1,
                             '↑' => text_geometry.advance_char_index_by_line_index(cursor_a, -1),
@@ -231,7 +231,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                         context.set_attribute("cursor_a", Value::Natural1(cursor_a));
                         Vec::new()
                     } else {
-                        cursor_a = match changed_keycode {
+                        cursor_a = match changed_key {
                             '←' if range.start > 0 && range.start == range.end => range.start - 1,
                             '←' if range.end > range.start && range.start != range.end => range.start,
                             '→' if range.end < text_content.chars().count() && range.start == range.end => range.end + 1,
@@ -252,7 +252,7 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                 _ if text_interaction == TextInteraction::Editing
                     && &context.get_attribute("input_source_entered") == messenger.get_attribute("input_source") =>
                 {
-                    if changed_keycode == '⌫' {
+                    if changed_key == '⌫' {
                         if range.start == range.end && range.start > 0 {
                             cursor_a = range.start - 1;
                             cursor_b = cursor_a;
@@ -268,24 +268,24 @@ pub fn text_label(context: &mut NodeMessengerContext, messenger: &Messenger) -> 
                             return Vec::new();
                         }
                     } else {
-                        let changed_keycode = match changed_keycode {
+                        let changed_key = match changed_key {
                             '␣' => ' ',
                             '⇥' => '\t',
                             '⏎' => '\n',
-                            _ => changed_keycode,
+                            _ => changed_key,
                         };
                         match range.start {
                             _ if range.start == range.end => {
                                 cursor_a = range.start + 1;
                                 cursor_b = cursor_a;
-                                text_content.insert(byte_offset_of_char_index(&text_content, range.start), changed_keycode);
+                                text_content.insert(byte_offset_of_char_index(&text_content, range.start), changed_key);
                             }
                             _ if range.start < range.end => {
                                 cursor_a = range.start + 1;
                                 cursor_b = cursor_a;
                                 text_content.replace_range(
                                     byte_offset_of_char_index(&text_content, range.start)..byte_offset_of_char_index(&text_content, range.end),
-                                    &changed_keycode.to_string(),
+                                    &changed_key.to_string(),
                                 );
                             }
                             _ => {

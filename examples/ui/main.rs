@@ -8,9 +8,7 @@ use contrast_renderer::{
 use geometric_algebra::{ppga2d, ppga3d};
 
 const MSAA_SAMPLE_COUNT: u32 = 4;
-
 const OPEN_SANS_TTF: &[u8] = include_bytes!("../../examples/fonts/OpenSans-Regular.ttf");
-const KEYMAP: &str = include_str!("../../examples/keymaps/de_macos.txt");
 
 struct Application {
     depth_stencil_texture_view: Option<wgpu::TextureView>,
@@ -134,8 +132,7 @@ impl application_framework::Application for Application {
             "tabs_margin" => Value::Float1(5.0.into()),
             "tabs_padding" => Value::Float2([10.0, 10.0].into()),
         };
-        let mut ui_event_translator = contrast_renderer::ui::message::WinitEventTranslator::default();
-        ui_event_translator.load_keymap(KEYMAP).unwrap();
+        let ui_event_translator = contrast_renderer::ui::message::WinitEventTranslator::default();
 
         let overlay_container_node_id = ui_node_hierarchy.link_node(Node::new(contrast_renderer::ui::overlay::overlay_container, hash_map! {}), None);
 
