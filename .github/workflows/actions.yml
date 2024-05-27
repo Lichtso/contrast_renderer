@@ -15,7 +15,7 @@ jobs:
         uses: actions-rs/install@v0.1
         with:
           crate: wasm-bindgen-cli
-          version: 0.2.90
+          version: 0.2.92
           # use-tool-cache: true
       - name: Compile Native
         uses: actions-rs/cargo@v1
