@@ -153,6 +153,7 @@ impl ApplicationManager {
                     label: None,
                     required_features: required_features | optional_features,
                     required_limits,
+                    memory_hints: wgpu::MemoryHints::MemoryUsage,
                 },
                 None,
             )
