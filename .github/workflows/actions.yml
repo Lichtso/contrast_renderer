@@ -29,7 +29,7 @@ jobs:
           args: --release --examples --target wasm32-unknown-unknown
       - name: Generate WASM Binding
         run: wasm-bindgen --no-typescript --out-dir target/wasm --web target/wasm32-unknown-unknown/release/examples/showcase.wasm
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v4
         with:
           path: |
             target/wasm/
