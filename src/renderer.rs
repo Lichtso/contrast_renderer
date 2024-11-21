@@ -457,7 +457,7 @@ impl Renderer {
                     layout: Some($pipeline_layout),
                     vertex: wgpu::VertexState {
                         module: $shader_module,
-                        entry_point: $vertex_entry,
+                        entry_point: Some($vertex_entry),
                         compilation_options: wgpu::PipelineCompilationOptions::default(),
                         buffers: &[wgpu::VertexBufferLayout {
                             array_stride: (16 * 4) as wgpu::BufferAddress,
@@ -467,7 +467,7 @@ impl Renderer {
                     },
                     fragment: Some(wgpu::FragmentState {
                         module: $shader_module,
-                        entry_point: $fragment_entry,
+                        entry_point: Some($fragment_entry),
                         compilation_options: wgpu::PipelineCompilationOptions::default(),
                         targets: $color_states,
                     }),
