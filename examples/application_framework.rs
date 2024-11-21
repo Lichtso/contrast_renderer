@@ -146,7 +146,7 @@ impl ApplicationManager {
             "Adapter does not support required features: {:?}",
             required_features - adapter_features
         );
-        optional_features -= optional_features - adapter_features;
+        optional_features = optional_features - (optional_features - adapter_features);
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
