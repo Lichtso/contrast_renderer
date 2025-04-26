@@ -943,7 +943,7 @@ impl Renderer {
         encoder: &'b mut wgpu::CommandEncoder,
         depth_stencil_texture_view: &'a wgpu::TextureView,
         alpha_layer: usize,
-    ) -> Result<wgpu::RenderPass, Error> {
+    ) -> Result<wgpu::RenderPass<'a>, Error> {
         if alpha_layer >= self.config.alpha_layer_count {
             return Err(Error::TooManyNestedOpacityGroups);
         }

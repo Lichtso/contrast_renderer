@@ -148,15 +148,13 @@ impl ApplicationManager {
         );
         optional_features = optional_features - (optional_features - adapter_features);
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: required_features | optional_features,
-                    required_limits,
-                    memory_hints: wgpu::MemoryHints::MemoryUsage,
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: required_features | optional_features,
+                required_limits,
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                trace: wgpu::Trace::Off,
+            })
             .await
             .expect("Unable to find a suitable GPU adapter!");
 
